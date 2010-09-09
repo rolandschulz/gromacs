@@ -118,7 +118,7 @@ void ns(FILE *fp,
   GMX_MPE_LOG(ev_ns_finish);
 }
 
-void do_force_lowlevel_gpu(FILE       *fplog,   gmx_large_int_t step,
+void do_force_lowlevel(FILE       *fplog,   gmx_large_int_t step,
                        t_forcerec *fr,      t_inputrec *ir,
                        t_idef     *idef,    t_commrec  *cr,
                        t_nrnb     *nrnb,    gmx_wallcycle_t wcycle,
@@ -139,8 +139,7 @@ void do_force_lowlevel_gpu(FILE       *fplog,   gmx_large_int_t step,
                        t_blocka   *excl,    
                        rvec       mu_tot[],
                        int        flags,
-                       float      *cycles_pme,
-                       t_cudata gpudata)
+                       float      *cycles_pme)
 {
     int     i,status;
     int     donb_flags;
@@ -243,7 +242,7 @@ void do_force_lowlevel_gpu(FILE       *fplog,   gmx_large_int_t step,
 				 enerd->grpp.ener[egGB],box_size,nrnb,
                  lambda,&dvdlambda,-1,-1,donb_flags);
 #else
-    cu_do_nb(gpudata, x, f);
+//    cu_do_nb(fr->gpu_data, x, f);
 #endif
     /* If we do foreign lambda and we have soft-core interactions
      * we have to recalculate the (non-linear) energies contributions.
@@ -586,37 +585,6 @@ void do_force_lowlevel_gpu(FILE       *fplog,   gmx_large_int_t step,
     
     GMX_MPE_LOG(ev_force_finish);
 
-}
-
-void do_force_lowlevel(FILE       *fplog,   gmx_large_int_t step,
-                       t_forcerec *fr,      t_inputrec *ir,
-                       t_idef     *idef,    t_commrec  *cr,
-                       t_nrnb     *nrnb,    gmx_wallcycle_t wcycle,
-                       t_mdatoms  *md,
-                       t_grpopts  *opts,
-                       rvec       x[],      history_t  *hist,
-                       rvec       f[],
-                       gmx_enerdata_t *enerd,
-                       t_fcdata   *fcd,
-                       gmx_mtop_t     *mtop,
-                       gmx_localtop_t *top,
-                       gmx_genborn_t *born,
-                       t_atomtypes *atype,
-                       bool       bBornRadii,
-                       matrix     box,
-                       real       lambda,  
-                       t_graph    *graph,
-                       t_blocka   *excl,    
-                       rvec       mu_tot[],
-                       int        flags,
-                       float      *cycles_pme)
-{
-     do_force_lowlevel_gpu(fplog,step,fr,ir,idef,
-                      cr,nrnb,wcycle,md,opts,
-                      x,hist,f,enerd,fcd,mtop,top,born,
-                      atype,bBornRadii,box,
-                      lambda,graph,excl,mu_tot,
-                      flags,cycles_pme, NULL);   
 }
 
 void init_enerdata(int ngener,int n_flambda,gmx_enerdata_t *enerd)

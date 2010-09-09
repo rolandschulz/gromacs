@@ -56,7 +56,9 @@
 #ifdef GMX_THREADS
 #include "tmpi.h"
 #endif
-
+#ifdef GMX_GPU
+#include "gpu_data.h"
+#endif
 #define DDRANK(dd,rank)    (rank)
 #define DDMASTERRANK(dd)   (dd->masterrank)
 
@@ -8573,6 +8575,13 @@ void dd_partition_system(FILE            *fplog,
         make_local_gb(cr,fr->born,ir->gb_algorithm);
     }
 	
+    /* initialize the gpu atom datastructures when no DD is done */
+    if (fr->useGPU)
+    {
+        init_cudata_atoms(fr->gpu_data, mdatoms, fr->natoms_force);
+    }
+ 
+
     if (!(cr->duty & DUTY_PME))
     {
         /* Send the charges to our PME only node */

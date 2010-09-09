@@ -38,6 +38,8 @@
 #include "qmmmrec.h"
 #include "idef.h"
 
+#include "cutypedefs_ext.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -138,7 +140,8 @@ typedef struct {
   rvec posres_com;
   rvec posres_comB;
 
-  gmx_bool UseOptimizedKernels;
+  gmx_bool  useGPU;  /* use GPU acceleration */
+  gmx_bool  UseOptimizedKernels;
 
   /* Use special N*N kernels? */
   gmx_bool bAllvsAll;
@@ -365,6 +368,9 @@ typedef struct {
   real userreal2;
   real userreal3;
   real userreal4;
+
+  /* GPU data structure */
+  t_cudata  gpu_data;
 } t_forcerec;
 
 #define C6(nbfp,ntp,ai,aj)     (nbfp)[2*((ntp)*(ai)+(aj))]

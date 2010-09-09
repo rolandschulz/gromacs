@@ -68,6 +68,9 @@
 #include <intrin.h>
 #endif
 
+#ifdef GMX_GPU
+#include "gpu_data.h"
+#endif
 
 
 t_forcerec *mk_forcerec(void)
@@ -1781,6 +1784,34 @@ void init_forcerec(FILE *fp,
     
     if (cr->duty & DUTY_PP)
         gmx_setup_kernels(fp,bGenericKernelOnly);
+
+    /* turn GPU acceleration on if GMX_GPU is defined */
+    fr->useGPU = FALSE;
+#ifdef GMX_GPU
+//    if (getenv("NO_GPU") != NULL)
+    {    
+        int gpu_device_id;
+        
+        /* initialize GPU */ 
+        gpu_device_id = 0; /* TODO get dev_id */
+        if (init_gpu(fp, gpu_device_id) != 0)
+        {
+            gmx_warning("Could not initialize GPU #%d", gpu_device_id);
+        }
+        else 
+        {            
+            fr->useGPU = TRUE;
+            init_cudata_ff(fp, &(fr->gpu_data), fr);            
+        }
+    }
+    /*
+    else 
+    {
+        gmx_warning("GPU mode turned off by NO_GPU env var!");
+    }
+    */
+ #endif   
+    
 }
 
 #define pr_real(fp,r) fprintf(fp,"%s: %e\n",#r,r)

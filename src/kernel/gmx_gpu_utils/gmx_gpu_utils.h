@@ -47,12 +47,12 @@ int is_supported_cuda_gpu(int /*dev_id*/, char* /*gpu_name*/);
 #ifdef __cplusplus
 extern "C" 
 #endif
-int init_gpu(int /*dev_id*/, FILE * /*fplog*/);
+int init_gpu(FILE * /*fplog*/, int /*dev_id*/);
 
 #ifdef __cplusplus
 extern "C" 
 #endif
-int uninit_gpu(int /*dev_id*/, FILE * /*fplog*/);
+int uninit_gpu(FILE * /*fplog*/, int /*dev_id*/);
 
 #endif // _GMX_GPU_UTILS_H_
 

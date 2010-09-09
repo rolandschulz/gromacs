@@ -90,6 +90,9 @@
 #include "md_openmm.h"
 #endif
 
+#ifdef GMX_GPU
+#include "gmx_gpu_utils.h"
+#endif
 
 typedef struct { 
     gmx_integrator_t *func;
@@ -857,6 +860,21 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
         tMPI_Finalize();
     }
 #endif
+
+#ifdef GMX_GPU
+    {
+        int gpu_device_id = 0; /* TODO get dev_id */
+        /* free GPU memory and uninitialize GPU */
+        destroy_cudata(fplog, fr->gpu_data);
+
+        if (uninit_gpu(fplog, gpu_device_id) != 0)
+        {
+            gmx_warning("Failed to uninitialize GPU.");
+        }
+    }
+#endif
+
+
 
     return rc;
 }

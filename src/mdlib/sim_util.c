@@ -96,6 +96,10 @@
 
 #include "qmmm.h"
 
+#ifdef GMX_GPU
+#include "gpu_data.h"
+#endif
+
 #if 0
 typedef struct gmx_timeprint {
     
@@ -422,36 +426,7 @@ void do_force(FILE *fplog,t_commrec *cr,
               t_forcerec *fr,gmx_vsite_t *vsite,rvec mu_tot,
               double t,FILE *field,gmx_edsam_t ed,
               gmx_bool bBornRadii,
-              int flags, 
-              t_cudata gpudata
-              )
-{
-             do_force_gpu(fplog,cr,inputrec,step,nrnb,wcycle,top,mtop,groups,
-                     box,x,hist,
-                     f,vir_force,mdatoms,enerd,fcd,
-                     lambda,graph,
-                     fr,vsite,mu_tot,t,field,ed,bBornRadii,
-                     flags, NULL);   
-}
-
-void do_force_gpu(FILE *fplog,t_commrec *cr,
-              t_inputrec *inputrec,
-              gmx_large_int_t step,t_nrnb *nrnb,gmx_wallcycle_t wcycle,
-              gmx_localtop_t *top,
-              gmx_mtop_t *mtop,
-              gmx_groups_t *groups,
-              matrix box,rvec x[],history_t *hist,
-              rvec f[],
-              tensor vir_force,
-              t_mdatoms *mdatoms,
-              gmx_enerdata_t *enerd,t_fcdata *fcd,
-              real lambda,t_graph *graph,
-              t_forcerec *fr,gmx_vsite_t *vsite,rvec mu_tot,
-              double t,FILE *field,gmx_edsam_t ed,
-              gmx_bool bBornRadii,
-              int flags,
-              t_cudata gpudata
-              )
+              int flags)
 {
     int    cg0,cg1,i,j;
     int    start,homenr;
@@ -462,7 +437,8 @@ void do_force_gpu(FILE *fplog,t_commrec *cr,
     real   e,v,dvdl;
     t_pbc  pbc;
     float  cycles_ppdpme,cycles_pme,cycles_seppme,cycles_force;
-  
+    t_cudata d_data = fr->gpu_data; 
+
     start  = mdatoms->start;
     homenr = mdatoms->homenr;
 
@@ -586,6 +562,13 @@ void do_force_gpu(FILE *fplog,t_commrec *cr,
         }
         wallcycle_stop(wcycle,ewcMOVEX);
     }
+
+#ifdef GMX_GPU
+    wallcycle_start(wcycle,ewcSEND_X_GPU);
+    cu_upload_X(d_data, x);
+    wallcycle_stop(wcycle,ewcSEND_X_GPU);
+#endif /* GMX_GPU */
+
     if (bStateChanged)
     {
         for(i=0; i<2; i++)
@@ -753,23 +736,14 @@ void do_force_gpu(FILE *fplog,t_commrec *cr,
     }
 
     /* Compute the bonded and non-bonded energies and optionally forces */    
-#ifdef GMX_GPU
-    do_force_lowlevel_gpu(fplog,step,fr,inputrec,&(top->idef),
+    /* if we use the GPU turn off the nonbonded */
+    do_force_lowlevel(fplog,step,fr,inputrec,&(top->idef),
                       cr,nrnb,wcycle,mdatoms,&(inputrec->opts),
                       x,hist,f,enerd,fcd,mtop,top,fr->born,
                       &(top->atomtypes),bBornRadii,box,
                       lambda,graph,&(top->excls),fr->mu_tot,
-                      flags,&cycles_pme, 
-                      gpudata);
-#else
-     do_force_lowlevel(fplog,step,fr,inputrec,&(top->idef),
-                      cr,nrnb,wcycle,mdatoms,&(inputrec->opts),
-                      x,hist,f,enerd,fcd,mtop,top,fr->born,
-                      &(top->atomtypes),bBornRadii,box,
-                      lambda,graph,&(top->excls),fr->mu_tot,
-                      flags,&cycles_pme);
+                      (fr->useGPU ? flags&~GMX_FORCE_NONBONDED : flags),&cycles_pme);
     
-#endif
     cycles_force = wallcycle_stop(wcycle,ewcFORCE);
     GMX_BARRIER(cr->mpi_comm_mygroup);
     
@@ -786,7 +760,14 @@ void do_force_gpu(FILE *fplog,t_commrec *cr,
             dd_cycles_add(cr->dd,cycles_force-cycles_pme,ddCyclF);
         }
     }
-    
+ 
+ #ifdef GMX_GPU   
+    wallcycle_start(wcycle,ewcRECV_F_GPU);
+    cu_download_F(f, d_data);
+    wallcycle_stop(wcycle,ewcRECV_F_GPU);
+#endif  /* GMX_GPU */
+   
+           
     if (bDoForces)
     {
         if (IR_ELEC_FIELD(*inputrec))
@@ -796,7 +777,7 @@ void do_force_gpu(FILE *fplog,t_commrec *cr,
                       start,homenr,mdatoms->chargeA,x,fr->f_novirsum,
                       inputrec->ex,inputrec->et,t);
         }
-        
+
         /* Communicate the forces */
         if (PAR(cr))
         {
