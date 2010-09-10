@@ -98,6 +98,7 @@
 
 #ifdef GMX_GPU
 #include "gpu_data.h"
+#include "gpu_nb.h" /* XXX might not be needed later on */
 #endif
 
 #if 0
@@ -569,6 +570,7 @@ void do_force(FILE *fplog,t_commrec *cr,
         wallcycle_start(wcycle,ewcSEND_X_GPU);
         cu_upload_X(d_data, x);
         wallcycle_stop(wcycle,ewcSEND_X_GPU);
+        // cu_do_nb(d_data, x, f);
     }
 #endif /* GMX_GPU */
 

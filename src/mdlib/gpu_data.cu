@@ -10,6 +10,9 @@
 
 /*** CUDA MD Data operations ***/
 
+/* forward declaration*/
+void destroy_cudata_atoms(t_cudata /*d_data*/);
+
 void init_cudata_ff(FILE *fplog, 
                     t_cudata *dp_data,
                     const t_forcerec *fr)
@@ -40,6 +43,13 @@ void init_cudata_ff(FILE *fplog,
         fflush(stdout);
     }
 
+    /* initilize to NULL all data structures that might need reallocation 
+       in init_cudata_atoms */
+    d_data->x = NULL;
+    d_data->f = NULL;
+    /* size -1 just means that it has not been initialized yet */
+    d_data->natoms = -1;
+    d_data->nalloc = -1;
     *dp_data = d_data;
 }
 
@@ -49,29 +59,41 @@ void init_cudata_atoms(t_cudata d_data,
                         int natoms)
 {
     cudaError_t stat;
+    int         nalloc;
 
-    /* need to reallocate if we have to copy more atoms than the amount */
-    /* of space available */
+    /* need to reallocate if we have to copy more atoms than the amount of space
+       available and only allocate if we haven't initilzed yet aka d_data->natoms == -1 */
     if (natoms > d_data->nalloc)
     {
-        d_data->nalloc = natoms * 1.2 + 100;
-    }
-    d_data->natoms = natoms;
+        nalloc = natoms * 1.2 + 100;
     
-    /* TODO reallocate x and f if the size is not enough ! */
-    stat = cudaMalloc((void **)&d_data->f, natoms*sizeof(*(d_data->f)));
-    CU_RET_ERR(stat, "cudaMalloc failed on d_data->f");
-    stat = cudaMalloc((void **)&d_data->x, natoms*sizeof(*(d_data->x)));
-    CU_RET_ERR(stat, "cudaMalloc failed on d_data->x");
+        /* free up first if the arrays have already been initialized */
+        if (d_data->nalloc != -1)
+        {
+            destroy_cudata_atoms(d_data);                
+        }
+        
+        stat = cudaMalloc((void **)&d_data->f, nalloc*sizeof(*(d_data->f)));
+        CU_RET_ERR(stat, "cudaMalloc failed on d_data->f");           
+        
+        stat = cudaMalloc((void **)&d_data->x, nalloc*sizeof(*(d_data->x)));
+        CU_RET_ERR(stat, "cudaMalloc failed on d_data->x");
+            
+        stat = cudaMalloc((void **)&d_data->atom_types, nalloc*sizeof(*(d_data->atom_types)));
+        CU_RET_ERR(stat, "cudaMalloc failed on d_data->atom_types"); 
 
-    stat = cudaMalloc((void **)&d_data->atom_types, natoms*sizeof(*(d_data->atom_types)));
-    CU_RET_ERR(stat, "cudaMalloc failed on d_data->atom_types"); 
+        stat = cudaMalloc((void **)&d_data->charges, nalloc*sizeof(*(d_data->charges)));
+        CU_RET_ERR(stat, "cudaMalloc failed on d_data->charges");
+
+        d_data->nalloc = nalloc;
+    }
+
     upload_cudata(d_data->atom_types, mdatoms->typeA, natoms*sizeof(*(d_data->atom_types)));
-
-    stat = cudaMalloc((void **)&d_data->charges, natoms*sizeof(*(d_data->charges)));
-    CU_RET_ERR(stat, "cudaMalloc failed on d_data->charges");
     upload_cudata(d_data->charges, mdatoms->chargeA, natoms*sizeof(*(d_data->charges)));
 
+    /* XXX for the moment we just set all 8 values to the same value... 
+       ATM not, we'll do that later :) */    
+    d_data->natoms = natoms;
 }
 
 void destroy_cudata(FILE *fplog, t_cudata d_data)
@@ -79,6 +101,16 @@ void destroy_cudata(FILE *fplog, t_cudata d_data)
     cudaError_t stat;
 
     if (d_data == NULL) return;
+
+    stat = cudaFree(d_data->nbfp);
+    CU_RET_ERR(stat, "cudaFree failed on d_data->nbfp");
+
+    fprintf(fplog, "Cleaned up CUDA data structures.\n");
+}
+
+void destroy_cudata_atoms(t_cudata d_data)
+{
+    cudaError_t stat;
 
     stat = cudaFree(d_data->f);
     CU_RET_ERR(stat, "cudaFree failed on d_data->f");
@@ -88,13 +120,7 @@ void destroy_cudata(FILE *fplog, t_cudata d_data)
     CU_RET_ERR(stat, "cudaFree failed on d_data->atom_types");
     stat = cudaFree(d_data->charges);
     CU_RET_ERR(stat, "cudaFree failed on d_data->charges");
-    stat = cudaFree(d_data->nbfp);
-    CU_RET_ERR(stat, "cudaFree failed on d_data->nbfp");
-
-    fprintf(fplog, "Cleaned up CUDA data structures.\n");
-
 }
-
 
 int cu_upload_X(t_cudata d_data, rvec h_x[])
 {

@@ -5,18 +5,22 @@
 
 struct cudata 
 {
-    int         natoms;
-    int         nalloc;
+    int         natoms; /* number of atoms for all 8 neighbouring domains 
+                           !!! ATM only one number as we're not running in parallel */
+    int         nalloc; /* amount of space allocated for the atom data, contains 
+                           natoms * 20% + 100 buffer zone to avod frequent reallocation */
     float3 * f;  /* forces, size natoms */
     float3 * x;  /* coordinates, size ntypes */
 
-    int     ntypes;
+    int     ntypes; /* number of atom types */
     int *   atom_types; /* atom type indices, size natoms */
     
     float * charges; /* size natoms */
-    float * exclusions;
-
-    float   eps_r;
+    /* float * exclusions;  not used ATM */
+    
+    /* nonbonded paramters 
+       TODO -> constant so some of them should be moved to constant memory */
+    float   eps_r; 
     float   eps_rf;
     float   ewald_beta;
     float   cutoff;
