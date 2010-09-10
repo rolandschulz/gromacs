@@ -56,6 +56,10 @@
 #include "tmpi.h"
 #endif
 
+#ifdef GMX_OPENMP
+#define FFT5D_THREADS
+#endif
+
 #ifdef FFT5D_THREADS
 #include <omp.h>
 /* requires fftw compiled with openmp */
