@@ -862,6 +862,7 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
 #endif
 
 #ifdef GMX_GPU
+    if (fr->useGPU)
     {
         int gpu_device_id = 0; /* TODO get dev_id */
         /* free GPU memory and uninitialize GPU */

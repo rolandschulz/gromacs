@@ -564,9 +564,12 @@ void do_force(FILE *fplog,t_commrec *cr,
     }
 
 #ifdef GMX_GPU
-    wallcycle_start(wcycle,ewcSEND_X_GPU);
-    cu_upload_X(d_data, x);
-    wallcycle_stop(wcycle,ewcSEND_X_GPU);
+    if (fr->useGPU)
+    {
+        wallcycle_start(wcycle,ewcSEND_X_GPU);
+        cu_upload_X(d_data, x);
+        wallcycle_stop(wcycle,ewcSEND_X_GPU);
+    }
 #endif /* GMX_GPU */
 
     if (bStateChanged)
@@ -762,9 +765,12 @@ void do_force(FILE *fplog,t_commrec *cr,
     }
  
  #ifdef GMX_GPU   
-    wallcycle_start(wcycle,ewcRECV_F_GPU);
-    cu_download_F(f, d_data);
-    wallcycle_stop(wcycle,ewcRECV_F_GPU);
+    if (fr->useGPU)
+    {
+        wallcycle_start(wcycle,ewcRECV_F_GPU);
+        cu_download_F(f, d_data);
+        wallcycle_stop(wcycle,ewcRECV_F_GPU);
+    }
 #endif  /* GMX_GPU */
    
            

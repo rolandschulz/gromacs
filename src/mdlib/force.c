@@ -227,23 +227,24 @@ void do_force_lowlevel(FILE       *fplog,   gmx_large_int_t step,
 	}
 	
     where();
-    donb_flags = 0;
-    if (flags & GMX_FORCE_FORCES)
+    if (flags & GMX_FORCE_NONBONDED)
     {
-        donb_flags |= GMX_DONB_FORCES;
-    }
+        donb_flags = 0;    
+        if (flags & GMX_FORCE_FORCES)
+        {
+            donb_flags |= GMX_DONB_FORCES;
+        }
+        
 
-#ifndef GMX_GPU
-    do_nonbonded(cr,fr,x,f,md,excl,
-                 fr->bBHAM ?
-                 enerd->grpp.ener[egBHAMSR] :
-                 enerd->grpp.ener[egLJSR],
-                 enerd->grpp.ener[egCOULSR],
-				 enerd->grpp.ener[egGB],box_size,nrnb,
-                 lambda,&dvdlambda,-1,-1,donb_flags);
-#else
-//    cu_do_nb(fr->gpu_data, x, f);
-#endif
+        do_nonbonded(cr,fr,x,f,md,excl,
+                    fr->bBHAM ?
+                    enerd->grpp.ener[egBHAMSR] :
+                    enerd->grpp.ener[egLJSR],
+                    enerd->grpp.ener[egCOULSR],
+                    enerd->grpp.ener[egGB],box_size,nrnb,
+                    lambda,&dvdlambda,-1,-1,donb_flags);
+    }
+    
     /* If we do foreign lambda and we have soft-core interactions
      * we have to recalculate the (non-linear) energies contributions.
      */

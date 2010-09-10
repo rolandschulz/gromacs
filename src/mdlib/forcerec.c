@@ -1788,7 +1788,7 @@ void init_forcerec(FILE *fp,
     /* turn GPU acceleration on if GMX_GPU is defined */
     fr->useGPU = FALSE;
 #ifdef GMX_GPU
-//    if (getenv("NO_GPU") != NULL)
+    if (getenv("GMX_NO_GPU") == NULL)
     {    
         int gpu_device_id;
         
@@ -1804,12 +1804,10 @@ void init_forcerec(FILE *fp,
             init_cudata_ff(fp, &(fr->gpu_data), fr);            
         }
     }
-    /*
     else 
     {
-        gmx_warning("GPU mode turned off by NO_GPU env var!");
+        gmx_warning("GPU mode turned off by GMX_NO_GPU env var!");
     }
-    */
  #endif   
     
 }
