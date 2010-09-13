@@ -618,19 +618,22 @@ void do_force(FILE *fplog,t_commrec *cr,
             clear_rvecs(fr->natoms_force_constr,bSepLRF ? fr->f_twin : f);
         }
 
-        /* Do the actual neighbour searching and if twin range electrostatics
-         * also do the calculation of long range forces and energies.
-         */
-        dvdl = 0; 
-        ns(fplog,fr,x,box,
-           groups,&(inputrec->opts),top,mdatoms,
-           cr,nrnb,lambda,&dvdl,&enerd->grpp,bFillGrid,
-           bDoLongRange,bDoForces,bSepLRF ? fr->f_twin : f);
-        if (bSepDVDL)
+        if(!fr->useGPU)
         {
-            fprintf(fplog,sepdvdlformat,"LR non-bonded",0.0,dvdl);
+            /* Do the actual neighbour searching and if twin range electrostatics
+            * also do the calculation of long range forces and energies.
+            */
+            dvdl = 0; 
+            ns(fplog,fr,x,box,
+            groups,&(inputrec->opts),top,mdatoms,
+            cr,nrnb,lambda,&dvdl,&enerd->grpp,bFillGrid,
+            bDoLongRange,bDoForces,bSepLRF ? fr->f_twin : f);
+            if (bSepDVDL)
+            {
+                fprintf(fplog,sepdvdlformat,"LR non-bonded",0.0,dvdl);
+            }
+            enerd->dvdl_lin += dvdl;
         }
-        enerd->dvdl_lin += dvdl;
         
         wallcycle_stop(wcycle,ewcNS);
     }
