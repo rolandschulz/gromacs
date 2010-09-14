@@ -417,6 +417,7 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], int flags, t_
 #ifdef FFT5D_THREADS
     {
         char *env;
+
         if ((env = getenv("GMX_NUM_THREADS_TRANSPOSE")) != NULL)
         {
             sscanf(env,"%d",&plan->nthreads_transpose);
@@ -425,24 +426,32 @@ fft5d_plan fft5d_plan_3d(int NG, int MG, int KG, MPI_Comm comm[2], int flags, t_
         {
             plan->nthreads_transpose = omp_get_max_threads();
         }
-        printf("Running FFT transpose on %d threads\n",
-               plan->nthreads_transpose);
-    }
-#ifdef FFT5D_FFTW_THREADS
-    FFTW(init_threads)();
-    int nthreads;
-    #pragma omp parallel
-    {
-        #pragma omp master
+        if (prank[0] == 0 && prank[1] == 0)
         {
-            nthreads = omp_get_num_threads();
+            printf("Running FFT transpose on %d threads\n",
+                   plan->nthreads_transpose);
         }
     }
-    if (prank[0] == 0 && prank[1] == 0)
+#ifdef FFT5D_FFTW_THREADS
     {
-        printf("Running fftw on %d threads\n",nthreads);        
+        char *env;
+        int nthreads;
+
+        FFTW(init_threads)();
+        if ((env = getenv("GMX_NUM_THREADS_FFT")) != NULL)
+        {
+            sscanf(env,"%d",&nthreads);
+        }
+        else
+        {
+            nthreads = omp_get_max_threads();
+        }
+        if (prank[0] == 0 && prank[1] == 0)
+        {
+            printf("Running fftw on %d threads\n",nthreads);        
+        }
+        FFTW(plan_with_nthreads)(nthreads);
     }
-    FFTW(plan_with_nthreads)(nthreads);
 #endif
 #else
     plan->nthreads_transpose = 1;
