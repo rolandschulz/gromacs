@@ -25,6 +25,9 @@ struct cudata
     float   ewald_beta;
     float   cutoff;
     float * nbfp; /* nonbonded parameters C12, C6 */    
+
+    /* NB events*/
+    cudaEvent_t start_nb, stop_nb;
 };
 
 #endif

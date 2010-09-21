@@ -438,7 +438,8 @@ void do_force(FILE *fplog,t_commrec *cr,
     real   e,v,dvdl;
     t_pbc  pbc;
     float  cycles_ppdpme,cycles_pme,cycles_seppme,cycles_force;
-    t_cudata d_data = fr->gpu_data; 
+    t_cudata d_data = fr->gpu_data;
+    float gpu_nb_time = 0;
 
     start  = mdatoms->start;
     homenr = mdatoms->homenr;
@@ -568,7 +569,8 @@ void do_force(FILE *fplog,t_commrec *cr,
     if (fr->useGPU)
     {
         wallcycle_start(wcycle,ewcSEND_X_GPU);
-        cu_upload_X(d_data, x);
+        //cu_upload_X(d_data, x);
+        cu_stream_nb(fr->gpu_data, x, f);
         wallcycle_stop(wcycle,ewcSEND_X_GPU);
         // cu_do_nb(d_data, x, f);
     }
@@ -773,7 +775,8 @@ void do_force(FILE *fplog,t_commrec *cr,
     if (fr->useGPU)
     {
         wallcycle_start(wcycle,ewcRECV_F_GPU);
-        cu_download_F(f, d_data);
+        //cu_download_F(f, d_data);
+        cu_blockwait_nb(fr->gpu_data, &gpu_nb_time);    
         wallcycle_stop(wcycle,ewcRECV_F_GPU);
     }
 #endif  /* GMX_GPU */

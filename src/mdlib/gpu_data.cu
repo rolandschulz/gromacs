@@ -8,6 +8,8 @@
 #include "cudautils.h"
 #include "gpu_data.h"
 
+#define USE_CUDA_ENVENT_BLOCKING_SYNC TRUE
+
 /*** CUDA MD Data operations ***/
 
 /* forward declaration*/
@@ -31,6 +33,27 @@ void init_cudata_ff(FILE *fplog,
     d_data->eps_r = fr->epsilon_r;
     d_data->eps_rf = fr->epsilon_rf;   
 
+    /* events for NB async ops */
+    if (USE_CUDA_ENVENT_BLOCKING_SYNC)
+    {
+        stat = cudaEventCreate(&(d_data->start_nb));
+    }
+    else 
+    {
+        stat = cudaEventCreateWithFlags(&(d_data->start_nb), cudaEventBlockingSync);
+    }
+    CU_RET_ERR(stat, "cudaEventCreate on start_nb failed");
+    if (USE_CUDA_ENVENT_BLOCKING_SYNC)
+    {
+        stat = cudaEventCreateWithFlags(&(d_data->stop_nb), cudaEventBlockingSync);
+    }
+    else 
+    {
+        stat = cudaEventCreate(&(d_data->stop_nb));       
+    }
+    CU_RET_ERR(stat, "cudaEventCreate on stop_nb failed");
+
+    /* NB params */
     stat = cudaMalloc((void **)&d_data->nbfp, 2*ntypes*sizeof(*(d_data->nbfp)));
     CU_RET_ERR(stat, "cudaMalloc failed on d_data->nbfp"); 
     upload_cudata(d_data->nbfp, fr->nbfp, 2*ntypes*sizeof(*(d_data->nbfp)));
@@ -101,6 +124,9 @@ void destroy_cudata(FILE *fplog, t_cudata d_data)
     cudaError_t stat;
 
     if (d_data == NULL) return;
+
+    cudaEventDestroy(d_data->start_nb);
+    cudaEventDestroy(d_data->stop_nb);
 
     stat = cudaFree(d_data->nbfp);
     CU_RET_ERR(stat, "cudaFree failed on d_data->nbfp");
