@@ -92,6 +92,7 @@
 
 #ifdef GMX_GPU
 #include "gmx_gpu_utils.h"
+#include "gpu_data.h"
 #endif
 
 typedef struct { 

@@ -68,6 +68,10 @@
 #include <intrin.h>
 #endif
 
+#ifdef GMX_OPENMP
+#include <omp.h>
+#endif
+
 #ifdef GMX_GPU
 #include "gpu_data.h"
 #endif
@@ -1280,6 +1284,27 @@ forcerec_check_sse2()
 }
 
 
+static void init_forcerec_f_threads(t_forcerec *fr,int grpp_nener)
+{
+    int t,i;
+
+    fr->nthreads = omp_get_max_threads();
+
+    snew(fr->f_t,fr->nthreads);
+    /* Thread 0 uses the global force and energy arrays */
+    for(t=1; t<fr->nthreads; t++)
+    {
+        fr->f_t[t].f = NULL;
+        fr->f_t[t].f_nalloc = 0;
+        snew(fr->f_t[t].fshift,SHIFTS);
+        /* snew(fr->f_t[t].ener,F_NRE); */
+        fr->f_t[t].grpp.nener = grpp_nener;
+        for(i=0; i<egNR; i++)
+        {
+            snew(fr->f_t[t].grpp.ener[i],grpp_nener);
+        }
+    }
+}
 
 
 void init_forcerec(FILE *fp,
@@ -1784,6 +1809,12 @@ void init_forcerec(FILE *fp,
     
     if (cr->duty & DUTY_PP)
         gmx_setup_kernels(fp,bGenericKernelOnly);
+
+#ifndef GMX_OPENMP
+    fr->nthreads = 1;
+#else
+    init_forcerec_f_threads(fr,mtop->groups.grps[egcENER].nr);
+#endif
 
     /* turn GPU acceleration on if GMX_GPU is defined */
     fr->useGPU = FALSE;

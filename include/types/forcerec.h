@@ -130,6 +130,15 @@ typedef struct {
 typedef struct ewald_tab *ewald_tab_t; 
 
 typedef struct {
+  rvec *f;
+  int  f_nalloc;
+  rvec *fshift;
+  real ener[F_NRE];
+  gmx_grppairener_t grpp;
+  real dvdl;
+} f_thread_t;
+
+typedef struct {
   /* Domain Decomposition */
   gmx_bool bDomDec;
 
@@ -368,6 +377,10 @@ typedef struct {
   real userreal2;
   real userreal3;
   real userreal4;
+
+  /* Thread local force and energy data */ 
+  int  nthreads;
+  f_thread_t *f_t;
 
   /* GPU data structure */
   t_cudata  gpu_data;

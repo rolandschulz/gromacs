@@ -355,6 +355,7 @@ void do_force_lowlevel(FILE       *fplog,   gmx_large_int_t step,
         calc_bonds(fplog,cr->ms,
                    idef,x,hist,f,fr,&pbc,graph,enerd,nrnb,lambda,md,fcd,
                    DOMAINDECOMP(cr) ? cr->dd->gatindex : NULL, atype, born,
+                   flags & GMX_FORCE_VIRIAL,
                    fr->bSepDVDL && do_per_step(step,ir->nstlog),step);
         
         /* Check if we have to determine energy differences
