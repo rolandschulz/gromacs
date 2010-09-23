@@ -2585,7 +2585,7 @@ static void reduce_thread_forces(int n,rvec *f,rvec *fshift,
 {
     int t,i,j;
 
-    /* Stupid, serial reduction */
+#pragma omp parallel for private(t) schedule(static)
     for(i=0; i<n; i++)
     {
         for(t=1; t<nthreads; t++)
