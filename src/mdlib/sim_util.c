@@ -620,7 +620,7 @@ void do_force(FILE *fplog,t_commrec *cr,
             clear_rvecs(fr->natoms_force_constr,bSepLRF ? fr->f_twin : f);
         }
 
-        if (!fr->useGPU && FALSE)
+        if (!fr->useGPU)
         {
             /* Do the actual neighbour searching and if twin range electrostatics
             * also do the calculation of long range forces and energies.
@@ -752,7 +752,8 @@ void do_force(FILE *fplog,t_commrec *cr,
                       x,hist,f,enerd,fcd,mtop,top,fr->born,
                       &(top->atomtypes),bBornRadii,box,
                       lambda,graph,&(top->excls),fr->mu_tot,
-                      ((fr->useGPU || TRUE) ? flags&~GMX_FORCE_NONBONDED : flags),&cycles_pme);
+                      (fr->useGPU ? flags&~GMX_FORCE_NONBONDED : flags),
+                      &cycles_pme);
     
     cycles_force = wallcycle_stop(wcycle,ewcFORCE);
     GMX_BARRIER(cr->mpi_comm_mygroup);
