@@ -64,6 +64,10 @@
 #include "qmmm.h"
 #include "mpelogging.h"
 
+#ifdef GMX_OPENMP
+#include <omp.h>
+#endif
+
 #ifdef GMX_GPU
 #include "cutypedefs_ext.h"
 #include "gpu_nb.h"
@@ -118,6 +122,29 @@ void ns(FILE *fp,
   GMX_MPE_LOG(ev_ns_finish);
 }
 
+static void reduce_thread_forces(int n,rvec *f,
+                                 tensor vir,
+                                 real *Vcorr,real *dvdl,
+                                 int nthreads,f_thread_t *f_t)
+{
+    int t,i;
+
+#pragma omp parallel for private(t) schedule(static)
+    for(i=0; i<n; i++)
+    {
+        for(t=1; t<nthreads; t++)
+        {
+            rvec_inc(f[i],f_t[t].f[i]);
+        }
+    }
+    for(t=1; t<nthreads; t++)
+    {
+        *Vcorr += f_t[t].Vcorr;
+        *dvdl  += f_t[t].dvdl;
+        m_add(vir,f_t[t].vir,vir);
+    }
+}
+
 void do_force_lowlevel(FILE       *fplog,   gmx_large_int_t step,
                        t_forcerec *fr,      t_inputrec *ir,
                        t_idef     *idef,    t_commrec  *cr,
@@ -147,7 +174,7 @@ void do_force_lowlevel(FILE       *fplog,   gmx_large_int_t step,
     int     pme_flags;
     matrix  boxs;
     rvec    box_size;
-    real    dvdlambda,Vsr,Vlr,Vcorr=0,vdip,vcharge;
+    real    dvdlambda,Vsr,Vlr,Vcorr=0;
     t_pbc   pbc;
     real    dvdgb;
     char    buf[22];
@@ -235,7 +262,6 @@ void do_force_lowlevel(FILE       *fplog,   gmx_large_int_t step,
             donb_flags |= GMX_DONB_FORCES;
         }
         
-
         do_nonbonded(cr,fr,x,f,md,excl,
                     fr->bBHAM ?
                     enerd->grpp.ener[egBHAMSR] :
@@ -407,15 +433,67 @@ void do_force_lowlevel(FILE       *fplog,   gmx_large_int_t step,
         {
             if (fr->n_tpi == 0)
             {
+                int start,nexcl;
+
+                if (DOMAINDECOMP(cr))
+                {
+                    start = 0;
+                    nexcl = excl->nr;
+                }
+                else
+                {
+                    start = md->start;
+                    nexcl = md->homenr;
+                }
+
                 dvdlambda = 0;
-                Vcorr = ewald_LRcorrection(fplog,md->start,md->start+md->homenr,
-                                           cr,fr,
+#pragma omp parallel
+                {
+                    int t,s,e,i;
+                    rvec *fnv;
+                    tensor *vir;
+                    real *Vcorrt,*dvdl;
+                    t = omp_get_thread_num();
+                    if (t == 0)
+                    {
+                        fnv    = fr->f_novirsum;
+                        vir    = &fr->vir_el_recip;
+                        Vcorrt = &Vcorr;
+                        dvdl   = &dvdlambda;
+                    }
+                    else
+                    {
+                        fnv    = fr->f_t[t].f;
+                        vir    = &fr->f_t[t].vir;
+                        Vcorrt = &fr->f_t[t].Vcorr;
+                        dvdl   = &fr->f_t[t].dvdl;
+                        for(i=0; i<fr->natoms_force; i++)
+                        {
+                            clear_rvec(fnv[i]);
+                        }
+                        clear_mat(*vir);
+                    }
+                    s = start + (nexcl* t   )/fr->nthreads;
+                    e = start + (nexcl*(t+1))/fr->nthreads;
+                    *dvdl = 0;
+                    *Vcorrt =
+                        ewald_LRcorrection(fplog,s,e,
+                                           cr,t,fr,
                                            md->chargeA,
                                            md->nChargePerturbed ? md->chargeB : NULL,
                                            excl,x,bSB ? boxs : box,mu_tot,
                                            ir->ewald_geometry,
                                            ir->epsilon_surface,
-                                           lambda,&dvdlambda,&vdip,&vcharge);
+                                           fnv,*vir,
+                                           lambda,dvdl);
+                }
+                if (fr->nthreads > 1)
+                {
+                    reduce_thread_forces(fr->natoms_force,fr->f_novirsum,
+                                         fr->vir_el_recip,
+                                         &Vcorr,&dvdlambda,
+                                         fr->nthreads,fr->f_t);
+                }
                 PRINT_SEPDVDL("Ewald excl./charge/dip. corr.",Vcorr,dvdlambda);
                 enerd->dvdl_lin += dvdlambda;
             }

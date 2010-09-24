@@ -725,38 +725,47 @@ static int *cginfo_expand(int nmb,cginfo_mb_t *cgi_mb)
 
 static void set_chargesum(FILE *log,t_forcerec *fr,const gmx_mtop_t *mtop)
 {
-    double qsum;
+    double qsum,q2sum,q;
     int    mb,nmol,i;
     const t_atoms *atoms;
     
-    qsum = 0;
+    qsum  = 0;
+    q2sum = 0;
     for(mb=0; mb<mtop->nmolblock; mb++)
     {
         nmol  = mtop->molblock[mb].nmol;
         atoms = &mtop->moltype[mtop->molblock[mb].type].atoms;
         for(i=0; i<atoms->nr; i++)
         {
-            qsum += nmol*atoms->atom[i].q;
+            q = atoms->atom[i].q;
+            qsum  += nmol*q;
+            q2sum += nmol*q*q;
         }
     }
-    fr->qsum[0] = qsum;
+    fr->qsum[0]  = qsum;
+    fr->q2sum[0] = q2sum;
     if (fr->efep != efepNO)
     {
-        qsum = 0;
+        qsum  = 0;
+        q2sum = 0;
         for(mb=0; mb<mtop->nmolblock; mb++)
         {
             nmol  = mtop->molblock[mb].nmol;
             atoms = &mtop->moltype[mtop->molblock[mb].type].atoms;
             for(i=0; i<atoms->nr; i++)
             {
-                qsum += nmol*atoms->atom[i].qB;
+                q = atoms->atom[i].qB;
+                qsum  += nmol*q;
+                q2sum += nmol*q*q;
             }
-            fr->qsum[1] = qsum;
+            fr->qsum[1]  = qsum;
+            fr->q2sum[1] = q2sum;
         }
     }
     else
     {
-        fr->qsum[1] = fr->qsum[0];
+        fr->qsum[1]  = fr->qsum[0];
+        fr->q2sum[1] = fr->q2sum[0];
     }
     if (log) {
         if (fr->efep == efepNO)

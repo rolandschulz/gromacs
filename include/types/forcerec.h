@@ -135,7 +135,9 @@ typedef struct {
   rvec *fshift;
   real ener[F_NRE];
   gmx_grppairener_t grpp;
+  real Vcorr;
   real dvdl;
+  tensor vir;
 } f_thread_t;
 
 typedef struct {
@@ -172,6 +174,7 @@ typedef struct {
 
   /* Charge sum and dipole for topology A/B ([0]/[1]) for Ewald corrections */
   double qsum[2];
+  double q2sum[2];
   rvec   mu_tot[2];
 
   /* Dispersion correction stuff */
