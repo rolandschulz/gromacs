@@ -2611,12 +2611,12 @@ static void reduce_thread_forces(int n,rvec *f,rvec *fshift,
         }
         for(i=0; i<egNR; i++)
         {
-            for(j=0; j<f_t->grpp.nener; j++)
+            for(j=0; j<f_t[1].grpp.nener; j++)
             {
                 for(t=1; t<nthreads; t++)
                 {
                     
-                    grpp->ener[i][j] += f_t->grpp.ener[i][j];
+                    grpp->ener[i][j] += f_t[t].grpp.ener[i][j];
                 }
             }
         }
