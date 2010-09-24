@@ -1300,6 +1300,8 @@ double do_md(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
             a1 = top_global->natoms;
         }
 
+        forcerec_set_excl_load(fr,top,cr);
+
         state = partdec_init_local_state(cr,state_global);
         f_global = f;
 

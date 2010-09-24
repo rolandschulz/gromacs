@@ -385,6 +385,9 @@ typedef struct {
   int  nthreads;
   f_thread_t *f_t;
 
+  /* Exclusion load distribution over the threads */
+  int  *excl_load;
+
   /* GPU data structure */
   t_cudata  gpu_data;
 } t_forcerec;

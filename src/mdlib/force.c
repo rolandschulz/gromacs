@@ -433,19 +433,6 @@ void do_force_lowlevel(FILE       *fplog,   gmx_large_int_t step,
         {
             if (fr->n_tpi == 0)
             {
-                int start,nexcl;
-
-                if (DOMAINDECOMP(cr))
-                {
-                    start = 0;
-                    nexcl = excl->nr;
-                }
-                else
-                {
-                    start = md->start;
-                    nexcl = md->homenr;
-                }
-
                 dvdlambda = 0;
 #pragma omp parallel
                 {
@@ -473,11 +460,10 @@ void do_force_lowlevel(FILE       *fplog,   gmx_large_int_t step,
                         }
                         clear_mat(*vir);
                     }
-                    s = start + (nexcl* t   )/fr->nthreads;
-                    e = start + (nexcl*(t+1))/fr->nthreads;
                     *dvdl = 0;
                     *Vcorrt =
-                        ewald_LRcorrection(fplog,s,e,
+                        ewald_LRcorrection(fplog,
+                                           fr->excl_load[t],fr->excl_load[t+1],
                                            cr,t,fr,
                                            md->chargeA,
                                            md->nChargePerturbed ? md->chargeB : NULL,

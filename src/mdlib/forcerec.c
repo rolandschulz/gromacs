@@ -1824,6 +1824,8 @@ void init_forcerec(FILE *fp,
 #else
     init_forcerec_f_threads(fr,mtop->groups.grps[egcENER].nr);
 #endif
+    
+    snew(fr->excl_load,fr->nthreads+1);
 
     /* turn GPU acceleration on if GMX_GPU is defined */
     fr->useGPU = FALSE;
@@ -1874,3 +1876,57 @@ void pr_forcerec(FILE *fp,t_forcerec *fr,t_commrec *cr)
   
   fflush(fp);
 }
+
+void forcerec_set_excl_load(t_forcerec *fr,
+                            const gmx_localtop_t *top,const t_commrec *cr)
+{
+    const int *ind,*a;
+    int start,end;
+    int t,i,j,ntot,n,ntarget;
+
+    ind = top->excls.index;
+    a   = top->excls.a;
+
+    if (cr != NULL && PARTDECOMP(cr))
+    {
+        pd_at_range(cr,&start,&end);
+    }
+    else
+    {
+        start = 0;
+        end   = top->excls.nr;
+    }
+
+    ntot = 0;
+    for(i=start; i<end; i++)
+    {
+        for(j=ind[i]; j<ind[i+1]; j++)
+        {
+            if (a[j] > i)
+            {
+                ntot++;
+            }
+        }
+    }
+
+    fr->excl_load[0] = 0;
+    n = 0;
+    i = start;
+    for(t=1; t<=fr->nthreads; t++)
+    {
+        ntarget = (ntot*t)/fr->nthreads;
+        while(i < end && n < ntarget)
+        {
+            for(j=ind[i]; j<ind[i+1]; j++)
+            {
+                if (a[j] > i)
+                {
+                    n++;
+                }
+            }
+            i++;
+        }
+        fr->excl_load[t] = i;
+    }
+}
+
