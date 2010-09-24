@@ -56,6 +56,10 @@
 #include "mtop_util.h"
 #include "gmxfio.h"
 
+#ifdef GMX_OPENMP
+#include <omp.h>
+#endif
+
 typedef struct gmx_constr {
   int              ncon_tot;     /* The total number of constraints    */
   int              nflexcon;     /* The number of flexible constraints */
@@ -73,6 +77,8 @@ typedef struct gmx_constr {
   int              warncount_lincs;
   int              warncount_settle;
   gmx_edsam_t      ed;           /* The essential dynamics data        */
+
+    tensor           *rmdr_t;      /* Thread local working data          */
 
   gmx_mtop_t       *warn_mtop;   /* Only used for printing warnings    */
 } t_gmx_constr;
@@ -390,14 +396,35 @@ gmx_bool constrain(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
     settle  = &idef->il[F_SETTLE];
     if (settle->nr > 0)
     {
+        int nt;
+
+        nt = omp_get_max_threads();
+        if (nt > 1 && constr->rmdr_t == NULL)
+        {
+            snew(constr->rmdr_t,nt);
+        }
+
         nsettle = settle->nr/2;
         
         switch (econq)
         {
         case econqCoord:
-            csettle(constr->settled,
-                    nsettle,settle->iatoms,x[0],xprime[0],
-                    invdt,v[0],vir!=NULL,rmdr,&error,vetavar);
+#pragma omp parallel
+            {
+                int t,s,e;
+                t  = omp_get_thread_num();
+                if (t > 0)
+                {
+                    clear_mat(constr->rmdr_t[t]);
+                }
+                s = (nsettle* t   )/nt;
+                e = (nsettle*(t+1))/nt;
+                csettle(constr->settled,
+                        e-s,settle->iatoms+s*2,x[0],xprime[0],
+                        invdt,v[0],vir!=NULL,
+                        t == 0 ? rmdr : constr->rmdr_t[t],
+                        &error,vetavar);
+            }
             inc_nrnb(nrnb,eNR_SETTLE,nsettle);
             if (v != NULL)
             {
@@ -405,6 +432,10 @@ gmx_bool constrain(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
             }
             if (vir != NULL)
             {
+                for(i=1; i<nt; i++)
+                {
+                    m_add(rmdr,constr->rmdr_t[i],rmdr);
+                }
                 inc_nrnb(nrnb,eNR_CONSTR_VIR,nsettle*3);
             }
             
