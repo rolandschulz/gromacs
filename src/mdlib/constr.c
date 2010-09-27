@@ -304,7 +304,7 @@ gmx_bool constrain(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
     t_pbc   pbc;
     char    buf[22];
     t_vetavars *vetavar;
-    int     nt;
+    int     nt,tss;
 
     if (econq == econqForceDispl && !EI_ENERGY_MINIMIZATION(ir->eI))
     {
@@ -349,7 +349,15 @@ gmx_bool constrain(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
     nsettle = settle->nr/2;
 
 #ifdef GMX_OPENMP    
-    nt = omp_get_max_threads();
+    if (nsettle > 0)
+    {
+        nt = omp_get_max_threads();
+    }
+    else
+    {
+        nt = 1;
+        omp_set_num_threads(nt);
+    }
 #else
     nt = 1;
 #endif
@@ -359,6 +367,18 @@ gmx_bool constrain(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
         snew(constr->rmdr_t,nt);
         snew(constr->settle_error,nt);
     }
+    
+    if (nt > 1 && (constr->lincsd != NULL || constr->nblocks > 0))
+    {
+        /* First thread does LINCS or SHAKE and no SETTLE */
+        tss = 1;
+    }
+    else
+    {
+        /* All threads do SETTLE */
+        tss = 0;
+    }
+
     settle_error = -1;
 
 #pragma omp parallel
@@ -371,7 +391,7 @@ gmx_bool constrain(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
         t = 0;
 #endif
 
-        if (constr->lincsd && t == 0)
+        if (constr->lincsd != NULL && t == 0)
         {
             bOK = constrain_lincs(fplog,bLog,bEner,ir,step,constr->lincsd,md,cr,
                                   x,xprime,min_proj,box,lambda,dvdlambda,
@@ -424,40 +444,23 @@ gmx_bool constrain(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
         
         if (nsettle > 0)
         {
-            int s,e;
+            int start_t,end_t;
 
             if (t > 0)
             {
                 clear_mat(constr->rmdr_t[t]);
             }
-            if (constr->lincsd || constr->nblocks > 0)
-            {
-                /* The first thead does LINCS/SHAKE, the rest SETTLE */
-                if (t == 0)
-                {
-                    s = 0;
-                    e = 0;
-                }
-                else
-                {
-                    s = (nsettle*(t-1))/(nt-1);
-                    e = (nsettle* t   )/(nt-1);
-                }
-            }
-            else
-            {
-                /* All threads do SETTLE */
-                s = (nsettle* t   )/nt;
-                e = (nsettle*(t+1))/nt;
-            }
+            start_t = (nsettle*(t-tss  ))/(nt-tss);
+            end_t   = (nsettle*(t-tss+1))/(nt-tss);
 
             switch (econq)
             {
             case econqCoord:
-                if (e - s > 0)
+                if (start_t >= 0 && end_t - start_t > 0)
                 {
                     csettle(constr->settled,
-                            e-s,settle->iatoms+s*2,x[0],xprime[0],
+                            end_t-start_t,settle->iatoms+start_t*2,
+                            x[0],xprime[0],
                             invdt,v[0],vir!=NULL,
                             t == 0 ? rmdr : constr->rmdr_t[t],
                             t == 0 ? &settle_error : &constr->settle_error[t],
@@ -472,11 +475,7 @@ gmx_bool constrain(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
                     }
                     if (vir != NULL)
                     {
-                    for(i=1; i<nt; i++)
-                    {
-                        m_add(rmdr,constr->rmdr_t[i],rmdr);
-                    }
-                    inc_nrnb(nrnb,eNR_CONSTR_VIR,nsettle*3);
+                        inc_nrnb(nrnb,eNR_CONSTR_VIR,nsettle*3);
                     }
                 }
                 break;
@@ -484,11 +483,13 @@ gmx_bool constrain(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
             case econqDeriv:
             case econqForce:
             case econqForceDispl:
-                if (e - s > 0)
+                if (start_t >= 0 && end_t - start_t > 0)
                 {
                     settle_proj(fplog,constr->settled,econq,
-                                nsettle,settle->iatoms,x,
-                                xprime,min_proj,vir!=NULL,rmdr,vetavar);
+                                end_t-start_t,settle->iatoms+start_t*2,x,
+                                xprime,min_proj,vir!=NULL,
+                                t == 0 ? rmdr : constr->rmdr_t[t],
+                                vetavar);
                 }
                 /* This is an overestimate */
                 inc_nrnb(nrnb,eNR_SETTLE,nsettle);
