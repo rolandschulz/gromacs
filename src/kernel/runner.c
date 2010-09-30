@@ -769,7 +769,7 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
     if (DOMAINDECOMP(cr) && integrator[inputrec->eI].func == do_md && (cr->duty & DUTY_PP))
 	{
         const int MAXSTEPS = 100;// This is mostly for optimization reasons
-        const int MAXMEM = 250000000;
+        const int MAXMEM = 250000000; // This checks that we won't be using more than 250 megabytes for storing frames: mostly just for optimization
         gmx_bool bIOnode;
 		cr->nionodes = min(min(MAXSTEPS, cr->dd->nnodes),
 				MAXMEM / (sizeof(real) * 3 * state->natoms));

@@ -29,7 +29,7 @@ add_library(gmxana
             gmx_editconf.c  gmx_genbox.c    gmx_genion.c    gmx_genconf.c   
             gmx_genpr.c     gmx_eneconv.c   gmx_vanhove.c   gmx_wheel.c     
             addconf.c       calcpot.c       edittop.c       gmx_bar.c
-            gmx_pme_error.c	)
+            gmx_membed.c	gmx_pme_error.c	)
 
 
 target_link_libraries(gmxana md gmx)
