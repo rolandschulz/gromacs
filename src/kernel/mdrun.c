@@ -397,6 +397,7 @@ int main(int argc,char *argv[])
   int  nstepout=100;
   int  nthreads=0; /* set to determine # of threads automatically */
   int  resetstep=-1;
+  int nionodes=-1;
   
   rvec realddxyz={0,0,0};
   const char *ddno_opt[ddnoNR+1] =
@@ -481,7 +482,9 @@ int main(int argc,char *argv[])
     { "-resetstep", FALSE, etINT, {&resetstep},
       "HIDDENReset cycle counters after these many time steps" },
     { "-resethway", FALSE, etBOOL, {&bResetCountersHalfWay},
-      "HIDDENReset the cycle counters after half the number of steps or halfway -maxh" }
+      "HIDDENReset the cycle counters after half the number of steps or halfway -maxh" },
+    { "-nionodes", FALSE, etINT, {&nionodes},
+      "HIDDENManually override the number of nodes used for collective IO, -1 is auto" }
 #ifdef GMX_OPENMM
     ,
     { "-device",  FALSE, etSTR, {&deviceOptions},
@@ -530,6 +533,8 @@ int main(int argc,char *argv[])
      lead to problems. */ 
   dd_node_order = nenum(ddno_opt);
   cr->npmenodes = npme;
+  cr->nionodes = nionodes;
+
 
 #ifndef GMX_THREADS
   nthreads=1;
