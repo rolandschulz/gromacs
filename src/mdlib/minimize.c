@@ -469,7 +469,8 @@ static void write_em_traj(FILE *fplog,t_commrec *cr,
     if (bF) { mdof_flags |= MDOF_F; }
     write_traj(fplog,cr,outf,mdof_flags,
                top_global,step,(double)step,
-               &state->s,state_global,state->f,f_global,NULL,NULL,NULL,FALSE,NULL);
+               &state->s,state_global,state->f,f_global,
+               NULL,NULL,NULL,FALSE,NULL,NULL);
     
     if (confout != NULL && MASTER(cr))
     {
@@ -1587,7 +1588,8 @@ double do_lbfgs(FILE *fplog,t_commrec *cr,
     do_f = do_per_step(step,inputrec->nstfout);
     
     write_traj(fplog,cr,outf,MDOF_X | MDOF_F,
-               top_global,step,(real)step,state,state,f,f,NULL,NULL,NULL,FALSE,NULL);
+               top_global,step,(real)step,state,state,
+               f,f,NULL,NULL,NULL,FALSE,NULL,NULL);
 
     /* Do the linesearching in the direction dx[point][0..(n-1)] */
     
