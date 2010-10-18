@@ -582,11 +582,12 @@ void write_traj(FILE *fplog,t_commrec *cr,
     rvec *global_v;
     
     int bufferStep = 0;
-    gmx_bool bBuffer = cr->nionodes > 1; // Used to determine if buffers will be used
+    gmx_bool bBuffer = cr->nionodes > 1  && ir->nstxtcout>0; // Used to determine if buffers will be used.
     gmx_bool writeXTCNow = (mdof_flags & MDOF_XTC);
 
     if (bBuffer)// If buffering will be used
     {
+        //If in the future we want to buffer also uncompressed trajectory. Each needs its own bufferStep.
         bufferStep = (step/ir->nstxtcout - (int)ceil((double)write_buf->step_after_checkpoint/ir->nstxtcout)) % cr->nionodes;// bufferStep = step/(how often to write) - (round up) step_at_checkpoint/(how often to write)  MOD (how often we actually do write)
         writeXTCNow = ((mdof_flags & MDOF_XTC) && bufferStep == cr->nionodes-1)   //write XTC in this step and buffer is full
                 || (ir->nstxtcout>0 &&  bufferStep < cr->nionodes-1 && (bLastStep || (mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X)));// XTC is written AND we haven't just written because buffer was full AND its the last step OR its a checkpoint  OR write uncompressed X

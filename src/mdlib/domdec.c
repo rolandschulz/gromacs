@@ -1443,7 +1443,7 @@ void dd_collect_vec(gmx_domdec_t *dd,
     }
     if (wcycle != NULL)
     {
-        wallcycle_start(wcycle, ewcCOLLECT);
+        wallcycle_stop(wcycle, ewcCOLLECT);
     }
 }
 
