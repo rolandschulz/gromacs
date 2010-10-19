@@ -1421,7 +1421,7 @@ static void dd_collect_vec_gatherv(gmx_domdec_t *dd,
 }
 
 void dd_collect_vec(gmx_domdec_t *dd,
-                    t_state *state_local,rvec *lv,rvec *v, gmx_wallcycle_t wcycle)
+                    t_state *state_local,rvec *lv,rvec *v)
 {
     gmx_domdec_master_t *ma;
     int  n,i,c,a,nalloc=0;
@@ -1429,10 +1429,6 @@ void dd_collect_vec(gmx_domdec_t *dd,
     
     dd_collect_cg(dd,state_local);
 
-    //if (wcycle != NULL)
-    //{
-    //    wallcycle_start(wcycle, ewcCOLLECT);
-    //}
     if (dd->nnodes <= GMX_DD_NNODES_SENDRECV)
     {
         dd_collect_vec_sendrecv(dd,lv,v);
@@ -1441,15 +1437,11 @@ void dd_collect_vec(gmx_domdec_t *dd,
     {
         dd_collect_vec_gatherv(dd,lv,v);
     }
-    //if (wcycle != NULL)
-    //{
-    //    wallcycle_stop(wcycle, ewcCOLLECT);
-    //}
 }
 
 
 void dd_collect_state(gmx_domdec_t *dd,
-                      t_state *state_local,t_state *state, gmx_wallcycle_t wcycle)
+                      t_state *state_local,t_state *state)
 {
     int est,i,j,nh;
 
@@ -1489,16 +1481,16 @@ void dd_collect_state(gmx_domdec_t *dd,
         {
             switch (est) {
             case estX:
-                dd_collect_vec(dd,state_local,state_local->x,state->x,wcycle);
+                dd_collect_vec(dd,state_local,state_local->x,state->x);
                 break;
             case estV:
-                dd_collect_vec(dd,state_local,state_local->v,state->v,wcycle);
+                dd_collect_vec(dd,state_local,state_local->v,state->v);
                 break;
             case estSDX:
-                dd_collect_vec(dd,state_local,state_local->sd_X,state->sd_X,wcycle);
+                dd_collect_vec(dd,state_local,state_local->sd_X,state->sd_X);
                 break;
             case estCGP:
-                dd_collect_vec(dd,state_local,state_local->cg_p,state->cg_p,wcycle);
+                dd_collect_vec(dd,state_local,state_local->cg_p,state->cg_p);
                 break;
             case estLD_RNG:
                 if (state->nrngi == 1)

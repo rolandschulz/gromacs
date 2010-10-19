@@ -614,7 +614,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
         if (mdof_flags & MDOF_CPT)
 
         {
-            dd_collect_state(cr->dd,state_local,state_global,wcycle);
+            dd_collect_state(cr->dd,state_local,state_global);
         }
         else
         {
@@ -622,17 +622,17 @@ void write_traj(FILE *fplog,t_commrec *cr,
             if ((mdof_flags & MDOF_X) || ((mdof_flags & MDOF_XTC) && !bBuffer))
             {
                 dd_collect_vec(cr->dd,state_local,state_local->x,
-                               state_global->x,wcycle);
+                               state_global->x);
             }
             if (mdof_flags & MDOF_V)
             {
                 dd_collect_vec(cr->dd,state_local,local_v,
-                               global_v,wcycle);
+                               global_v);
             }
         }
         if (mdof_flags & MDOF_F)
         {
-            dd_collect_vec(cr->dd,state_local,f_local,f_global,wcycle);
+            dd_collect_vec(cr->dd,state_local,f_local,f_global);
         }
         //Could be optimized by not collecting all coordinates but only those in the xtc selection.
         if (bBuffer) {
@@ -659,7 +659,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
                     write_buf->dd[i]->masterrank = cr->dd->iorank2ddrank[i];
                     if (!(i==bufferStep && ((mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X))))
                     {
-                        dd_collect_vec(write_buf->dd[i],write_buf->state_local[i],write_buf->state_local[i]->x,state_global->x,wcycle);
+                        dd_collect_vec(write_buf->dd[i],write_buf->state_local[i],write_buf->state_local[i]->x,state_global->x);
                     }
                 }
             }
@@ -746,9 +746,10 @@ void write_traj(FILE *fplog,t_commrec *cr,
 		int write_step;
 		real write_t;
 
+
 		if (bWrite) { // If this node is one of the writing nodes
-            wallcycle_start(wcycle, ewcGROUP);
 			groups = &top_global->groups;
+			wallcycle_start(wcycle, ewcGROUP);
 			if (*n_xtc == -1)
 			{
 				*n_xtc = 0;
@@ -781,7 +782,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
 					}
 				}
 			}
-            wallcycle_stop(wcycle, ewcGROUP);
+			wallcycle_stop (wcycle, ewcGROUP);
 		}
 		if (bBuffer)
 		{
@@ -793,8 +794,9 @@ void write_traj(FILE *fplog,t_commrec *cr,
 			write_step = step;
 			write_t = t;
 		}
+
 		if (write_xtc(of->fp_xtc,*n_xtc,write_step,write_t,
-				  state_local->box,xxtc,of->xtc_prec,bWrite,wcycle) == 0)//If it is NOT ACTUALLY being written
+				  state_local->box,xxtc,of->xtc_prec,bWrite,wcycle) == 0)
 		{
 			gmx_fatal(FARGS,"XTC error - maybe you are out of quota?");
 		}
@@ -802,12 +804,12 @@ void write_traj(FILE *fplog,t_commrec *cr,
      }
      if (bBuffer)
      {
-        if (mdof_flags & MDOF_CPT)
-		{
-		 write_checkpoint(of->fn_cpt,of->bKeepAndNumCPT,
-						  fplog,cr,of->eIntegrator,
-						  of->simulation_part,step,t,state_global,wcycle);
-		}
+         if (mdof_flags & MDOF_CPT)
+         {
+             write_checkpoint(of->fn_cpt,of->bKeepAndNumCPT,
+                     fplog,cr,of->eIntegrator,
+                     of->simulation_part,step,t,state_global,wcycle);
+         }
      }
 
      if (MASTER(cr))

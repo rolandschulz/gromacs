@@ -1791,7 +1791,7 @@ double do_md(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
                 }
                 if (DOMAINDECOMP(cr) && bMasterState)
                 {
-                    dd_collect_state(cr->dd,state,state_global,wcycle);
+                    dd_collect_state(cr->dd,state,state_global);
                 }
             }
 
@@ -2691,7 +2691,7 @@ double do_md(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
         {
             bExchanged = replica_exchange(fplog,cr,repl_ex,
                                           state_global,enerd->term,
-                                          state,step,t,wcycle);
+                                          state,step,t);
 
             if (bExchanged && DOMAINDECOMP(cr)) 
             {
@@ -2795,9 +2795,11 @@ double do_md(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
                        eprAVER,FALSE,mdebin,fcd,groups,&(ir->opts));
         }
     }
+    wallcycle_start(wcycle,ewcTRAJ);
     wallcycle_start(wcycle,ewcSYNC);
     done_mdoutf(outf);
     wallcycle_stop(wcycle,ewcSYNC);
+    wallcycle_stop(wcycle,ewcTRAJ);
 
     debug_gmx();
 

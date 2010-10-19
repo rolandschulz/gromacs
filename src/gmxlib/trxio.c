@@ -311,7 +311,7 @@ int write_trxframe(t_trxstatus *status,t_trxframe *fr,gmx_conect gc)
 
   switch (gmx_fio_getftp(status->fio)) {
   case efXTC:
-    write_xtc(status->fio,fr->natoms,fr->step,fr->time,fr->box,fr->x,prec,TRUE,NULL);
+    write_xtc(status->fio,fr->natoms,fr->step,fr->time,fr->box,fr->x,prec,TRUE, NULL);
     break;
   case efTRJ:
   case efTRR:  
