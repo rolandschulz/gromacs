@@ -52,7 +52,6 @@
 #include "string2.h"
 #include "gmxfio.h"
 #include "md5.h"
-#include "gmx_wallcycle.h"
 
 #ifdef GMX_THREADS
 #include "thread_mpi.h"
@@ -1101,7 +1100,7 @@ int gmx_fio_check_file_position(t_fileio *fio)
 }
 
 int gmx_fio_get_output_file_positions(gmx_file_position_t **p_outputfiles,
-                                      int *p_nfiles, gmx_wallcycle_t wcycle)
+                                      int *p_nfiles)
 {
     int i, nfiles, rc, nalloc;
     int pos_hi, pos_lo;

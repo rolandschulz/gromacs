@@ -2186,6 +2186,7 @@ double do_md(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
         write_traj(fplog,cr,outf,mdof_flags,top_global,
                 step,t,state,state_global,f,f_global,&n_xtc,
                 &x_xtc,ir,bLastStep,&write_buf,wcycle);
+
         if (bCPT)
         {
             nchkpt++;
@@ -2794,8 +2795,9 @@ double do_md(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
                        eprAVER,FALSE,mdebin,fcd,groups,&(ir->opts));
         }
     }
-
+    wallcycle_start(wcycle,ewcSYNC);
     done_mdoutf(outf);
+    wallcycle_stop(wcycle,ewcSYNC);
 
     debug_gmx();
 

@@ -198,7 +198,7 @@ int gmx_fio_check_file_position(t_fileio *fio);
  */
 
 int gmx_fio_get_output_file_positions(gmx_file_position_t ** outputfiles,
-                                      int *nfiles, gmx_wallcycle_t wcycle);
+                                      int *nfiles);
 /* Return the name and file pointer positions for all currently open
  * output files. This is used for saving in the checkpoint files, so we
  * can truncate output files upon restart-with-appending.

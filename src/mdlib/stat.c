@@ -68,6 +68,7 @@
 #include "checkpoint.h"
 #include "mdrun.h"
 #include "xvgr.h"
+#include "gmx_wallcycle.h"
 
 typedef struct gmx_global_stat
 {
@@ -644,8 +645,10 @@ void write_traj(FILE *fplog,t_commrec *cr,
                     write_buf->step=step;
                     write_buf->t=t;
                 }
+                wallcycle_start(wcycle, ewcCOPY);
                 copy_dd(write_buf->dd[bufferStep],cr->dd);
                 copy_state_local(write_buf->state_local[bufferStep],state_local);
+                wallcycle_stop(wcycle, ewcCOPY);
             }
 
             if (writeXTCNow)
@@ -742,6 +745,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
 		real write_t;
 
 		if (bWrite) { // If this node is one of the writing nodes
+            wallcycle_start(wcycle, ewcGROUP);
 			groups = &top_global->groups;
 			if (*n_xtc == -1)
 			{
@@ -775,6 +779,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
 					}
 				}
 			}
+            wallcycle_stop(wcycle, ewcCOPY);
 		}
 		if (bBuffer)
 		{

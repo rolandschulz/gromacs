@@ -1200,7 +1200,7 @@ void write_checkpoint(const char *fn,gmx_bool bNumberAndKeep,
         }
 
         /* Get offsets for open files */
-        gmx_fio_get_output_file_positions(&outputfiles, &noutputfiles, wcycle);
+        gmx_fio_get_output_file_positions(&outputfiles, &noutputfiles);
 
         fp = gmx_fio_open(fntemp,"w");
 

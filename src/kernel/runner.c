@@ -768,8 +768,8 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
 #ifdef GMX_LIB_MPI
     if (DOMAINDECOMP(cr) && integrator[inputrec->eI].func == do_md && (cr->duty & DUTY_PP))
     {
-        const int MAXSTEPS = 100;// The maximum number of steps being buffered
-        const int MAXMEM = 2000000; // This checks that we won't be using more than 2 megabytes for storing frames
+        //const int MAXSTEPS = 100;// The maximum number of steps being buffered
+        const int MAXMEM = 20000000; // This checks that we won't be using more than 20 megabytes for storing frames
         gmx_bool bIOnode = FALSE;
         int size_inter;
         if (MASTER(cr))
@@ -791,8 +791,11 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
 
             if(cr->nionodes==-1)
             {
-                cr->nionodes = min(min(MAXSTEPS, size_inter),
+/*                cr->nionodes = min(min(MAXSTEPS, size_inter),
                         MAXMEM * cr->dd->nnodes / (sizeof(real) * 3 * state->natoms)  );
+*/
+                cr->nionodes = min(size_inter,
+                                        MAXMEM * cr->dd->nnodes / (sizeof(real) * 3 * state->natoms)  );
             }
 
             cr->nionodes = max(cr->nionodes, 1);  /*make sure to have at least one*/
