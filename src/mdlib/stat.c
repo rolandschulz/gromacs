@@ -779,7 +779,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
 					}
 				}
 			}
-            wallcycle_stop(wcycle, ewcCOPY);
+            wallcycle_stop(wcycle, ewcGROUP);
 		}
 		if (bBuffer)
 		{
