@@ -608,6 +608,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
     local_v  = state_local->v;
     global_v = state_global->v;
 
+    wallcycle_start(wcycle, ewcCOLLECT);
     if (DOMAINDECOMP(cr))
     {
         if (mdof_flags & MDOF_CPT)
@@ -717,8 +718,9 @@ void write_traj(FILE *fplog,t_commrec *cr,
                 if (mdof_flags & MDOF_V)              MX(global_v);
             }
             if (mdof_flags & MDOF_F) MX(f_global);
-         }
-     }     
+        }
+    }
+    wallcycle_stop(wcycle, ewcCOLLECT);
 
     /* The order of write_checkpoint and write_xtc/fwrite_trn is crucial, because the position of the trajectories is stored in the checkpoint.
      * The checkpoint is written before the current step because the current step is written to the trajectory when appending from the checkpoint

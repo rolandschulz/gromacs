@@ -1429,10 +1429,10 @@ void dd_collect_vec(gmx_domdec_t *dd,
     
     dd_collect_cg(dd,state_local);
 
-    if (wcycle != NULL)
-    {
-        wallcycle_start(wcycle, ewcCOLLECT);
-    }
+    //if (wcycle != NULL)
+    //{
+    //    wallcycle_start(wcycle, ewcCOLLECT);
+    //}
     if (dd->nnodes <= GMX_DD_NNODES_SENDRECV)
     {
         dd_collect_vec_sendrecv(dd,lv,v);
@@ -1441,10 +1441,10 @@ void dd_collect_vec(gmx_domdec_t *dd,
     {
         dd_collect_vec_gatherv(dd,lv,v);
     }
-    if (wcycle != NULL)
-    {
-        wallcycle_stop(wcycle, ewcCOLLECT);
-    }
+    //if (wcycle != NULL)
+    //{
+    //    wallcycle_stop(wcycle, ewcCOLLECT);
+    //}
 }
 
 

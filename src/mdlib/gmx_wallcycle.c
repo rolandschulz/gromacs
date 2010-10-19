@@ -276,6 +276,10 @@ void wallcycle_sum(t_commrec *cr, gmx_wallcycle_t wc, double cycles[], double cy
     {
         wcc[ewcTRAJ].c -= wcc[ewcSYNC].c;
     }
+    if (wcc[ewcCOPY].n > 0)
+    {
+        wcc[ewcCOLLECT].c -= wcc[ewcCOPY].c;
+    }
     if (wcc[ewcCOLLECT].n > 0)
     {
         wcc[ewcTRAJ].c -= wcc[ewcCOLLECT].c;
@@ -283,10 +287,6 @@ void wallcycle_sum(t_commrec *cr, gmx_wallcycle_t wc, double cycles[], double cy
     if (wcc[ewcCOMPRESS].n > 0)
     {
         wcc[ewcTRAJ].c -= wcc[ewcCOMPRESS].c;
-    }
-    if (wcc[ewcCOPY].n > 0)
-    {
-        wcc[ewcTRAJ].c -= wcc[ewcCOPY].c;
     }
     if (wcc[ewcGROUP].n > 0)
     {
