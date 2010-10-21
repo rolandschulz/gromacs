@@ -1154,7 +1154,6 @@ double do_md(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
     int chkpt_ret;
 #endif
 
-    PAT_record(PAT_STATE_OFF);
     /* Check for special mdrun options */
     bRerunMD = (Flags & MD_RERUN);
     bIonize  = (Flags & MD_IONIZE);
