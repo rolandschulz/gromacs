@@ -163,7 +163,7 @@ static void wallcycle_all_stop(gmx_wallcycle_t wc,int ewc,gmx_cycles_t cycle)
 
 void wallcycle_start(gmx_wallcycle_t wc, int ewc)
 {
-    PAT_region_begin(4, "Wallcycle Start");
+    PAT_region_begin(ewc, wcn[ewc]);
     gmx_cycles_t cycle;
 
     if (wc == NULL)

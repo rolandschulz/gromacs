@@ -143,10 +143,8 @@ static int gmx_fio_int_end_record(t_fileio *fio)
                 fio->last_frame_size = fio->mem_buf_cur_pos;  /*last frame size written on this core*/
             }
             /*everyone needs to call this collective - we don't know whether everyone has 0 bytes without additional communication*/
-            PAT_region_begin(3, "Write Ordered");
             rc = MPI_File_write_ordered(fio->mpi_fh,fio->mem_buf,fio->mem_buf_cur_pos,MPI_BYTE,MPI_STATUS_IGNORE)
                     != MPI_SUCCESS;
-            PAT_region_end(3);
             fio->mem_buf_cur_pos = 0;
         }
     }

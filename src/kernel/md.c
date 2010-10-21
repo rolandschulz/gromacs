@@ -2188,11 +2188,9 @@ double do_md(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
                     update_energyhistory(&state_global->enerhist,mdebin);
                 }
             }
-            PAT_region_begin(1, "Write Traj");
             write_traj(fplog,cr,outf,mdof_flags,top_global,
                     step,t,state,state_global,f,f_global,&n_xtc,
                     &x_xtc,ir,bLastStep,&write_buf,wcycle);
-            PAT_region_end(1);
 
             if (bCPT)
             {
@@ -2807,6 +2805,7 @@ double do_md(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
     done_mdoutf(outf);
     wallcycle_stop(wcycle,ewcSYNC);
     wallcycle_stop(wcycle,ewcTRAJ);
+    PAT_record(PAT_STATE_OFF);
 
     debug_gmx();
 

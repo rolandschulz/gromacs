@@ -609,7 +609,6 @@ void write_traj(FILE *fplog,t_commrec *cr,
     global_v = state_global->v;
 
     wallcycle_start(wcycle, ewcCOLLECT);
-    PAT_region_begin(2, "Collect");
     if (DOMAINDECOMP(cr))
     {
         if (mdof_flags & MDOF_CPT)
@@ -721,7 +720,6 @@ void write_traj(FILE *fplog,t_commrec *cr,
             if (mdof_flags & MDOF_F) MX(f_global);
         }
     }
-    PAT_region_end(2);
     wallcycle_stop(wcycle, ewcCOLLECT);
 
     /* The order of write_checkpoint and write_xtc/fwrite_trn is crucial, because the position of the trajectories is stored in the checkpoint.
