@@ -426,8 +426,8 @@ static void get_cell_range(real b0,real b1,int nc,real s,real invs,
     }
 }
 
-static real box_dist2(real bx0,real bx1,real by0,real by1,real bz0,real bz1,
-                      const real *bb)
+static real box_dist2_cond(real bx0,real bx1,real by0,real by1,real bz0,real bz1,
+                           const real *bb)
 {
     real d2;
 
@@ -460,34 +460,31 @@ static real box_dist2(real bx0,real bx1,real by0,real by1,real bz0,real bz1,
     return d2;
 }
 
-static real box_dist2_max(real bx0,real bx1,real by0,real by1,real bz0,real bz1,
-                          const real *bb)
+static real box_dist2(real bx0,real bx1,real by0,real by1,real bz0,real bz1,
+                      const real *bb)
 {
     real d2;
-    real dl,dh,dlm,dhm,dm,dm0;
+    real dl,dh,dm,dm0;
 
     d2 = 0;
 
     dl  = bx0 - bb[1];
     dh  = bb[0] - bx1;
-    dlm = max(dl,0);
-    dhm = max(dh,0);
-    dm  = max(dlm,dhm);
-    d2 += dm*dm;
+    dm  = max(dl,dh);
+    dm0 = max(dm,0);
+    d2 += dm0*dm0;
 
     dl  = by0 - bb[3];
     dh  = bb[2] - by1;
-    dlm = max(dl,0);
-    dhm = max(dh,0);
-    dm  = max(dlm,dhm);
-    d2 += dm*dm;
+    dm  = max(dl,dh);
+    dm0 = max(dm,0);
+    d2 += dm0*dm0;
 
     dl  = bz0 - bb[5];
     dh  = bb[4] - bz1;
-    dlm = max(dl,0);
-    dhm = max(dh,0);
-    dm  = max(dlm,dhm);
-    d2 += dm*dm;
+    dm  = max(dl,dh);
+    dm0 = max(dm,0);
+    d2 += dm0*dm0;
 
     return d2;
 }
