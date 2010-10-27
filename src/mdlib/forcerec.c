@@ -61,6 +61,7 @@
 #include "qmmm.h"
 #include "copyrite.h"
 #include "mtop_util.h"
+#include "nsbox.h"
 
 
 #ifdef _MSC_VER
@@ -1851,7 +1852,14 @@ void init_forcerec(FILE *fp,
         gmx_warning("GPU mode turned off by GMX_NO_GPU env var!");
     }
  #endif   
-    
+
+    fr->emulateGPU = (!fr->useGPU && getenv("GMX_EMULATE_GPU") != NULL);
+
+    if (fr->useGPU || fr->emulateGPU)
+    {
+        gmx_nbsearch_init(&fr->nbs);
+        gmx_nblist_init(&fr->nbl);
+    }
 }
 
 #define pr_real(fp,r) fprintf(fp,"%s: %e\n",#r,r)

@@ -243,6 +243,10 @@ typedef struct {
   int  *gid2nblists;
   t_nblists *nblists;
 
+  /* The bounding box type neighbor searhcing data */
+  gmx_nbsearch_t nbs;
+  gmx_nblist_t   nbl;
+
   /* The wall tables (if used) */
   int  nwall;
   t_forcetable **wall_tab;
@@ -390,6 +394,7 @@ typedef struct {
 
   /* GPU data structure */
   t_cudata  gpu_data;
+  gmx_bool  emulateGPU;
 } t_forcerec;
 
 #define C6(nbfp,ntp,ai,aj)     (nbfp)[2*((ntp)*(ai)+(aj))]

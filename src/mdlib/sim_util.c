@@ -86,6 +86,7 @@
 #include "partdec.h"
 #include "gmx_wallcycle.h"
 #include "genborn.h"
+#include "nsbox.h"
 
 #ifdef GMX_LIB_MPI
 #include <mpi.h>
@@ -620,7 +621,7 @@ void do_force(FILE *fplog,t_commrec *cr,
             clear_rvecs(fr->natoms_force_constr,bSepLRF ? fr->f_twin : f);
         }
 
-        if (!fr->useGPU)
+        if (!(fr->useGPU || fr->emulateGPU))
         {
             /* Do the actual neighbour searching and if twin range electrostatics
             * also do the calculation of long range forces and energies.
@@ -635,6 +636,14 @@ void do_force(FILE *fplog,t_commrec *cr,
                 fprintf(fplog,sepdvdlformat,"LR non-bonded",0.0,dvdl);
             }
             enerd->dvdl_lin += dvdl;
+        }
+        else
+        {
+            put_atoms_in_box(box,mdatoms->homenr,x);
+
+            gmx_nbsearch_put_on_grid(fr->nbs,fr->ePBC,box,mdatoms->homenr,x);
+
+            gmx_nbsearch_make_nblist(fr->nbs,fr->rlist+0.15,&fr->nbl);
         }
         
         wallcycle_stop(wcycle,ewcNS);
@@ -752,7 +761,7 @@ void do_force(FILE *fplog,t_commrec *cr,
                       x,hist,f,enerd,fcd,mtop,top,fr->born,
                       &(top->atomtypes),bBornRadii,box,
                       lambda,graph,&(top->excls),fr->mu_tot,
-                      (fr->useGPU ? flags&~GMX_FORCE_NONBONDED : flags),
+                      ((fr->useGPU || fr->emulateGPU) ? flags&~GMX_FORCE_NONBONDED : flags),
                       &cycles_pme);
     
     cycles_force = wallcycle_stop(wcycle,ewcFORCE);
