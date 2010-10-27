@@ -1322,14 +1322,6 @@ double do_md(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
         if (ir->pull && PAR(cr)) {
             dd_make_local_pull_groups(NULL,ir->pull,mdatoms);
         }
-
-#ifdef GMX_GPU
-        /* initialize the gpu atom datastructures when no DD is done */
-        if (fr->useGPU)
-        {
-            init_cudata_atoms(fr->gpu_data, mdatoms, fr->natoms_force);
-        }
-#endif
     }
 
     if (DOMAINDECOMP(cr))

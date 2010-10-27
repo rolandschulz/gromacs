@@ -8574,15 +8574,6 @@ void dd_partition_system(FILE            *fplog,
     {
         make_local_gb(cr,fr->born,ir->gb_algorithm);
     }
-	
-#ifdef GMX_GPU
-    /* initialize the gpu atom datastructures when no DD is done */
-    if (fr->useGPU)
-    {
-        init_cudata_atoms(fr->gpu_data, mdatoms, fr->natoms_force);
-    }
-#endif
- 
 
     if (!(cr->duty & DUTY_PME))
     {

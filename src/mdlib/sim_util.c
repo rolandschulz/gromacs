@@ -566,17 +566,6 @@ void do_force(FILE *fplog,t_commrec *cr,
         wallcycle_stop(wcycle,ewcMOVEX);
     }
 
-#ifdef GMX_GPU
-    if (fr->useGPU)
-    {
-        wallcycle_start(wcycle,ewcSEND_X_GPU);
-        //cu_upload_X(d_data, x);
-        cu_stream_nb(fr->gpu_data, x, f);
-        wallcycle_stop(wcycle,ewcSEND_X_GPU);
-        // cu_do_nb(d_data, x, f);
-    }
-#endif /* GMX_GPU */
-
     if (bStateChanged)
     {
         for(i=0; i<2; i++)
@@ -645,10 +634,30 @@ void do_force(FILE *fplog,t_commrec *cr,
                                      fr->nbat);
 
             gmx_nbsearch_make_nblist(fr->nbs,fr->rlist+0.15,&fr->nbl);
+
+#ifdef GMX_GPU
+            /* initialize the gpu atom datastructures */
+            if (fr->useGPU)
+            {
+                init_cudata_atoms(fr->gpu_data, mdatoms, fr->natoms_force);
+            }
+#endif
+
         }
-        
         wallcycle_stop(wcycle,ewcNS);
     }
+
+#ifdef GMX_GPU
+    if (fr->useGPU)
+    {
+        wallcycle_start(wcycle,ewcSEND_X_GPU);
+        //cu_upload_X(d_data, x);
+        cu_stream_nb(fr->gpu_data, x, f);
+        wallcycle_stop(wcycle,ewcSEND_X_GPU);
+        // cu_do_nb(d_data, x, f);
+    }
+#endif /* GMX_GPU */
+  
 	
     if (inputrec->implicit_solvent && bNS) 
     {
