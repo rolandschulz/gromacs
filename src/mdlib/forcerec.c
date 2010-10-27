@@ -1859,6 +1859,8 @@ void init_forcerec(FILE *fp,
     {
         gmx_nbsearch_init(&fr->nbs);
         gmx_nblist_init(&fr->nbl);
+        snew(fr->nbat,1);
+        gmx_nb_atomdata_init(fr->nbat,4);
     }
 }
 

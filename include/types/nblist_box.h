@@ -55,9 +55,19 @@ typedef struct {
     int      nlist;        /* The number of lists                  */
     gmx_nbs_jlist_t *list; /* The lists                            */
     int      list_nalloc;  /* Allocation size of list              */
+    int      ncj;          /* The total number of i-j-cell pairs   */
     int      *cj;          /* Array of j-cells                     */
     int      cj_nalloc;    /* Allocation size of cj                */
 } gmx_nblist_t;
+
+typedef struct {
+    int  natoms;  /* Number of atoms                                    */
+    int  *type;   /* Atom types                                         */
+    real *q;      /* Charges, could be NULL if incorporated in x        */
+    int  xstride; /* stride for a coordinate in x (usually 3 or 4)      */
+    real *x;      /* x and possibly q, size natoms*xstride              */
+    int  nalloc;  /* Allocation size of all arrays (time xstride for x) */
+} gmx_nb_atomdata_t;
 
 #ifdef __cplusplus
 }

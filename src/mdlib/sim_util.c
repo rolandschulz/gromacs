@@ -641,7 +641,8 @@ void do_force(FILE *fplog,t_commrec *cr,
         {
             put_atoms_in_box(box,mdatoms->homenr,x);
 
-            gmx_nbsearch_put_on_grid(fr->nbs,fr->ePBC,box,mdatoms->homenr,x);
+            gmx_nbsearch_put_on_grid(fr->nbs,fr->ePBC,box,mdatoms->homenr,x,
+                                     fr->nbat);
 
             gmx_nbsearch_make_nblist(fr->nbs,fr->rlist+0.15,&fr->nbl);
         }

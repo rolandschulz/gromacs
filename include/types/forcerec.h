@@ -243,9 +243,10 @@ typedef struct {
   int  *gid2nblists;
   t_nblists *nblists;
 
-  /* The bounding box type neighbor searhcing data */
+  /* The bounding box type neighbor searching data */
   gmx_nbsearch_t nbs;
   gmx_nblist_t   nbl;
+  gmx_nb_atomdata_t *nbat;
 
   /* The wall tables (if used) */
   int  nwall;

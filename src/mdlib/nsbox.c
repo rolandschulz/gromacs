@@ -75,7 +75,6 @@ typedef struct gmx_nbsearch {
     int  cell_nalloc;
 
     int  *a;
-    rvec *x;
     real *bb;
     int  nc_nalloc;
 
@@ -95,14 +94,13 @@ void gmx_nbsearch_init(gmx_nbsearch_t * nbs)
     (*nbs)->cell        = NULL;
     (*nbs)->cell_nalloc = 0;
     (*nbs)->a           = NULL;
-    (*nbs)->x           = NULL;
     (*nbs)->bb          = NULL;
     (*nbs)->nc_nalloc   = 0;
     (*nbs)->sort_work   = NULL;
     (*nbs)->sort_work_nalloc = 0;
 }
 
-static void set_grid_size_xy(gmx_nbsearch_t nbs,int n,matrix box)
+static int set_grid_size_xy(gmx_nbsearch_t nbs,int n,matrix box)
 {
     real adens,tlen,nc_max;
 
@@ -137,7 +135,6 @@ static void set_grid_size_xy(gmx_nbsearch_t nbs,int n,matrix box)
     {
         nbs->nc_nalloc = over_alloc_large(nc_max);
         srenew(nbs->a,nbs->nc_nalloc*nbs->napc);
-        srenew(nbs->x,nbs->nc_nalloc*nbs->napc);
         srenew(nbs->bb,nbs->nc_nalloc*NNBSBB);
     }
 
@@ -145,6 +142,8 @@ static void set_grid_size_xy(gmx_nbsearch_t nbs,int n,matrix box)
     nbs->sy = box[YY][YY]/nbs->ncy;
     nbs->inv_sx = 1/nbs->sx;
     nbs->inv_sy = 1/nbs->sy;
+
+    return nc_max;
 }
 
 #define SORT_GRID_OVERSIZE 2
@@ -220,7 +219,7 @@ static void sort_column(int *a,int n,rvec *x,real invh,int nsort,int *sort)
     }
 }
 
-static void calc_bounding_box(int nc,int napc,rvec *x,real *bb)
+static void calc_bounding_box(int nc,int napc,int stride,real *x,real *bb)
 {
     int  i,c,j,cbb0;
     real xl,xh,yl,yh,zl,zh;
@@ -228,22 +227,22 @@ static void calc_bounding_box(int nc,int napc,rvec *x,real *bb)
     i = 0;
     for(c=0; c<nc; c++)
     {
-        xl = x[i][XX];
-        xh = x[i][XX];
-        yl = x[i][YY];
-        yh = x[i][YY];
-        zl = x[i][ZZ];
-        zh = x[i][ZZ];
-        i++;
+        xl = x[i+XX];
+        xh = x[i+XX];
+        yl = x[i+YY];
+        yh = x[i+YY];
+        zl = x[i+ZZ];
+        zh = x[i+ZZ];
+        i += stride;
         for(j=1; j<napc; j++)
         {
-            xl = min(xl,x[i][XX]);
-            xh = max(xh,x[i][XX]);
-            yl = min(yl,x[i][YY]);
-            yh = max(yh,x[i][YY]);
-            zl = min(zl,x[i][ZZ]);
-            zh = max(zh,x[i][ZZ]);
-            i++;
+            xl = min(xl,x[i+XX]);
+            xh = max(xh,x[i+XX]);
+            yl = min(yl,x[i+YY]);
+            yh = max(yh,x[i+YY]);
+            zl = min(zl,x[i+ZZ]);
+            zh = max(zh,x[i+ZZ]);
+            i += stride;
         }
         cbb0 = c*NNBSBB;
         bb[cbb0+0] = xl;
@@ -280,32 +279,67 @@ static void print_bbsizes(FILE *fp,gmx_nbsearch_t nbs,matrix box)
             s[ZZ]*nbs->nc/(nbs->ncx*nbs->ncy*box[ZZ][ZZ]));
 }
 
-static void copy_x_to_nbsx(const int *a,int na,int na_round,rvec *x,rvec *xnb)
+static void copy_x_to_nbsx(const int *a,int na,int na_round,rvec *x,
+                           int stride,real *xnb)
 {
-    int i;
+    int i,j;
 
-    for(i=0; i<na; i++)
+    switch (stride)
     {
-        copy_rvec(x[a[i]],xnb[i]);
-    }
-    /* Complete the partially filled last cell with copies of the last element.
-     * This simplifies the bounding box calculation and avoid
-     * numerical issues with atoms that are coincidentally close.
-     */
-    for(; i<na_round; i++)
-    {
-        copy_rvec(xnb[na-1],xnb[i]);
+    case 3:
+        j = 0;
+        for(i=0; i<na; i++)
+        {
+            xnb[j++] = x[a[i]][XX];
+            xnb[j++] = x[a[i]][YY];
+            xnb[j++] = x[a[i]][YY];
+        }
+        /* Complete the partially filled last cell with copies of the last element.
+         * This simplifies the bounding box calculation and avoid
+         * numerical issues with atoms that are coincidentally close.
+         */
+        for(; i<na_round; i++)
+        {
+            xnb[j++] = x[a[na-1]][XX];
+            xnb[j++] = x[a[na-1]][YY];
+            xnb[j++] = x[a[na-1]][ZZ];
+        }
+        break;
+    case 4:
+        j = 0;
+        for(i=0; i<na; i++)
+        {
+            xnb[j++] = x[a[i]][XX];
+            xnb[j++] = x[a[i]][YY];
+            xnb[j++] = x[a[i]][ZZ];
+            j++;
+        }
+        /* Complete the partially filled last cell with copies of the last element.
+         * This simplifies the bounding box calculation and avoid
+         * numerical issues with atoms that are coincidentally close.
+         */
+        for(; i<na_round; i++)
+        {
+            xnb[j++] = x[a[na-1]][XX];
+            xnb[j++] = x[a[na-1]][YY];
+            xnb[j++] = x[a[na-1]][ZZ];
+            j++;
+        }
+        break;
+    default:
+        gmx_incons("Unsupported stride");
     }
 }
 
 static void calc_cell_indices(gmx_nbsearch_t nbs,
-                              matrix box,int n,rvec *x)
+                              matrix box,int n,rvec *x,
+                              gmx_nb_atomdata_t *nbat)
 {
     int  i;
     int  cx,cy,ncz_max,ncz;
     int  na,ash;
     int  *axy;
-    rvec *xnb;
+    real *xnb;
 
     for(i=0; i<nbs->ncx*nbs->ncy; i++)
     {
@@ -376,14 +410,15 @@ static void calc_cell_indices(gmx_nbsearch_t nbs,
         ncz = nbs->cxy_ind[i+1] - nbs->cxy_ind[i];
         ash = nbs->cxy_ind[i]*nbs->napc;
         axy = nbs->a + ash;
-        xnb = nbs->x + ash;
+        xnb = nbat->x + ash*nbat->xstride;
 
         sort_column(axy,na,x,ncz*nbs->napc*SORT_GRID_OVERSIZE/box[ZZ][ZZ],
                     ncz*nbs->napc*SGSF,nbs->sort_work);
 
-        copy_x_to_nbsx(axy,na,ncz*nbs->napc,x,xnb);
+        copy_x_to_nbsx(axy,na,ncz*nbs->napc,x,nbat->xstride,nbat->x);
 
-        calc_bounding_box(ncz,nbs->napc,xnb,nbs->bb+nbs->cxy_ind[i]*NNBSBB);
+        calc_bounding_box(ncz,nbs->napc,nbat->xstride,nbat->x,
+                          nbs->bb+nbs->cxy_ind[i]*NNBSBB);
     }
 
     if (debug)
@@ -392,13 +427,27 @@ static void calc_cell_indices(gmx_nbsearch_t nbs,
     }
 }
 
-void gmx_nbsearch_put_on_grid(gmx_nbsearch_t nbs,
-                              int ePBC,matrix box,int n,rvec *x)
+static void gmx_nb_atomdata_realloc(gmx_nb_atomdata_t *nbat,int n)
 {
+    srenew(nbat->type,n);
+    if (nbat->xstride == 3)
+    {
+        srenew(nbat->q,n);
+    }
+    srenew(nbat->x,n*nbat->xstride);
+    nbat->nalloc = n;
+}
+
+void gmx_nbsearch_put_on_grid(gmx_nbsearch_t nbs,
+                              int ePBC,matrix box,int n,rvec *x,
+                              gmx_nb_atomdata_t *nbat)
+{
+    int nc_max;
+
     nbs->ePBC = ePBC;
     copy_mat(box,nbs->box);
 
-    set_grid_size_xy(nbs,n,nbs->box);
+    nc_max = set_grid_size_xy(nbs,n,nbs->box);
 
     if (n > nbs->cell_nalloc)
     {
@@ -406,7 +455,12 @@ void gmx_nbsearch_put_on_grid(gmx_nbsearch_t nbs,
         srenew(nbs->cell,nbs->cell_nalloc);
     }
 
-    calc_cell_indices(nbs,box,n,x);
+    if (nc_max > nbat->nalloc)
+    {
+        gmx_nb_atomdata_realloc(nbat,nc_max);
+    }
+
+    calc_cell_indices(nbs,box,n,x,nbat);
 }
 
 static void get_cell_range(real b0,real b1,int nc,real s,real invs,
@@ -538,6 +592,7 @@ void gmx_nblist_init(gmx_nblist_t *nbl)
     nbl->nlist       = 0;
     nbl->list        = NULL;
     nbl->list_nalloc = 0;
+    nbl->ncj         = 0;
     nbl->cj          = NULL;
     nbl->cj_nalloc   = 0;
 }
@@ -790,14 +845,24 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,real rl,
             }
         }
     }
+
+    nbl->ncj = nbl->list[nbl->nlist-1].jind_end;
     
     if (debug)
     {
-        int ncp;
-        ncp = nbl->list[nbl->nlist-1].jind_end;
         fprintf(debug,"nbl napc %d rl %g ncp %d per cell %.1f atoms %.1f ratio %.2f\n",
-                nbl->napc,rl,ncp,ncp/(double)nbs->nc,
-                ncp/(double)nbs->nc*nbs->napc,
-                ncp/(double)nbs->nc*nbs->napc/(4.0/3.0*M_PI*rl*rl*rl*nbs->nc*nbs->napc/det(box)));
+                nbl->napc,rl,nbl->ncj,nbl->ncj/(double)nbs->nc,
+                nbl->ncj/(double)nbs->nc*nbs->napc,
+                nbl->ncj/(double)nbs->nc*nbs->napc/(4.0/3.0*M_PI*rl*rl*rl*nbs->nc*nbs->napc/det(box)));
     }
+}
+
+void gmx_nb_atomdata_init(gmx_nb_atomdata_t *nbat,int xstride)
+{
+    nbat->natoms  = 0;
+    nbat->type    = NULL;
+    nbat->q       = NULL;
+    nbat->xstride = xstride;
+    nbat->x       = NULL;
+    nbat->nalloc  = 0;
 }

@@ -45,7 +45,8 @@ void gmx_nbsearch_init(gmx_nbsearch_t * nbs);
 
 /* Put the atoms on the neighborsearching grid */
 void gmx_nbsearch_put_on_grid(gmx_nbsearch_t nbs,
-                              int ePBC,matrix box,int n,rvec *x);
+                              int ePBC,matrix box,int n,rvec *x,
+                              gmx_nb_atomdata_t *nbat);
 
 /* Initialize a neighbor list data structure */
 void gmx_nblist_init(gmx_nblist_t * nbl);
@@ -53,6 +54,9 @@ void gmx_nblist_init(gmx_nblist_t * nbl);
 /* Make a neighborlist with cut-off rl, store it in nbl */
 void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,real rl,
                               gmx_nblist_t *nbl);
+
+/* Initialize the non-bonded atom data structure with stride xstride for x */
+void gmx_nb_atomdata_init(gmx_nb_atomdata_t *nbat,int xstride);
 
 #ifdef __cplusplus
 }
