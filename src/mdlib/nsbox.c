@@ -597,6 +597,49 @@ void gmx_nblist_init(gmx_nblist_t *nbl)
     nbl->cj_nalloc   = 0;
 }
 
+static void print_nblist_statistics(FILE *fp,const gmx_nblist_t *nbl,
+                                    const gmx_nbsearch_t nbs,real rl)
+{
+    int *count;
+    int lmax,i,j,cjp,cj,l;
+    double sl;
+
+    fprintf(fp,"nbl napc %d rl %g ncp %d per cell %.1f atoms %.1f ratio %.2f\n",
+            nbl->napc,rl,nbl->ncj,nbl->ncj/(double)nbs->nc,
+            nbl->ncj/(double)nbs->nc*nbs->napc,
+            nbl->ncj/(double)nbs->nc*nbs->napc/(4.0/3.0*M_PI*rl*rl*rl*nbs->nc*nbs->napc/det(nbs->box)));
+
+    snew(count,nbs->nc);
+    lmax = 0;
+    for(i=0; i<nbl->nlist; i++) {
+        l = 0;
+        cjp = -1;
+        for(j=nbl->list[i].jind_start; j<nbl->list[i].jind_end; j++)
+        {
+            cj = nbl->cj[j];
+            if (cj != cjp + 1)
+            {
+                count[l]++;
+                lmax = max(lmax,l);
+                l = 0;
+            }
+            l++;
+            cjp = cj;
+        }
+        count[l]++;
+    }
+    fprintf(fp,"Series");
+    sl = 0;
+    for(l=1; l<=lmax; l++)
+    {
+        fprintf(fp," %d %.1f%%",l,100*count[l]/(double)nbl->ncj);
+        sl += l*l*count[l];
+    }
+    fprintf(fp,"\n");
+    fprintf(fp,"Weighted average series size: %.1f\n",sl/nbl->ncj);
+    sfree(count);
+}
+
 void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,real rl,
                               gmx_nblist_t *nbl)
 {
@@ -850,10 +893,7 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,real rl,
     
     if (debug)
     {
-        fprintf(debug,"nbl napc %d rl %g ncp %d per cell %.1f atoms %.1f ratio %.2f\n",
-                nbl->napc,rl,nbl->ncj,nbl->ncj/(double)nbs->nc,
-                nbl->ncj/(double)nbs->nc*nbs->napc,
-                nbl->ncj/(double)nbs->nc*nbs->napc/(4.0/3.0*M_PI*rl*rl*rl*nbs->nc*nbs->napc/det(box)));
+        print_nblist_statistics(debug,nbl,nbs,rl);
     }
 }
 
