@@ -384,6 +384,8 @@ static void calc_cell_indices(gmx_nbsearch_t nbs,
     }
     nbs->nc = nbs->cxy_ind[nbs->ncx*nbs->ncy];
 
+    nbat->natoms = nbs->nc*nbs->napc;
+
     if (debug)
     {
         fprintf(debug,"ns napc %d grid size %d x %d y %d maxz %d\n",
@@ -449,9 +451,9 @@ void gmx_nbsearch_put_on_grid(gmx_nbsearch_t nbs,
 
     nc_max = set_grid_size_xy(nbs,n,nbs->box);
 
-    if (n > nbs->cell_nalloc)
+    if (nc_max > nbs->cell_nalloc)
     {
-        nbs->cell_nalloc = over_alloc_large(n);
+        nbs->cell_nalloc = over_alloc_large(nc_max);
         srenew(nbs->cell,nbs->cell_nalloc);
     }
 
