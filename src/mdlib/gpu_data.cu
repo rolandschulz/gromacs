@@ -14,6 +14,8 @@
 
 /* forward declaration*/
 void destroy_cudata_atoms(t_cudata /*d_data*/);
+void destroy_cudata_nblist(t_cudata /*d_data*/);
+void destroy_cudata_cj(t_cudata /*d_data*/);
 
 void init_cudata_ff(FILE *fplog, 
                     t_cudata *dp_data,
@@ -68,24 +70,44 @@ void init_cudata_ff(FILE *fplog,
 
     /* initilize to NULL all data structures that might need reallocation 
        in init_cudata_atoms */
-    d_data->x = NULL;
-    d_data->f = NULL;
+    d_data->xq              = NULL;
+    d_data->f               = NULL;
     /* size -1 just means that it has not been initialized yet */
-    d_data->natoms = -1;
-    d_data->nalloc = -1;
+    d_data->natoms          = -1;
+    d_data->nalloc          = -1;
+    d_data->nlist           = -1;
+    d_data->nblist_nalloc   = -1;
+    d_data->ncj             = -1;
+    d_data->cj_nalloc       = -1;
+    d_data->napc            = -1;
+
     *dp_data = d_data;
 }
 
 /* natoms gets the value of fr->natoms_force */
-void init_cudata_atoms(t_cudata d_data,
-                        const t_mdatoms *mdatoms,
-                        int natoms)
+void init_cudata_atoms(t_cudata d_data, gmx_nb_atomdata_t *atomdata, gmx_nblist_t *nblist)
 {
     cudaError_t stat;
-    int         nalloc;
+    int         nalloc, nblist_nalloc, cj_nalloc;
+    int         natoms  = atomdata->natoms;
+    int         nlist   = nblist->nlist;
+    int         ncj     = nblist->ncj;
+   
+    if (d_data->napc < 0)
+    {
+        d_data->napc = nblist->napc;
+    }
+    else
+    {
+        if (d_data->napc != nblist->napc)
+        {
+            gmx_fatal(FARGS, "Internal error: the #atoms per cell has changed (from %d to %d)",
+                    d_data->nblist, nblist->napc);
+        }
+    }
 
     /* need to reallocate if we have to copy more atoms than the amount of space
-       available and only allocate if we haven't initilzed yet aka d_data->natoms == -1 */
+       available and only allocate if we haven't initilzed yet, i.e d_data->natoms == -1 */
     if (natoms > d_data->nalloc)
     {
         nalloc = natoms * 1.2 + 100;
@@ -97,27 +119,63 @@ void init_cudata_atoms(t_cudata d_data,
         }
         
         stat = cudaMalloc((void **)&d_data->f, nalloc*sizeof(*(d_data->f)));
-        CU_RET_ERR(stat, "cudaMalloc failed on d_data->f");           
-        
-        stat = cudaMalloc((void **)&d_data->x, nalloc*sizeof(*(d_data->x)));
-        CU_RET_ERR(stat, "cudaMalloc failed on d_data->x");
-            
+        CU_RET_ERR(stat, "cudaMalloc failed on d_data->f");                   
+        stat = cudaMalloc((void **)&d_data->xq, nalloc*sizeof(*(d_data->xq)));
+        CU_RET_ERR(stat, "cudaMalloc failed on d_data->xq");            
         stat = cudaMalloc((void **)&d_data->atom_types, nalloc*sizeof(*(d_data->atom_types)));
         CU_RET_ERR(stat, "cudaMalloc failed on d_data->atom_types"); 
 
-        stat = cudaMalloc((void **)&d_data->charges, nalloc*sizeof(*(d_data->charges)));
-        CU_RET_ERR(stat, "cudaMalloc failed on d_data->charges");
-
         d_data->nalloc = nalloc;
     }
-
-    upload_cudata(d_data->atom_types, mdatoms->typeA, natoms*sizeof(*(d_data->atom_types)));
-    upload_cudata(d_data->charges, mdatoms->chargeA, natoms*sizeof(*(d_data->charges)));
-
+    printf(">>> 1\n");
+    upload_cudata(d_data->atom_types, atomdata->type, natoms*sizeof(*(d_data->atom_types)));
+    printf(">>> 2\n");
     /* XXX for the moment we just set all 8 values to the same value... 
-       ATM not, we'll do that later :) */    
+       ATM not, we'll do that later */    
     d_data->natoms = natoms;
+
+    if (nlist > d_data->nblist_nalloc) 
+    {
+        nblist_nalloc = nlist * 1.2 + 100; // FIXME
+
+        /* free up first if the arrays have already been initialized */
+        if (d_data->nblist_nalloc != -1)
+        {
+            destroy_cudata_nblist(d_data);                
+        }
+
+        stat = cudaMalloc((void **)&d_data->nblist, nblist_nalloc*sizeof(*(d_data->nblist)));
+        CU_RET_ERR(stat, "cudaMalloc failed on d_data->nblist");           
+
+        d_data->nblist_nalloc = nblist_nalloc;
+    }
+    printf(">>> 3\n");
+    //printf("~~~>%s\n", cudaGetErrorString(cudaPeekAtLastError()));
+    upload_cudata(d_data->nblist, nblist->list, nlist*sizeof(*(d_data->nblist)));
+    printf(">>> 4\n");
+    d_data->nlist = nlist;
+
+    if (ncj > d_data->ncj) 
+    {
+        cj_nalloc = ncj * 1.2 + 100; // FIXME
+
+        /* free up first if the arrays have already been initialized */
+        if (d_data->cj_nalloc != -1)
+        {
+            destroy_cudata_cj(d_data);                
+        }
+
+        stat = cudaMalloc((void **)&d_data->cj, cj_nalloc*sizeof(*(d_data->cj)));
+        CU_RET_ERR(stat, "cudaMalloc failed on d_data->nblist");    
+
+        d_data->cj_nalloc = cj_nalloc;
+    }
+    printf(">>> 5\n");
+    upload_cudata(d_data->cj, nblist->cj, ncj*sizeof(*(d_data->cj)));
+    printf(">>> 6\n");
+    d_data->ncj = ncj;
 }
+
 
 void destroy_cudata(FILE *fplog, t_cudata d_data)
 {
@@ -140,20 +198,39 @@ void destroy_cudata_atoms(t_cudata d_data)
 
     stat = cudaFree(d_data->f);
     CU_RET_ERR(stat, "cudaFree failed on d_data->f");
-    stat = cudaFree(d_data->x);   
-    CU_RET_ERR(stat, "cudaFree failed on d_data->x");
+    stat = cudaFree(d_data->xq);   
+    CU_RET_ERR(stat, "cudaFree failed on d_data->xq");
     stat = cudaFree(d_data->atom_types);   
     CU_RET_ERR(stat, "cudaFree failed on d_data->atom_types");
-    stat = cudaFree(d_data->charges);
-    CU_RET_ERR(stat, "cudaFree failed on d_data->charges");
+    d_data->natoms = -1;
 }
 
-int cu_upload_X(t_cudata d_data, rvec h_x[])
+void destroy_cudata_nblist(t_cudata d_data)
 {
-    return upload_cudata(d_data->x, h_x, d_data->natoms*sizeof(*d_data->x));
+    cudaError_t stat;
+
+    stat = cudaFree(d_data->nblist);
+    CU_RET_ERR(stat, "cudaFree failed on d_data->nblist");
+    d_data->nlist = -1;
+}
+
+void destroy_cudata_cj(t_cudata d_data)
+{
+    cudaError_t stat;
+
+    stat = cudaFree(d_data->cj);
+    CU_RET_ERR(stat, "cudaFree failed on d_data->cj");
+    d_data->ncj = -1;
+}
+
+int cu_upload_X(t_cudata d_data, real *h_x) 
+{
+    printf(">> uploading X\n");
+    return upload_cudata(d_data->xq, h_x, d_data->natoms*sizeof(*d_data->xq));
 }
 
 int cu_download_F(rvec h_f[], t_cudata d_data)
 {
+    printf(">> downloading F\n");
     return download_cudata(h_f, d_data->f, d_data->natoms*sizeof(*h_f));
 }

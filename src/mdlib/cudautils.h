@@ -50,7 +50,6 @@
 
 
 #define GRID_MAX_DIM        65535
-#define NB_DEFAULT_THREADS  256
 
 
 #ifdef __cplusplus
