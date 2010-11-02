@@ -61,11 +61,14 @@ typedef struct {
 } gmx_nblist_t;
 
 typedef struct {
+    int  ntype;   /* The number of different atom types                 */
+    real *nbfp;   /* The Lennard-Jones C6 and C12 params, size ntype^2  */
     int  natoms;  /* Number of atoms                                    */
     int  *type;   /* Atom types                                         */
     real *q;      /* Charges, could be NULL if incorporated in x        */
     int  xstride; /* stride for a coordinate in x (usually 3 or 4)      */
     real *x;      /* x and possibly q, size natoms*xstride              */
+    real *f;      /* f, size natoms*xstride                             */
     int  nalloc;  /* Allocation size of all arrays (time xstride for x) */
 } gmx_nb_atomdata_t;
 

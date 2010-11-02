@@ -635,6 +635,8 @@ void do_force(FILE *fplog,t_commrec *cr,
 
             gmx_nbsearch_make_nblist(fr->nbs,fr->rlist+0.15,&fr->nbl);
 
+            gmx_nb_atomdata_set_atomtypes(fr->nbat,fr->nbs,mdatoms->typeA);
+
 #ifdef GMX_GPU
             /* initialize the gpu atom datastructures */
             if (fr->useGPU)
@@ -642,7 +644,6 @@ void do_force(FILE *fplog,t_commrec *cr,
                 init_cudata_atoms(fr->gpu_data, mdatoms, fr->natoms_force);
             }
 #endif
-
         }
         wallcycle_stop(wcycle,ewcNS);
     }

@@ -83,10 +83,10 @@ typedef struct gmx_nbsearch {
 } gmx_nbsearch_t_t;
 
 
-void gmx_nbsearch_init(gmx_nbsearch_t * nbs)
+void gmx_nbsearch_init(gmx_nbsearch_t * nbs,int natoms_per_cell)
 {
     snew(*nbs,1);
-    (*nbs)->napc = 4;
+    (*nbs)->napc = natoms_per_cell;
 
     (*nbs)->cxy_na      = NULL;
     (*nbs)->cxy_ind     = NULL;
@@ -279,8 +279,25 @@ static void print_bbsizes(FILE *fp,gmx_nbsearch_t nbs,matrix box)
             s[ZZ]*nbs->nc/(nbs->ncx*nbs->ncy*box[ZZ][ZZ]));
 }
 
-static void copy_x_to_nbsx(const int *a,int na,int na_round,rvec *x,
-                           int stride,real *xnb)
+static void copy_int_to_nbat_int(const int *a,int na,int na_round,
+                                 const int *in,int fill,int *innb)
+{
+    int i,j;
+
+    j = 0;
+    for(i=0; i<na; i++)
+    {
+        innb[j++] = in[a[i]];
+    }
+    /* Complete the partially filled last cell with fill */
+    for(; i<na_round; i++)
+    {
+        innb[j++] = fill;
+    }
+}
+
+static void copy_rvec_to_nbat_rvec(const int *a,int na,int na_round,
+                                   rvec *x,int stride,real *xnb)
 {
     int i,j;
 
@@ -417,7 +434,7 @@ static void calc_cell_indices(gmx_nbsearch_t nbs,
         sort_column(axy,na,x,ncz*nbs->napc*SORT_GRID_OVERSIZE/box[ZZ][ZZ],
                     ncz*nbs->napc*SGSF,nbs->sort_work);
 
-        copy_x_to_nbsx(axy,na,ncz*nbs->napc,x,nbat->xstride,nbat->x);
+        copy_rvec_to_nbat_rvec(axy,na,ncz*nbs->napc,x,nbat->xstride,nbat->x);
 
         calc_bounding_box(ncz,nbs->napc,nbat->xstride,nbat->x,
                           nbs->bb+nbs->cxy_ind[i]*NNBSBB);
@@ -437,6 +454,7 @@ static void gmx_nb_atomdata_realloc(gmx_nb_atomdata_t *nbat,int n)
         srenew(nbat->q,n);
     }
     srenew(nbat->x,n*nbat->xstride);
+    srenew(nbat->f,n*nbat->xstride);
     nbat->nalloc = n;
 }
 
@@ -451,9 +469,9 @@ void gmx_nbsearch_put_on_grid(gmx_nbsearch_t nbs,
 
     nc_max = set_grid_size_xy(nbs,n,nbs->box);
 
-    if (nc_max > nbs->cell_nalloc)
+    if (n > nbs->cell_nalloc)
     {
-        nbs->cell_nalloc = over_alloc_large(nc_max);
+        nbs->cell_nalloc = over_alloc_large(n);
         srenew(nbs->cell,nbs->cell_nalloc);
     }
 
@@ -899,12 +917,56 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,real rl,
     }
 }
 
-void gmx_nb_atomdata_init(gmx_nb_atomdata_t *nbat,int xstride)
+void gmx_nb_atomdata_init(gmx_nb_atomdata_t *nbat,int xstride,
+                          int ntype,const real *nbfp)
 {
+    int i,j;
+
+    if (debug)
+    {
+        fprintf(debug,"There are %d atom types in the system, adding one for gmx_nb_atomdata_t\n",ntype);
+    }
+    nbat->ntype = ntype + 1;
+    snew(nbat->nbfp,nbat->ntype*nbat->ntype*2);
+    for(i=0; i<nbat->ntype; i++)
+    {
+        for(j=0; j<nbat->ntype; j++)
+        {
+            if (i < ntype && j < ntype)
+            {
+                nbat->nbfp[(i*nbat->ntype+j)*2  ] = nbfp[(i*ntype+j)*2  ];
+                nbat->nbfp[(i*nbat->ntype+j)*2+1] = nbfp[(i*ntype+j)*2+1];
+            }
+            else
+            {
+                /* Add zero parameters for the additional dummy atom type */
+                nbat->nbfp[(i*nbat->ntype+j)*2  ] = 0;
+                nbat->nbfp[(i*nbat->ntype+j)*2+1] = 0;
+            }
+        }
+    }
+
     nbat->natoms  = 0;
     nbat->type    = NULL;
     nbat->q       = NULL;
     nbat->xstride = xstride;
     nbat->x       = NULL;
     nbat->nalloc  = 0;
+}
+
+void gmx_nb_atomdata_set_atomtypes(gmx_nb_atomdata_t *nbat,
+                                   const gmx_nbsearch_t nbs,
+                                   const int *type)
+{
+    int i,ncz,ash;
+
+    /* Loop over all columns and copy and fill */
+    for(i=0; i<nbs->ncx*nbs->ncy; i++)
+    {
+        ncz = nbs->cxy_ind[i+1] - nbs->cxy_ind[i];
+        ash = nbs->cxy_ind[i]*nbs->napc;
+
+        copy_int_to_nbat_int(nbs->a+ash,nbs->cxy_na[i],ncz*nbs->napc,
+                             type,nbat->ntype-1,nbat->type+ash);
+    }
 }

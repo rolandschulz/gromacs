@@ -1857,10 +1857,10 @@ void init_forcerec(FILE *fp,
 
     if (fr->useGPU || fr->emulateGPU)
     {
-        gmx_nbsearch_init(&fr->nbs);
+        gmx_nbsearch_init(&fr->nbs,32);
         gmx_nblist_init(&fr->nbl);
         snew(fr->nbat,1);
-        gmx_nb_atomdata_init(fr->nbat,4);
+        gmx_nb_atomdata_init(fr->nbat,4,fr->ntype,fr->nbfp);
     }
 }
 
