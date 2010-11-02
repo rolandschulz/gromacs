@@ -475,9 +475,9 @@ void gmx_nbsearch_put_on_grid(gmx_nbsearch_t nbs,
         srenew(nbs->cell,nbs->cell_nalloc);
     }
 
-    if (nc_max > nbat->nalloc)
+    if (nc_max*nbs->napc > nbat->nalloc)
     {
-        gmx_nb_atomdata_realloc(nbat,nc_max);
+        gmx_nb_atomdata_realloc(nbat,nc_max*nbs->napc);
     }
 
     calc_cell_indices(nbs,box,n,x,nbat);
