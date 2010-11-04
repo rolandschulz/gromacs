@@ -52,6 +52,8 @@ typedef struct {
 typedef struct {
     int      napc;         /* Number of atoms per cell             */
     gmx_bool TwoWay;       /* Each pair once or twice in the list? */
+    real     rcut;         /* The cut-off distance                 */
+    real     rlist;        /* The radius for constructing the list */
     int      nlist;        /* The number of lists                  */
     gmx_nbs_jlist_t *list; /* The lists                            */
     int      list_nalloc;  /* Allocation size of list              */

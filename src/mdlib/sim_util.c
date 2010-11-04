@@ -87,6 +87,7 @@
 #include "gmx_wallcycle.h"
 #include "genborn.h"
 #include "nsbox.h"
+#include "nsbox_kernel.h"
 
 #ifdef GMX_LIB_MPI
 #include <mpi.h>
@@ -633,9 +634,12 @@ void do_force(FILE *fplog,t_commrec *cr,
             gmx_nbsearch_put_on_grid(fr->nbs,fr->ePBC,box,mdatoms->homenr,x,
                                      fr->nbat);
 
-            gmx_nbsearch_make_nblist(fr->nbs,fr->rlist+0.15,&fr->nbl);
+            gmx_nbsearch_make_nblist(fr->nbs,fr->rlist,fr->rlist+0.15,
+                                     &fr->nbl);
 
             gmx_nb_atomdata_set_atomtypes(fr->nbat,fr->nbs,mdatoms->typeA);
+            
+            gmx_nb_atomdata_set_charges(fr->nbat,fr->nbs,mdatoms->chargeA);
 
 #ifdef GMX_GPU
             /* initialize the gpu atom datastructures */
@@ -805,6 +809,13 @@ void do_force(FILE *fplog,t_commrec *cr,
         else
         {
             /* Emulate */
+            nsbox_generic_kernel(&fr->nbl,fr->nbat,fr,
+                                 0,NULL,
+                                 fr->nbat->f,fr->fshift[0],
+                                 enerd->grpp.ener[egCOULSR],
+                                 fr->bBHAM ?
+                                 enerd->grpp.ener[egBHAMSR] :
+                                 enerd->grpp.ener[egLJSR]);
         }
     
         gmx_nb_atomdata_add_nbat_f_to_f(fr->nbs,fr->nbat,f);

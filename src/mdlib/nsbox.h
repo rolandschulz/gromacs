@@ -51,8 +51,8 @@ void gmx_nbsearch_put_on_grid(gmx_nbsearch_t nbs,
 /* Initialize a neighbor list data structure */
 void gmx_nblist_init(gmx_nblist_t * nbl);
 
-/* Make a neighborlist with cut-off rl, store it in nbl */
-void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,real rl,
+/* Make a neighborlist with radius rlist, store it in nbl */
+void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,real rcut,real rlist,
                               gmx_nblist_t *nbl);
 
 /* Initialize the non-bonded atom data structure with stride xstride for x.
@@ -66,6 +66,11 @@ void gmx_nb_atomdata_init(gmx_nb_atomdata_t *nbat,int xstride,
 void gmx_nb_atomdata_set_atomtypes(gmx_nb_atomdata_t *nbat,
                                    const gmx_nbsearch_t nbs,
                                    const int *type);
+
+/* Copy the charges to the non-bonded atom data structure */
+void gmx_nb_atomdata_set_charges(gmx_nb_atomdata_t *nbat,
+                                 const gmx_nbsearch_t nbs,
+                                 const real *charge);
 
 /* Add the forces stored in nbat to f */
 void gmx_nb_atomdata_add_nbat_f_to_f(const gmx_nbsearch_t nbs,

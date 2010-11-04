@@ -180,7 +180,7 @@ static void sort_column(int *a,int n,rvec *x,real invh,int nsort,int *sort)
         }
         else
         {
-            /* We have mutiple atoms in the same sorting slot.
+            /* We have multiple atoms in the same sorting slot.
              * Sort on real z for minimal bounding box size.
              * There is an extra check for identical z to ensure
              * well-defined output order, independent of input order
@@ -209,6 +209,7 @@ static void sort_column(int *a,int n,rvec *x,real invh,int nsort,int *sort)
             sort[zi] = a[i];
         }
     }
+
     c = 0;
     for(zi=0; zi<nsort; zi++)
     {
@@ -660,7 +661,7 @@ static void print_nblist_statistics(FILE *fp,const gmx_nblist_t *nbl,
     sfree(count);
 }
 
-void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,real rl,
+void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,real rcut,real rlist,
                               gmx_nblist_t *nbl)
 {
     gmx_bool bDomDec;
@@ -686,9 +687,12 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,real rl,
     /* Currently this code only makes two-way lists */
     nbl->TwoWay = TRUE;
 
-    copy_mat(nbs->box,box);
+    nbl->rcut   = rcut;
+    nbl->rlist  = rlist;
 
-    rl2 = rl*rl;
+    rl2 = nbl->rlist*nbl->rlist;
+
+    copy_mat(nbs->box,box);
 
     /* Set the shift range */
     for(d=0; d<DIM; d++)
@@ -913,7 +917,7 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,real rl,
     
     if (debug)
     {
-        print_nblist_statistics(debug,nbl,nbs,rl);
+        print_nblist_statistics(debug,nbl,nbs,rlist);
     }
 }
 
@@ -971,40 +975,71 @@ void gmx_nb_atomdata_set_atomtypes(gmx_nb_atomdata_t *nbat,
     }
 }
 
+void gmx_nb_atomdata_set_charges(gmx_nb_atomdata_t *nbat,
+                                 const gmx_nbsearch_t nbs,
+                                 const real *charge)
+{
+    int  cxy,ncz,ash,na,na_round,i,j;
+    real *q;
+
+    /* Loop over all columns and copy and fill */
+    for(cxy=0; cxy<nbs->ncx*nbs->ncy; cxy++)
+    {
+        ash = nbs->cxy_ind[cxy]*nbs->napc;
+        na  = nbs->cxy_na[cxy];
+        na_round = (nbs->cxy_ind[cxy+1] - nbs->cxy_ind[cxy])*nbs->napc;
+
+        if (nbat->xstride == 4)
+        {
+            q = nbat->x + ash*nbat->xstride + 3;
+            for(i=0; i<na; i++)
+            {
+                *q = charge[nbs->a[ash+i]];
+                q += 4;
+            }
+            /* Complete the partially filled last cell with zeros */
+            for(; i<na_round; i++)
+            {
+                *q = 0;
+                q += 4;
+            }
+        }
+    }
+}
+
 void gmx_nb_atomdata_add_nbat_f_to_f(const gmx_nbsearch_t nbs,
                                      const gmx_nb_atomdata_t *nbat,
                                      rvec *f)
 {
-    int  i_f,cxy,na,j;
+    int  cxy,na,ash,j;
+    const int  *a;
     const real *fnb;
 
     /* Loop over all columns and copy and fill */
-    i_f = 0;
     for(cxy=0; cxy<nbs->ncx*nbs->ncy; cxy++)
     {
-        na = nbs->cxy_na[cxy];
+        na  = nbs->cxy_na[cxy];
+        ash = nbs->cxy_ind[cxy]*nbs->napc;
 
-        fnb = nbat->f + nbs->cxy_ind[cxy]*nbs->napc*nbat->xstride;
+        a   = nbs->a + ash;
+        fnb = nbat->f + ash*nbat->xstride;
 
         switch (nbat->xstride)
         {
         case 3:
             for(j=0; j<na; j++)
             {
-                f[nbs->a[i_f]][XX] += fnb[j++];
-                f[nbs->a[i_f]][YY] += fnb[j++];
-                f[nbs->a[i_f]][ZZ] += fnb[j++];
-                i_f++;
+                f[a[j]][XX] += fnb[j*3];
+                f[a[j]][YY] += fnb[j*3+1];
+                f[a[j]][ZZ] += fnb[j*3+2];
             }
             break;
         case 4:
             for(j=0; j<na; j++)
             {
-                f[nbs->a[i_f]][XX] += fnb[j++];
-                f[nbs->a[i_f]][YY] += fnb[j++];
-                f[nbs->a[i_f]][ZZ] += fnb[j++];
-                j++;
-                i_f++;
+                f[a[j]][XX] += fnb[j*4];
+                f[a[j]][YY] += fnb[j*4+1];
+                f[a[j]][ZZ] += fnb[j*4+2];
             }
             break;
         default:
