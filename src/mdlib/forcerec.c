@@ -1860,7 +1860,10 @@ void init_forcerec(FILE *fp,
         gmx_nblist_init(&fr->nbl);
         snew(fr->nbat,1);
         gmx_nb_atomdata_init(fr->nbat,4,fr->ntype,fr->nbfp);
-        init_cudata_ff(fp, &(fr->gpu_data), fr);
+        if (fr->useGPU)
+        {
+            init_cudata_ff(fp, &(fr->gpu_data), fr);
+        }
     }
 }
 
