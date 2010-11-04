@@ -32,9 +32,17 @@
 
 #define CU_LAUNCH_ERR(msg) \
     do { \
-        cudaError_t status = cudaGetLastError(); \
-        if (status != cudaSuccess) { \
-            gmx_fatal(FARGS, "Error while launching kernel %s: %s\n", msg, cudaGetErrorString(status)); \
+        cudaError_t CU_LAUNCH_ERR_status = cudaGetLastError(); \
+        if (CU_LAUNCH_ERR_status != cudaSuccess) { \
+            gmx_fatal(FARGS, "Error while launching kernel %s: %s\n", msg, cudaGetErrorString(CU_LAUNCH_ERR_status)); \
+        } \
+    } while (0)
+
+#define CU_SYNC_LAUNCH_ERR(msg) \
+    do { \
+        cudaError_t CU_SYNC_LAUNCH_ERR_status = cudaThreadSynchronize(); \
+        if (CU_SYNC_LAUNCH_ERR_status != cudaSuccess) { \
+            gmx_fatal(FARGS, "Error while launching kernel %s: %s\n", msg, cudaGetErrorString(CU_SYNC_LAUNCH_ERR_status)); \
         } \
     } while (0)
 

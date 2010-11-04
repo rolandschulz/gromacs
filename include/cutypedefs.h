@@ -16,7 +16,7 @@ struct cudata
     int         nalloc; /* allocation size for the atom data (xq, f), 
                            when needed it's reallocated to natoms * 20% + 100 buffer zone */ 
     
-    float3  *f;  /* forces, size natoms */
+    float4  *f;  /* forces, size natoms */
     float4  *xq;  /* atom coordinates + charges, size natoms */
 
     int     ntypes; /* number of atom types */

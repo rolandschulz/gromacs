@@ -19,42 +19,51 @@ __global__ void __empty_kernel() {}
 
 inline int calc_nb_blocknr(int nwork_units)
 {
+    /*
     return (nwork_units % NB_DEFAULT_THREADS == 0 ? 
                 nwork_units/NB_DEFAULT_THREADS : 
                 nwork_units/NB_DEFAULT_THREADS + 1);
+    */
+    return nwork_units;
 }
 
 void cu_do_nb(t_cudata d_data)
 {
-    int     nb_blocks = calc_nb_blocknr(d_data->ncj);
+    int     nb_blocks = calc_nb_blocknr(d_data->nlist);
     dim3    dim_block(CELL_SIZE, CELL_SIZE, 1); 
     dim3    dim_grid(nb_blocks, 1, 1); 
+    int     shmem = CELL_SIZE * CELL_SIZE * sizeof(float4); /* force buffer */
 
-    printf("~> Thread block: %dx%dx%d\n~> Grid: %dx%d\n~> #Cells: %d (%d)", 
-        dim_block.x, dim_block.y, dim_block.z, dim_grid.x, dim_grid.y, d_data->ncj, d_data->napc);
+    if (debug)
+    {
+        printf("~> Thread block: %dx%dx%d\n~> Grid: %dx%d\n~> #Cells: %d (%d)\n", 
+            dim_block.x, dim_block.y, dim_block.z, dim_grid.x, dim_grid.y, d_data->ncj, d_data->napc);
+        printf(">> executing nb kernel\n");
+    }
     /* sync nonbonded calculations */
-    printf(">> executing nb kernel\n");
-    k_calc_nb<<<dim_block, dim_grid>>>(*d_data);
-    CU_LAUNCH_ERR("k_calc_nb");
+    k_calc_nb<<<dim_grid, dim_block, shmem>>>(*d_data);
+    CU_SYNC_LAUNCH_ERR("k_calc_nb");
 }
 
-void cu_stream_nb(t_cudata d_data, gmx_nblist_t *nblist, gmx_nb_atomdata_t *nbatom, rvec f[])
+void cu_stream_nb(t_cudata d_data, 
+                  /*const gmx_nblist_t *nblist, */
+                  const gmx_nb_atomdata_t *nbatom)
 {
-    int     nb_blocks = calc_nb_blocknr(d_data->ncj);
+    int     nb_blocks = calc_nb_blocknr(d_data->nlist);
     dim3    dim_block(CELL_SIZE, CELL_SIZE, 1); 
     dim3    dim_grid(nb_blocks, 1, 1); 
-   // int     shmem = 0;
+    int     shmem = CELL_SIZE * CELL_SIZE * sizeof(float4); /* force buffer */
 
     /* async copy HtoD x */
     cudaEventRecord(d_data->start_nb, 0);
     cudaMemcpyAsync(d_data->xq, nbatom->x, d_data->natoms, cudaMemcpyHostToDevice, 0);    
 
     /* async nonbonded calculations */
-    k_calc_nb<<<dim_block, dim_grid, 0>>>(*d_data);
-    CU_LAUNCH_ERR("k_calc_nb");
+    k_calc_nb<<<dim_grid, dim_block, shmem, 0>>>(*d_data);
+    CU_SYNC_LAUNCH_ERR("k_calc_nb");
    
     /* async copy DtoH f */
-    cudaMemcpyAsync(f, d_data->f, d_data->natoms, cudaMemcpyDeviceToHost, 0);
+    cudaMemcpyAsync(nbatom->f, d_data->f, d_data->natoms, cudaMemcpyDeviceToHost, 0);
     cudaEventRecord(d_data->stop_nb, 0);    
 }
 

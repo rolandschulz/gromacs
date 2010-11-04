@@ -645,7 +645,8 @@ void do_force(FILE *fplog,t_commrec *cr,
             /* initialize the gpu atom datastructures */
             if (fr->useGPU)
             {
-                init_cudata_atoms(fr->gpu_data, mdatoms, fr->natoms_force);
+                // FIXME 
+                init_cudata_atoms(fr->gpu_data, fr->nbat, &(fr->nbl));
             }
 #endif
         }
@@ -655,11 +656,14 @@ void do_force(FILE *fplog,t_commrec *cr,
 #ifdef GMX_GPU
     if (fr->useGPU)
     {
+        /* Launch GPU-accelerated nonbonded calculations.
+           Both tocopying /from device and kernel execution is asynchronous */
         wallcycle_start(wcycle,ewcSEND_X_GPU);
-        //cu_upload_X(d_data, x);
-        cu_stream_nb(fr->gpu_data, x, f);
+        cu_stream_nb(fr->gpu_data, fr->nbat);
+
+        //cu_upload_X(d_data, fr->nbat->x);
+        //cu_do_nb(d_data);
         wallcycle_stop(wcycle,ewcSEND_X_GPU);
-        // cu_do_nb(d_data, x, f);
     }
 #endif /* GMX_GPU */
   
@@ -800,7 +804,7 @@ void do_force(FILE *fplog,t_commrec *cr,
     {
         if (fr->useGPU)
         {
-#ifdef GMX_GPU   
+#ifdef GMX_GPU
             wallcycle_start(wcycle,ewcRECV_F_GPU);
             cu_download_F(f, d_data);
             wallcycle_stop(wcycle,ewcRECV_F_GPU);

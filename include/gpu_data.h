@@ -13,8 +13,8 @@ void init_cudata_ff(FILE * /*fplog*/,
                     const t_forcerec * /*fr*/);
 
 void init_cudata_atoms(t_cudata /*d_data*/, 
-                        gmx_nb_atomdata_t * /*atomdata*/, 
-                        gmx_nblist_t *  /*nblist*/);
+                        const gmx_nb_atomdata_t * /*atomdata*/, 
+                        const gmx_nblist_t *  /*nblist*/);
 
 void destroy_cudata(FILE * /*fplog*/, 
                     t_cudata  /*d_data*/);
@@ -22,7 +22,7 @@ void destroy_cudata(FILE * /*fplog*/,
 int cu_upload_X(t_cudata /*d_data*/, 
                  real *h_x);
 
-int cu_download_F(rvec /*h_f*/[], 
+int cu_download_F(real * /*h_f*/, 
                    t_cudata /*d_data*/);
 
 #ifdef __cplusplus

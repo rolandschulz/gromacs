@@ -15,7 +15,7 @@ int download_cudata(void * h_dest, void * d_src, size_t bytes)
     
     if (h_dest == 0 || d_src == 0 || bytes <= 0)
         return -1;
-
+    
     stat = cudaMemcpy(h_dest, d_src, bytes, cudaMemcpyDeviceToHost);
     CU_RET_ERR(stat, "DtoH cudaMemcpy failed");
 
