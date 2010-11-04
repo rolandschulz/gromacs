@@ -296,7 +296,7 @@ static void copy_int_to_nbat_int(const int *a,int na,int na_round,
     }
 }
 
-static void copy_rvec_to_nbat_rvec(const int *a,int na,int na_round,
+static void copy_rvec_to_nbat_real(const int *a,int na,int na_round,
                                    rvec *x,int stride,real *xnb)
 {
     int i,j;
@@ -309,7 +309,7 @@ static void copy_rvec_to_nbat_rvec(const int *a,int na,int na_round,
         {
             xnb[j++] = x[a[i]][XX];
             xnb[j++] = x[a[i]][YY];
-            xnb[j++] = x[a[i]][YY];
+            xnb[j++] = x[a[i]][ZZ];
         }
         /* Complete the partially filled last cell with copies of the last element.
          * This simplifies the bounding box calculation and avoid
@@ -434,9 +434,9 @@ static void calc_cell_indices(gmx_nbsearch_t nbs,
         sort_column(axy,na,x,ncz*nbs->napc*SORT_GRID_OVERSIZE/box[ZZ][ZZ],
                     ncz*nbs->napc*SGSF,nbs->sort_work);
 
-        copy_rvec_to_nbat_rvec(axy,na,ncz*nbs->napc,x,nbat->xstride,nbat->x);
+        copy_rvec_to_nbat_real(axy,na,ncz*nbs->napc,x,nbat->xstride,xnb);
 
-        calc_bounding_box(ncz,nbs->napc,nbat->xstride,nbat->x,
+        calc_bounding_box(ncz,nbs->napc,nbat->xstride,xnb,
                           nbs->bb+nbs->cxy_ind[i]*NNBSBB);
     }
 
@@ -968,5 +968,47 @@ void gmx_nb_atomdata_set_atomtypes(gmx_nb_atomdata_t *nbat,
 
         copy_int_to_nbat_int(nbs->a+ash,nbs->cxy_na[i],ncz*nbs->napc,
                              type,nbat->ntype-1,nbat->type+ash);
+    }
+}
+
+void gmx_nb_atomdata_add_nbat_f_to_f(const gmx_nbsearch_t nbs,
+                                     const gmx_nb_atomdata_t *nbat,
+                                     rvec *f)
+{
+    int  i_f,cxy,na,j;
+    const real *fnb;
+
+    /* Loop over all columns and copy and fill */
+    i_f = 0;
+    for(cxy=0; cxy<nbs->ncx*nbs->ncy; cxy++)
+    {
+        na = nbs->cxy_na[cxy];
+
+        fnb = nbat->f + nbs->cxy_ind[cxy]*nbs->napc*nbat->xstride;
+
+        switch (nbat->xstride)
+        {
+        case 3:
+            for(j=0; j<na; j++)
+            {
+                f[nbs->a[i_f]][XX] += fnb[j++];
+                f[nbs->a[i_f]][YY] += fnb[j++];
+                f[nbs->a[i_f]][ZZ] += fnb[j++];
+                i_f++;
+            }
+            break;
+        case 4:
+            for(j=0; j<na; j++)
+            {
+                f[nbs->a[i_f]][XX] += fnb[j++];
+                f[nbs->a[i_f]][YY] += fnb[j++];
+                f[nbs->a[i_f]][ZZ] += fnb[j++];
+                j++;
+                i_f++;
+            }
+            break;
+        default:
+            gmx_incons("Unsupported stride");
+        }
     }
 }

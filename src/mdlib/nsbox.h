@@ -66,6 +66,11 @@ void gmx_nb_atomdata_init(gmx_nb_atomdata_t *nbat,int xstride,
 void gmx_nb_atomdata_set_atomtypes(gmx_nb_atomdata_t *nbat,
                                    const gmx_nbsearch_t nbs,
                                    const int *type);
+
+/* Add the forces stored in nbat to f */
+void gmx_nb_atomdata_add_nbat_f_to_f(const gmx_nbsearch_t nbs,
+                                     const gmx_nb_atomdata_t *nbat,
+                                     rvec *f);
 #ifdef __cplusplus
 }
 #endif

@@ -792,17 +792,24 @@ void do_force(FILE *fplog,t_commrec *cr,
         }
     }
  
- #ifdef GMX_GPU   
-    if (fr->useGPU)
+    if (fr->useGPU || fr->emulateGPU)
     {
-        wallcycle_start(wcycle,ewcRECV_F_GPU);
-        //cu_download_F(f, d_data);
-        cu_blockwait_nb(fr->gpu_data, &gpu_nb_time);    
-        wallcycle_stop(wcycle,ewcRECV_F_GPU);
-    }
+        if (fr->useGPU)
+        {
+#ifdef GMX_GPU   
+            wallcycle_start(wcycle,ewcRECV_F_GPU);
+            cu_download_F(f, d_data);
+            wallcycle_stop(wcycle,ewcRECV_F_GPU);
 #endif  /* GMX_GPU */
-   
-           
+        }
+        else
+        {
+            /* Emulate */
+        }
+    
+        gmx_nb_atomdata_add_nbat_f_to_f(fr->nbs,fr->nbat,f);
+    }
+
     if (bDoForces)
     {
         if (IR_ELEC_FIELD(*inputrec))
