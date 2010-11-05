@@ -74,6 +74,7 @@
 #endif
 
 #ifdef GMX_GPU
+#include "cutypedefs_ext.h"
 #include "gpu_data.h"
 #endif
 
@@ -1864,9 +1865,8 @@ void init_forcerec(FILE *fp,
 
     if (fr->useGPU || fr->emulateGPU)
     {
-        gmx_nbsearch_init(&fr->nbs,32);
-        gmx_nblist_init(&fr->nbl,
-                        NULL,NULL);
+        gmx_nbsearch_init(&fr->nbs,GPU_NS_CELL_SIZE);
+        gmx_nblist_init(&fr->nbl);
         snew(fr->nbat,1);
         gmx_nb_atomdata_init(fr->nbat,4,fr->ntype,fr->nbfp,
                              NULL,NULL);

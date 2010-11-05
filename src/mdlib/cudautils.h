@@ -30,31 +30,38 @@
         } \
     } while (0)
 
-#define CU_LAUNCH_ERR(msg) \
+#define CU_CHECK_PREV_ERR() \
     do { \
-        cudaError_t CU_LAUNCH_ERR_status = cudaGetLastError(); \
-        if (CU_LAUNCH_ERR_status != cudaSuccess) { \
-            gmx_fatal(FARGS, "Error while launching kernel %s: %s\n", msg, cudaGetErrorString(CU_LAUNCH_ERR_status)); \
+        cudaError_t _CU_CHECK_PREV_ERR_status = cudaGetLastError(); \
+        if (_CU_CHECK_PREV_ERR_status != cudaSuccess) { \
+            gmx_warning("Just caught a previously occured CUDA error (%s), will try to continue.", cudaGetErrorString(_CU_CHECK_PREV_ERR_status)); \
         } \
     } while (0)
 
-#define CU_SYNC_LAUNCH_ERR(msg) \
+#define CU_LAUNCH_ERR(msg) \
     do { \
-        cudaError_t CU_SYNC_LAUNCH_ERR_status = cudaThreadSynchronize(); \
-        if (CU_SYNC_LAUNCH_ERR_status != cudaSuccess) { \
-            gmx_fatal(FARGS, "Error while launching kernel %s: %s\n", msg, cudaGetErrorString(CU_SYNC_LAUNCH_ERR_status)); \
+        cudaError_t _CU_LAUNCH_ERR_status = cudaGetLastError(); \
+        if (_CU_LAUNCH_ERR_status != cudaSuccess) { \
+            gmx_fatal(FARGS, "Error while launching kernel %s: %s\n", msg, cudaGetErrorString(_CU_LAUNCH_ERR_status)); \
+        } \
+    } while (0)
+
+#define CU_LAUNCH_ERR_SYNC(msg) \
+    do { \
+        cudaError_t _CU_SYNC_LAUNCH_ERR_status = cudaThreadSynchronize(); \
+        if (_CU_SYNC_LAUNCH_ERR_status != cudaSuccess) { \
+            gmx_fatal(FARGS, "Error while launching kernel %s: %s\n", msg, cudaGetErrorString(_CU_SYNC_LAUNCH_ERR_status)); \
         } \
     } while (0)
 
 #else
 
-#define CU_RET_ERR(status, s) do { } while (0)
-
-#define CU_LAUNCH_ERR(status, s) do { } while (0)
+#define CU_RET_ERR(status, msg) do { } while (0)
+#define CU_CHECK_PREV_ERR()     do { } while (0)
+#define CU_LAUNCH_ERR(msg)      do { } while (0)
+#define CU_LAUNCH_ERR_SINC(msg) do { } while (0)
 
 #endif /* CHECK_CUDA_ERRORS */ 
-
-
 
 
 #define GRID_MAX_DIM        65535
@@ -63,6 +70,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
 int download_cudata(void * /*h_dest*/, void * /*d_src*/, size_t /*bytes*/);
 
 int download_cudata_alloc(void ** /*h_dest*/, void * /*d_src*/, size_t /*bytes*/);
@@ -71,13 +79,15 @@ int upload_cudata(void * /*d_dest*/, void * /*h_src*/, size_t /*bytes*/);
 
 int upload_cudata_alloc(void ** /*d_dest*/, void * /*h_src*/, size_t /*bytes*/);
 
-void * pmalloc(size_t /*bytes*/, FILE * /*fplog*/);
+void * pmalloc(size_t /*bytes*/); 
 
-void pfree(void * /*h_ptr*/, FILE * /*fplog*/);
+void pfree(void * /*h_ptr*/); 
+
+void prealloc(void ** /*h_ptr*/, size_t /*nbytes*/);
 
 #ifdef __cplusplus
 }
 #endif
 
 
-#endif
+#endif /* CUDAUTILS_H */

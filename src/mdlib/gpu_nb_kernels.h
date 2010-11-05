@@ -1,24 +1,154 @@
 #include "cudatype_utils.h"
 
-
-__device__ void reduce_force(volatile float4 *fbuf, float4 *fout,
+__device__ void reduce_force(float4 *fbuf, float4 *fout,
                              int tidxx, int tidxy, int ai) 
 {
-
+#if 1
+    /* 1024 -> 512: 32x16 threads */
+    if (tidxy < CELL_SIZE/2)
+    {
+        fbuf[tidxx * CELL_SIZE + tidxy] += 
+            fbuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/2];
+    }
+    /* 512 -> 256: 32x8 threads */
+    if (tidxy < CELL_SIZE/4)
+    {
+        fbuf[tidxx * CELL_SIZE + tidxy] += 
+            fbuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/4];
+    }
+    /* 256 -> 128: 32x4 threads */
+    if (tidxy < CELL_SIZE/8)
+    {
+        fbuf[tidxx * CELL_SIZE + tidxy] += 
+            fbuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/8];
+    }
+    /* 128 -> 64: 32x2 threads */
+    if (tidxy < CELL_SIZE/16)
+    {
+        fbuf[tidxx * CELL_SIZE + tidxy] += 
+            fbuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/16];
+    }
+    /* 64 -> 32: 32 threads */
+    if (tidxy < CELL_SIZE/32) // tidxy == 0
+    {
+        fout[ai] = fbuf[tidxx * CELL_SIZE + tidxy] + 
+            fbuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/32];
+    }
+#endif 
 }
 
 /*  Launch parameterts: 
-        - #bloks    = 
-        - #threads  = #pairs of atoms in cell i and j = |Ci| x |Cj| 
-        - shmem     
-            - EXT - for i atoms 
-            - for all j atoms 
-        - registers  =
-    Each thread calculated one  pair of atoms from neigbouring i-j cells.
+        - #blocks   = #neighbor lists, blockId = neigbor_listId
+        - #threads  = CELL_SIZE^2
+        - shmem     = CELL_SIZE^2 * sizof(float4)
+        - registers = 47
+
+    Each thread calculates an i force-component taking one pair of i-j atoms.
 */
+__global__ void k_calc_nb(const gmx_nbs_jlist_t *nblist, 
+                          int ntypes, 
+                          const float4 *xq, 
+                          const int *atom_types, 
+                          const int *cjlist, 
+                          const float *nbfp,
+                          float4 *f)
+{
+    unsigned int tidxx  = threadIdx.x; // local
+    unsigned int tidxy  = threadIdx.y; 
+    unsigned int tidx   = tidxx * blockDim.y + tidxy;
+    unsigned int bidx   = blockIdx.x;
+
+    int ci, cj, 
+        ai, aj, 
+        cij_start, cij_end, 
+        typei, typej,
+        j; //, ntypes;
+    float /* qi, qj, */
+          inv_r, inv_r2, inv_r6, 
+          c6, c12, 
+          dVdr;
+    float4 f4tmp, fbuf;
+    float3 xi, xj, rv;
+
+    extern __shared__ float4 forcebuf[];  // force buffer  
+
+    ci          = nblist[bidx].ci; /* i cell index = current block index */
+    ai          = ci * CELL_SIZE + tidxx;  /* i atom index */
+    cij_start   = nblist[bidx].jind_start; /* first ...*/
+    cij_end     = nblist[bidx].jind_end;  /* and last index of j cells */
+    ntypes      = ntypes;
+
+    // load i atom data into registers
+    f4tmp   = xq[ai];
+    xi      = make_float3(f4tmp.x, f4tmp.y, f4tmp.z);
+    /* qi      = f4tmp.w; */
+    typei   = atom_types[ai];
+ 
+#if 0
+    if (tidxy == 0)
+    {
+        printf("Thread %5d(%2d, %2d) in block %d working on ci=%d, ai=%d; xi=(%5.1f, %5.1f, %5.1f ); cij=%4d-%4d \n",
+                tidx, tidxx, tidxy, bidx, ci, ai, xi.x, xi.y, xi.z, cij_start, cij_end);
+    }
+#endif
+   
+    fbuf = make_float4(0.0f);
+    // loop over i-s neighboring cells
+    for (j = cij_start ; j < cij_end; j++)
+    {        
+        cj      = cjlist[j]; // TODO quite uncool operation
+        aj      = cj * CELL_SIZE + tidxy;
+
+        if (aj != ai)
+        {
+            // all threads load an atom from j cell into shmem!
+            f4tmp   = xq[aj];
+            xj      = make_float3(f4tmp.x, f4tmp.y, f4tmp.z);
+            /* qj      = f4tmp.w; */ 
+            typej   = atom_types[aj];
+        
+            /* TODO more uncool stuff here */
+            c6          = nbfp[2 * (ntypes * typei + typej)]; // LJ C6 
+            c12         = nbfp[2 * (ntypes * typei + typej) + 1]; // LJ C12
+            rv          = xi - xj;
+            inv_r       = 1.0f / norm(rv);
+            inv_r2      = inv_r * inv_r;
+            inv_r6      = inv_r2 * inv_r2 * inv_r2;
+            dVdr        = inv_r6 * (12.0 * c12 * inv_r6 - 6.0 * c6) * inv_r2;
+
+            // accumulate forces            
+            fbuf.x += rv.x * dVdr;
+            fbuf.y += rv.y * dVdr;
+            fbuf.z += rv.z * dVdr; 
+        }
+    }        
+    forcebuf[tidx] = fbuf;
+    __syncthreads();
+
+    /* reduce forces */
+#if 1
+    // XXX lame reduction 
+    if (tidxy == 0)
+    {      
+        fbuf = make_float4(0.0f);
+        # pragma unroll 24
+        for (j = tidxx * CELL_SIZE; j < (tidxx + 1) * CELL_SIZE; j++)
+        {
+            fbuf.x += forcebuf[j].x;
+            fbuf.y += forcebuf[j].y;
+            fbuf.z += forcebuf[j].z;
+            // fbuf += forcebuf[i];
+        }            
+        f[ai] = fbuf; 
+    }
+#else
+    reduce_force(forcebuf, f, tidxx, tidxy, ai); 
+#endif 
+}
+
 __global__ void k_calc_nb(struct cudata devData)
 {
-    t_cudata devD = &devData;
+    t_cudata devD = &devData;    
     unsigned int tidxx  = threadIdx.x; // local
     unsigned int tidxy  = threadIdx.y; 
     unsigned int tidx   = tidxx * blockDim.y + tidxy;
@@ -29,8 +159,8 @@ __global__ void k_calc_nb(struct cudata devData)
         ai, aj, 
         cij_start, cij_end, 
         typei, typej,
-        nbidx, ntypes;
-    float qi, qj, 
+        j, ntypes;
+    float /* qi, qj, */
           inv_r, inv_r2, inv_r6, 
           c6, c12, 
           dVdr;
@@ -49,7 +179,7 @@ __global__ void k_calc_nb(struct cudata devData)
     // load i atom data into registers
     f4tmp   = devD->xq[ai];
     xi      = make_float3(f4tmp.x, f4tmp.y, f4tmp.z);
-    qi      = f4tmp.w;
+    /* qi      = f4tmp.w; */
     typei   = devD->atom_types[ai];
  
 #if 0
@@ -61,26 +191,22 @@ __global__ void k_calc_nb(struct cudata devData)
 #endif
    
     // loop over i-s neighboring cells
-    // If not, cell_nblist_idx should be loaded into constant mem
-    for (nbidx = cij_start ; nbidx < cij_end; nbidx++)
+    for (j = cij_start ; j < cij_end; j++)
     {        
-        cj      = devD->cj[nbidx]; // TODO quite uncool operation
+        cj      = devD->cj[j]; // TODO quite uncool operation
         aj      = cj * CELL_SIZE + tidxy;
 
         if (aj != ai)
         {
-
             // all threads load an atom from j cell into shmem!
             f4tmp   = devD->xq[aj];
             xj      = make_float3(f4tmp.x, f4tmp.y, f4tmp.z);
-            qj      = f4tmp.w;
+            /* qj      = f4tmp.w; */ 
             typej   = devD->atom_types[aj];
         
             /* TODO more uncool stuff here */
-            c6          =  // 1; 
-                devD->nbfp[2 * (ntypes * typei + typej)]; // LJ C6 
-            c12         =  // 1; 
-                 devD->nbfp[2 * (ntypes * typei + typej) + 1]; // LJ C12
+            c6          =  devD->nbfp[2 * (ntypes * typei + typej)]; // LJ C6 
+            c12         =  devD->nbfp[2 * (ntypes * typei + typej) + 1]; // LJ C12
             rv          = xi - xj;
             inv_r       = 1.0f / norm(rv);
             inv_r2      = inv_r * inv_r;
@@ -93,80 +219,35 @@ __global__ void k_calc_nb(struct cudata devData)
         }
 #endif 
             // accumulate forces            
-            
             fbuf.x += rv.x * dVdr;
             fbuf.y += rv.y * dVdr;
             fbuf.z += rv.z * dVdr; 
-            /*
-            float ff = norm(rv);
-            fbuf.x = fmin(fbuf.x, ff); // rv.x * dVdr;
-            fbuf.y = fmin(fbuf.y, fabs(rv.y));
-            fbuf.z = fmin(fbuf.z, fabs(rv.z));           
-            */
-            
         }
-
     }        
 
     forcebuf[tidx] = fbuf;
     __syncthreads();
 
     /* reduce forces */
-#if 1
+#if 0
     // XXX lame reduction 
     if (tidxy == 0)
     {      
         fbuf = make_float4(0.0f);
-        # pragma unroll 32
-        for (int i = tidxx * CELL_SIZE; i < (tidxx + 1) * CELL_SIZE; i++)
+        # pragma unroll 24
+        for (j = tidxx * CELL_SIZE; j < (tidxx + 1) * CELL_SIZE; j++)
         // for (int i = tidxx * CELL_SIZE; i < (tidxx ) * CELL_SIZE + 1; i++)
         {
-
-            fbuf.x += forcebuf[i].x;
-            fbuf.y += forcebuf[i].y;
-            fbuf.z += forcebuf[i].z;
-
-           // fbuf += forcebuf[i];
+            fbuf.x += forcebuf[j].x;
+            fbuf.y += forcebuf[j].y;
+            fbuf.z += forcebuf[j].z;
+            // fbuf += forcebuf[i];
         }            
         devD->f[ai] = fbuf; 
     }
-#endif 
- 
-# if 0
-/* 1024 -> 512: 32x16 threads */
-if (tidxy < CELL_SIZE/2)
-{        
-    forcebuf[tidxx * CELL_SIZE + tidxy] += 
-        forcebuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/2];
-}
-/* 512 -> 256: 32x8 threads */
-if (tidxy < CELL_SIZE/4)
-{        
-    forcebuf[tidxx * CELL_SIZE + tidxy] += 
-        forcebuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/4];
-}
-/* 256 -> 128: 32x4 threads */
-if (tidxy < CELL_SIZE/8)
-{        
-    forcebuf[tidxx * CELL_SIZE + tidxy] += 
-        forcebuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/8];
-}
-/* 128 -> 64: 32x2 threads */
-if (tidxy < CELL_SIZE/16)
-{        
-    forcebuf[tidxx * CELL_SIZE + tidxy] += 
-        forcebuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/16];
-}
-/* 64 -> 32: 32 threads */
-if (tidxy < CELL_SIZE/32) // tidxy == 0
-{
-    devD->f[ai] = forcebuf[tidxx * CELL_SIZE + tidxy] + 
-        forcebuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/32];
-}
-#endif 
-
-  
-
+#else
+    reduce_force(forcebuf, devD->f, tidxx, tidxy, ai); 
+#endif
 }
 
 __global__ void k_calc_bboxes()

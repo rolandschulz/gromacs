@@ -24,8 +24,9 @@ void init_cudata_ff(FILE *fplog,
     t_cudata            d_data = NULL;    
     cudaError_t         stat;
     gmx_nb_atomdata_t   *nbat = fr->nbat;
-    int                 ntypes = nbat->ntype;
-    
+    int                 ntypes = nbat->ntype;    
+    int eventflags = ( USE_CUDA_ENVENT_BLOCKING_SYNC ? cudaEventBlockingSync: cudaEventDefault );
+
     if (dp_data == NULL) return;
     
     snew(d_data, 1);
@@ -40,23 +41,9 @@ void init_cudata_ff(FILE *fplog,
     d_data->streamGPU = fr->streamGPU;
     if (d_data->streamGPU)
     {
-        if (USE_CUDA_ENVENT_BLOCKING_SYNC)
-        {
-            stat = cudaEventCreate(&(d_data->start_nb));
-        }
-        else
-        {
-            stat = cudaEventCreateWithFlags(&(d_data->start_nb), cudaEventBlockingSync);
-        }
+        stat = cudaEventCreateWithFlags(&(d_data->start_nb), eventflags);
         CU_RET_ERR(stat, "cudaEventCreate on start_nb failed");
-        if (USE_CUDA_ENVENT_BLOCKING_SYNC)
-        {
-            stat = cudaEventCreateWithFlags(&(d_data->stop_nb), cudaEventBlockingSync);
-        }
-        else 
-        {
-            stat = cudaEventCreate(&(d_data->stop_nb));       
-        }
+        stat = cudaEventCreateWithFlags(&(d_data->stop_nb), eventflags);
         CU_RET_ERR(stat, "cudaEventCreate on stop_nb failed");
     }   
 

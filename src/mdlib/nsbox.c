@@ -49,6 +49,8 @@
 #include "pbc.h"
 #include "nsbox.h"
 
+#include "cupmalloc.h"
+
 /* Neighbor search box upper and lower bound in x,y,z: total 6 reals */
 #define NNBSBB 6
 

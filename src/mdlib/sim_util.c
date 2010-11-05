@@ -660,7 +660,8 @@ void do_force(FILE *fplog,t_commrec *cr,
            Both tocopying /from device and kernel execution is asynchronous */
         wallcycle_start(wcycle,ewcSEND_X_GPU);
         if (fr->streamGPU)
-        {
+        {            
+            // cu_upload_X(d_data, fr->nbat->x);
             cu_stream_nb(fr->gpu_data, fr->nbat);
         }
         else
@@ -813,7 +814,8 @@ void do_force(FILE *fplog,t_commrec *cr,
             wallcycle_start(wcycle,ewcRECV_F_GPU);\
             if (fr->streamGPU)
             {
-                cu_blockwait_nb(fr->gpu_data, &gpu_nb_time);                
+                cu_blockwait_nb(fr->gpu_data, &gpu_nb_time);                                
+                // cu_download_F(fr->nbat->f, d_data);
             }
             else 
             {
