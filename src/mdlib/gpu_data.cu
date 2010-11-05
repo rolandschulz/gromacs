@@ -37,26 +37,28 @@ void init_cudata_ff(FILE *fplog,
     d_data->eps_rf = fr->epsilon_rf;   
 
     /* events for NB async ops */
-    /*
-    if (USE_CUDA_ENVENT_BLOCKING_SYNC)
+    d_data->streamGPU = fr->streamGPU;
+    if (d_data->streamGPU)
     {
-        stat = cudaEventCreate(&(d_data->start_nb));
-    }
-    else 
-    {
-        stat = cudaEventCreateWithFlags(&(d_data->start_nb), cudaEventBlockingSync);
-    }
-    CU_RET_ERR(stat, "cudaEventCreate on start_nb failed");
-    if (USE_CUDA_ENVENT_BLOCKING_SYNC)
-    {
-        stat = cudaEventCreateWithFlags(&(d_data->stop_nb), cudaEventBlockingSync);
-    }
-    else 
-    {
-        stat = cudaEventCreate(&(d_data->stop_nb));       
-    }
-    CU_RET_ERR(stat, "cudaEventCreate on stop_nb failed");
-    */
+        if (USE_CUDA_ENVENT_BLOCKING_SYNC)
+        {
+            stat = cudaEventCreate(&(d_data->start_nb));
+        }
+        else
+        {
+            stat = cudaEventCreateWithFlags(&(d_data->start_nb), cudaEventBlockingSync);
+        }
+        CU_RET_ERR(stat, "cudaEventCreate on start_nb failed");
+        if (USE_CUDA_ENVENT_BLOCKING_SYNC)
+        {
+            stat = cudaEventCreateWithFlags(&(d_data->stop_nb), cudaEventBlockingSync);
+        }
+        else 
+        {
+            stat = cudaEventCreate(&(d_data->stop_nb));       
+        }
+        CU_RET_ERR(stat, "cudaEventCreate on stop_nb failed");
+    }   
 
     stat = cudaStreamCreate(&d_data->nb_stream);
     CU_RET_ERR(stat, "cudaSteamCreate on nb_stream failed");
@@ -187,9 +189,12 @@ void destroy_cudata(FILE *fplog, t_cudata d_data)
 
     if (d_data == NULL) return;
 
-    cudaEventDestroy(d_data->start_nb);
-    cudaEventDestroy(d_data->stop_nb);
-    cudaStreamDestroy(d_data->nb_stream); /* TODO check stat !*/
+    if (d_data->streamGPU)
+    {
+        cudaEventDestroy(d_data->start_nb);
+        cudaEventDestroy(d_data->stop_nb);
+        cudaStreamDestroy(d_data->nb_stream); /* TODO check stat !*/
+    }
 
     stat = cudaFree(d_data->nbfp);
     CU_RET_ERR(stat, "cudaFree failed on d_data->nbfp");

@@ -33,8 +33,9 @@ struct cudata
     float   *nbfp; /* nonbonded parameters C12, C6 */    
 
     /* async execution stuff*/
-    cudaStream_t nb_stream;
-    cudaEvent_t start_nb, stop_nb;
+    gmx_bool        streamGPU;
+    cudaStream_t    nb_stream;
+    cudaEvent_t     start_nb, stop_nb;
 
     /* neighbor list data */
     int             napc;   /* number of atoms per cell */

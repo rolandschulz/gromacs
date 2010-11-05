@@ -1870,6 +1870,8 @@ void init_forcerec(FILE *fp,
         gmx_nb_atomdata_init(fr->nbat,4,fr->ntype,fr->nbfp);
         if (fr->useGPU)
         {
+
+            fr->streamGPU = (getenv("GMX_GPU_DONT_STREAM") == NULL);
             init_cudata_ff(fp, &(fr->gpu_data), fr);
         }
     }

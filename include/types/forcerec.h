@@ -396,6 +396,7 @@ typedef struct {
   /* GPU data structure */
   t_cudata  gpu_data;
   gmx_bool  emulateGPU;
+  gmx_bool  streamGPU;
 } t_forcerec;
 
 #define C6(nbfp,ntp,ai,aj)     (nbfp)[2*((ntp)*(ai)+(aj))]
