@@ -41,6 +41,17 @@ extern "C" {
 /* Abstract type for neighbor searching data */
 typedef struct gmx_nbsearch * gmx_nbsearch_t;
 
+/* Function that should return a pointer *ptr to memory
+ * of size nbytes.
+ * Error handling should be done within this function.
+ */
+typedef void gmx_nbat_alloc_t(void **ptr,int nbytes);
+
+/* Function that should free the memory pointed to by *ptr.
+ * NULL should not be passed to this function.
+ */
+typedef void gmx_nbat_free_t(void *ptr);
+
 /* Smaller neighbor list list unit */
 typedef struct {
     int ci;         /* i-cell              */
@@ -50,6 +61,8 @@ typedef struct {
 } gmx_nbs_jlist_t;
 
 typedef struct {
+    gmx_nbat_alloc_t *alloc;
+    gmx_nbat_free_t  *free;
     int      napc;         /* Number of atoms per cell             */
     gmx_bool TwoWay;       /* Each pair once or twice in the list? */
     real     rcut;         /* The cut-off distance                 */
@@ -63,6 +76,8 @@ typedef struct {
 } gmx_nblist_t;
 
 typedef struct {
+    gmx_nbat_alloc_t *alloc;
+    gmx_nbat_free_t  *free;
     int  ntype;   /* The number of different atom types                 */
     real *nbfp;   /* The Lennard-Jones C6 and C12 params, size ntype^2  */
     int  natoms;  /* Number of atoms                                    */

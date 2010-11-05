@@ -41,7 +41,7 @@ extern "C" {
 #endif
 
 /* Allocates and initializes a neighbor searching data structure */
-    void gmx_nbsearch_init(gmx_nbsearch_t * nbs,int natoms_per_cell);
+void gmx_nbsearch_init(gmx_nbsearch_t * nbs,int natoms_per_cell);
 
 /* Put the atoms on the neighborsearching grid */
 void gmx_nbsearch_put_on_grid(gmx_nbsearch_t nbs,
@@ -49,7 +49,9 @@ void gmx_nbsearch_put_on_grid(gmx_nbsearch_t nbs,
                               gmx_nb_atomdata_t *nbat);
 
 /* Initialize a neighbor list data structure */
-void gmx_nblist_init(gmx_nblist_t * nbl);
+void gmx_nblist_init(gmx_nblist_t * nbl,
+                     gmx_nbat_alloc_t *alloc,
+                     gmx_nbat_free_t  *free);
 
 /* Make a neighborlist with radius rlist, store it in nbl */
 void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,real rcut,real rlist,
@@ -60,7 +62,9 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,real rcut,real rlist,
  * to the atom data structure.
  */
 void gmx_nb_atomdata_init(gmx_nb_atomdata_t *nbat,int xstride,
-                          int ntypes,const real *nbfp);
+                          int ntypes,const real *nbfp,
+                          gmx_nbat_alloc_t *alloc,
+                          gmx_nbat_free_t  *free);
 
 /* Copy the atom types to the non-bonded atom data structure */
 void gmx_nb_atomdata_set_atomtypes(gmx_nb_atomdata_t *nbat,

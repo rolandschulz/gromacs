@@ -447,15 +447,63 @@ static void calc_cell_indices(gmx_nbsearch_t nbs,
     }
 }
 
+static void nb_realloc_void(void **ptr,
+                            int nbytes_copy,int nbytes_new,
+                            gmx_nbat_alloc_t *ma,
+                            gmx_nbat_free_t  *mf)
+{
+    void *ptr_new;
+
+    ma(&ptr_new,nbytes_new);
+
+    if (nbytes_copy > 0)
+    {
+        if (nbytes_new < nbytes_copy)
+        {
+            gmx_incons("In nb_realloc_void: new size less than copy size");
+        }
+        memcpy(ptr_new,*ptr,nbytes_copy);
+    }
+    if (*ptr != NULL)
+    {
+        mf(*ptr);
+    }
+    *ptr = ptr_new;
+}
+
+/* NOTE: does not preserve the contents! */
+static void nb_realloc_int(int **ptr,int n,
+                           gmx_nbat_alloc_t *ma,
+                           gmx_nbat_free_t  *mf)
+{
+    if (*ptr != NULL)
+    {
+        mf(*ptr);
+    }
+    ma((void **)ptr,n*sizeof(**ptr));
+}
+
+/* NOTE: does not preserve the contents! */
+static void nb_realloc_real(real **ptr,int n,
+                            gmx_nbat_alloc_t *ma,
+                            gmx_nbat_free_t  *mf)
+{
+    if (*ptr != NULL)
+    {
+        mf(*ptr);
+    }
+    ma((void **)ptr,n*sizeof(**ptr));
+}
+
 static void gmx_nb_atomdata_realloc(gmx_nb_atomdata_t *nbat,int n)
 {
-    srenew(nbat->type,n);
+    nb_realloc_int(&nbat->type,n,nbat->alloc,nbat->free);
     if (nbat->xstride == 3)
     {
-        srenew(nbat->q,n);
+        nb_realloc_real(&nbat->q,n,nbat->alloc,nbat->free);
     }
-    srenew(nbat->x,n*nbat->xstride);
-    srenew(nbat->f,n*nbat->xstride);
+    nb_realloc_real(&nbat->x,n*nbat->xstride,nbat->alloc,nbat->free);
+    nb_realloc_real(&nbat->f,n*nbat->xstride,nbat->alloc,nbat->free);
     nbat->nalloc = n;
 }
 
@@ -571,7 +619,10 @@ static void new_i_list(gmx_nblist_t *nbl,int ci,int tx,int ty,int tz)
     if (nbl->nlist+1 > nbl->list_nalloc)
     {
         nbl->list_nalloc = over_alloc_large(nbl->nlist+1);
-        srenew(nbl->list,nbl->list_nalloc);
+        nb_realloc_void((void **)&nbl->list,
+                        nbl->nlist*sizeof(*nbl->list),
+                        nbl->list_nalloc*sizeof(*nbl->list),
+                        nbl->alloc,nbl->free);
     }
 
     nbl->list[nbl->nlist].ci     = ci;
@@ -596,8 +647,11 @@ static void add_js_to_list(gmx_nblist_t *nbl,int cjf,int cjl)
     jind_end = nbl->list[nbl->nlist-1].jind_end;
     if (jind_end+cjl-cjf+1 > nbl->cj_nalloc)
     {
-        nbl->cj_nalloc = over_alloc_large(jind_end+cjl-cjf+1);
-        srenew(nbl->cj,nbl->cj_nalloc);
+        nbl->cj_nalloc = over_alloc_small(jind_end+cjl-cjf+1);
+        nb_realloc_void((void **)&nbl->cj,
+                        jind_end*sizeof(*nbl->cj),
+                        nbl->cj_nalloc*sizeof(*nbl->cj),
+                        nbl->alloc,nbl->free);
     }
     
     for(cj=cjf; cj<=cjl; cj++)
@@ -607,8 +661,37 @@ static void add_js_to_list(gmx_nblist_t *nbl,int cjf,int cjl)
     nbl->list[nbl->nlist-1].jind_end = jind_end;
 }
 
-void gmx_nblist_init(gmx_nblist_t *nbl)
+static void nblist_alloc_aligned(void **ptr,int nbytes)
 {
+    *ptr = save_calloc_aligned("ptr",__FILE__,__LINE__,nbytes,1,16);
+}
+
+static void nblist_free_aligned(void *ptr)
+{
+    sfree_aligned(ptr);
+}
+
+void gmx_nblist_init(gmx_nblist_t *nbl,
+                     gmx_nbat_alloc_t *alloc,
+                     gmx_nbat_free_t  *free)
+{
+    if (alloc == NULL)
+    {
+        nbl->alloc = nblist_alloc_aligned;
+    }
+    else
+    {
+        nbl->alloc = alloc;
+    }
+    if (free == NULL)
+    {
+        nbl->free = nblist_free_aligned;
+    }
+    else
+    {
+        nbl->free = free;
+    }
+
     nbl->napc        = 0;
     nbl->nlist       = 0;
     nbl->list        = NULL;
@@ -922,9 +1005,28 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,real rcut,real rlist,
 }
 
 void gmx_nb_atomdata_init(gmx_nb_atomdata_t *nbat,int xstride,
-                          int ntype,const real *nbfp)
+                          int ntype,const real *nbfp,
+                          gmx_nbat_alloc_t *alloc,
+                          gmx_nbat_free_t  *free)
 {
     int i,j;
+
+    if (alloc == NULL)
+    {
+        nbat->alloc = nblist_alloc_aligned;
+    }
+    else
+    {
+        nbat->alloc = alloc;
+    }
+    if (free == NULL)
+    {
+        nbat->free = nblist_free_aligned;
+    }
+    else
+    {
+        nbat->free = free;
+    }
 
     if (debug)
     {

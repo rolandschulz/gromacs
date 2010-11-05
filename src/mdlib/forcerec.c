@@ -1865,14 +1865,18 @@ void init_forcerec(FILE *fp,
     if (fr->useGPU || fr->emulateGPU)
     {
         gmx_nbsearch_init(&fr->nbs,32);
-        gmx_nblist_init(&fr->nbl);
+        gmx_nblist_init(&fr->nbl,
+                        NULL,NULL);
         snew(fr->nbat,1);
-        gmx_nb_atomdata_init(fr->nbat,4,fr->ntype,fr->nbfp);
+        gmx_nb_atomdata_init(fr->nbat,4,fr->ntype,fr->nbfp,
+                             NULL,NULL);
         if (fr->useGPU)
         {
 
             fr->streamGPU = (getenv("GMX_GPU_DONT_STREAM") == NULL);
+#ifdef GMX_GPU
             init_cudata_ff(fp, &(fr->gpu_data), fr);
+#endif
         }
     }
 }
