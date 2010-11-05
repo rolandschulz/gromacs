@@ -37,7 +37,7 @@ void init_cudata_ff(FILE *fplog,
     d_data->eps_rf = fr->epsilon_rf;   
 
     /* events for NB async ops */
-    
+    /*
     if (USE_CUDA_ENVENT_BLOCKING_SYNC)
     {
         stat = cudaEventCreate(&(d_data->start_nb));
@@ -56,12 +56,15 @@ void init_cudata_ff(FILE *fplog,
         stat = cudaEventCreate(&(d_data->stop_nb));       
     }
     CU_RET_ERR(stat, "cudaEventCreate on stop_nb failed");
-    
+    */
+
+    stat = cudaStreamCreate(&d_data->nb_stream);
+    CU_RET_ERR(stat, "cudaSteamCreate on nb_stream failed");
 
     /* NB params */
-    stat = cudaMalloc((void **)&d_data->nbfp, 2*ntypes*sizeof(*(d_data->nbfp)));
+    stat = cudaMalloc((void **)&d_data->nbfp, 2*ntypes*ntypes*sizeof(*(d_data->nbfp)));
     CU_RET_ERR(stat, "cudaMalloc failed on d_data->nbfp"); 
-    upload_cudata(d_data->nbfp, nbat->nbfp, 2*ntypes*sizeof(*(d_data->nbfp)));
+    upload_cudata(d_data->nbfp, nbat->nbfp, 2*ntypes*ntypes*sizeof(*(d_data->nbfp)));
 
     if (fplog != NULL)
     {
@@ -186,6 +189,7 @@ void destroy_cudata(FILE *fplog, t_cudata d_data)
 
     cudaEventDestroy(d_data->start_nb);
     cudaEventDestroy(d_data->stop_nb);
+    cudaStreamDestroy(d_data->nb_stream); /* TODO check stat !*/
 
     stat = cudaFree(d_data->nbfp);
     CU_RET_ERR(stat, "cudaFree failed on d_data->nbfp");
@@ -236,5 +240,5 @@ int cu_upload_X(t_cudata d_data, real *h_x)
 int cu_download_F(real *h_f, t_cudata d_data)
 {
     if (debug) printf(">> downloading F\n");
-    return download_cudata(h_f, d_data->f, 3*d_data->natoms*sizeof(*h_f));
+    return download_cudata(h_f, d_data->f, d_data->natoms*sizeof(*d_data->f));
 }

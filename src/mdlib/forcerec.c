@@ -1828,31 +1828,39 @@ void init_forcerec(FILE *fp,
     
     snew(fr->excl_load,fr->nthreads+1);
 
+    fr->emulateGPU = (!fr->useGPU && getenv("GMX_EMULATE_GPU") != NULL);
+    if (fp)
+    {
+        fprintf(fp, "Emulating GPU.\n");
+    }
+
     /* turn GPU acceleration on if GMX_GPU is defined */
     fr->useGPU = FALSE;
 #ifdef GMX_GPU
-    if (getenv("GMX_NO_GPU") == NULL)
-    {    
-        int gpu_device_id;
-        
-        /* initialize GPU */ 
-        gpu_device_id = 0; /* TODO get dev_id */
-        if (init_gpu(fp, gpu_device_id) != 0)
+    if (!fr->emulateGPU)
+    {
+        if (getenv("GMX_NO_GPU") == NULL)
         {
-            gmx_warning("Could not initialize GPU #%d", gpu_device_id);
+            int gpu_device_id;
+
+            /* initialize GPU */
+            gpu_device_id = 0; /* TODO get dev_id */
+            if (init_gpu(fp, gpu_device_id) != 0)
+            {
+                gmx_warning("Could not initialize GPU #%d", gpu_device_id);
+            }
+            else
+            {
+                fr->useGPU = TRUE;
+            }
         }
         else 
-        {            
-            fr->useGPU = TRUE;
+        {
+            gmx_warning("GPU mode turned off by GMX_NO_GPU env var!");
         }
-    }
-    else 
-    {
-        gmx_warning("GPU mode turned off by GMX_NO_GPU env var!");
     }
  #endif   
 
-    fr->emulateGPU = (!fr->useGPU && getenv("GMX_EMULATE_GPU") != NULL);
 
     if (fr->useGPU || fr->emulateGPU)
     {

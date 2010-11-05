@@ -659,10 +659,9 @@ void do_force(FILE *fplog,t_commrec *cr,
         /* Launch GPU-accelerated nonbonded calculations.
            Both tocopying /from device and kernel execution is asynchronous */
         wallcycle_start(wcycle,ewcSEND_X_GPU);
-        cu_stream_nb(fr->gpu_data, fr->nbat);
-
-        //cu_upload_X(d_data, fr->nbat->x);
-        //cu_do_nb(d_data);
+        // cu_stream_nb(fr->gpu_data, fr->nbat);
+        cu_upload_X(d_data, fr->nbat->x);
+        cu_do_nb(d_data);
         wallcycle_stop(wcycle,ewcSEND_X_GPU);
     }
 #endif /* GMX_GPU */
@@ -806,7 +805,8 @@ void do_force(FILE *fplog,t_commrec *cr,
         {
 #ifdef GMX_GPU
             wallcycle_start(wcycle,ewcRECV_F_GPU);
-            cu_download_F(f, d_data);
+            // cu_blockwait_nb(fr->gpu_data, &gpu_nb_time);                
+            cu_download_F(fr->nbat->f, d_data);
             wallcycle_stop(wcycle,ewcRECV_F_GPU);
 #endif  /* GMX_GPU */
         }

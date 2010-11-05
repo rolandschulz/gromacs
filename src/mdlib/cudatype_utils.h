@@ -50,11 +50,11 @@ inline __host__ __device__ float4 operator-(float4 a, float4 b)
 }
 inline __host__ __device__ float4 operator*(float4 a, float k)
 {
-    return make_float4(k * a.x, k * a.y, k * a.z, k* a.w);
+    return make_float4(k * a.x, k * a.y, k * a.z, k * a.w);
 }
 inline __host__ __device__ float4 operator+=(float4 a, float4 b)
 {
-    return make_float4(a.x + b.x, a.y + b.y, a.z + b.z, a.w + a.w);
+    return make_float4(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w);
 }
 inline __host__ __device__ float4 operator+=(float4 a, float3 b)
 {

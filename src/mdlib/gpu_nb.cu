@@ -55,16 +55,16 @@ void cu_stream_nb(t_cudata d_data,
     int     shmem = CELL_SIZE * CELL_SIZE * sizeof(float4); /* force buffer */
 
     /* async copy HtoD x */
-    cudaEventRecord(d_data->start_nb, 0);
-    cudaMemcpyAsync(d_data->xq, nbatom->x, d_data->natoms, cudaMemcpyHostToDevice, 0);    
+    cudaEventRecord(d_data->start_nb, d_data->nb_stream);
+    cudaMemcpyAsync(d_data->xq, nbatom->x, d_data->natoms*sizeof(*d_data->xq), cudaMemcpyHostToDevice, 0);    
 
     /* async nonbonded calculations */
-    k_calc_nb<<<dim_grid, dim_block, shmem, 0>>>(*d_data);
-    CU_SYNC_LAUNCH_ERR("k_calc_nb");
+    k_calc_nb<<<dim_grid, dim_block, shmem, d_data->nb_stream>>>(*d_data);
+    CU_LAUNCH_ERR("k_calc_nb");
    
-    /* async copy DtoH f */
-    cudaMemcpyAsync(nbatom->f, d_data->f, d_data->natoms, cudaMemcpyDeviceToHost, 0);
-    cudaEventRecord(d_data->stop_nb, 0);    
+    /* async copy DtoH f */    
+    cudaMemcpyAsync(nbatom->f, d_data->f, d_data->natoms*sizeof(*d_data->f), cudaMemcpyDeviceToHost, 0);
+    cudaEventRecord(d_data->stop_nb, d_data->nb_stream);
 }
 
 gmx_bool cu_checkstat_nb(t_cudata d_data, float *time)
@@ -95,7 +95,7 @@ void cu_blockwait_nb(t_cudata d_data, float *time)
 {    
     cudaError_t stat;     
 
-    stat = cudaEventSynchronize(d_data->stop_nb);
+    stat = cudaStreamSynchronize(d_data->nb_stream);
     CU_RET_ERR(stat, "the execution of the nonbonded calculations has failed");   
    
     cudaEventElapsedTime(time, d_data->start_nb, d_data->stop_nb);

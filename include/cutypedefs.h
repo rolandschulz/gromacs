@@ -32,7 +32,8 @@ struct cudata
     float   cutoff;
     float   *nbfp; /* nonbonded parameters C12, C6 */    
 
-    /* NB events*/
+    /* async execution stuff*/
+    cudaStream_t nb_stream;
     cudaEvent_t start_nb, stop_nb;
 
     /* neighbor list data */
