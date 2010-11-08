@@ -25,6 +25,12 @@ void init_cudata_ff(FILE *fplog,
     cudaError_t         stat;
     gmx_nb_atomdata_t   *nbat = fr->nbat;
     int                 ntypes = nbat->ntype;    
+    char                *env_var;
+    int                 itmp;
+
+    cudaChannelFormatDesc   cd;
+    const textureReference  *texnbfp;
+
     int eventflags = ( USE_CUDA_ENVENT_BLOCKING_SYNC ? cudaEventBlockingSync: cudaEventDefault );
 
     if (dp_data == NULL) return;
@@ -54,7 +60,13 @@ void init_cudata_ff(FILE *fplog,
     stat = cudaMalloc((void **)&d_data->nbfp, 2*ntypes*ntypes*sizeof(*(d_data->nbfp)));
     CU_RET_ERR(stat, "cudaMalloc failed on d_data->nbfp"); 
     upload_cudata(d_data->nbfp, nbat->nbfp, 2*ntypes*ntypes*sizeof(*(d_data->nbfp)));
-
+#if 0
+    stat = cudaGetTextureReference(&texnbfp, "texnbfp");
+    CU_RET_ERR(stat, "cudaGetTextureReference on texnbfp failed");
+    cd = cudaCreateChannelDesc<float>();
+    stat = cudaBindTexture(NULL, texnbfp, d_data->nbfp, &cd, 2*d_data->ntypes*d_data->ntypes);
+    CU_RET_ERR(stat, "cudaBindTexture on texnbfp failed");
+#endif
     if (fplog != NULL)
     {
         fprintf(fplog, "Initialized CUDA data structures.\n");
@@ -78,6 +90,24 @@ void init_cudata_ff(FILE *fplog,
     d_data->ncj             = -1;
     d_data->cj_nalloc       = -1;
     d_data->napc            = -1;
+
+    if ((env_var = getenv("GMX_CELL_PAIR_GROUP")) != NULL)
+    {
+        sscanf(env_var, "%d", &itmp);
+        if (itmp < 1)
+        {
+            gmx_fatal(FARGS, "Invalid GMX_CELL_PAIR_GROUP value (%d)!", itmp);
+        }
+        else
+        {
+            printf("CELL_PAIR_GROUP=%d\n", itmp);
+            d_data->cell_pair_group = itmp;
+        }
+    }
+    else 
+    {
+        d_data->cell_pair_group = GPU_CELL_PAIR_GROUP;
+    }
 
     *dp_data = d_data;
 }
@@ -173,18 +203,30 @@ void init_cudata_atoms(t_cudata d_data,
 void destroy_cudata(FILE *fplog, t_cudata d_data)
 {
     cudaError_t stat;
+    const textureReference *texnbfp;
 
     if (d_data == NULL) return;
 
     if (d_data->streamGPU)
     {
-        cudaEventDestroy(d_data->start_nb);
-        cudaEventDestroy(d_data->stop_nb);
-        cudaStreamDestroy(d_data->nb_stream); /* TODO check stat !*/
+        stat = cudaEventDestroy(d_data->start_nb);
+        CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->start_nb");
+        stat = cudaEventDestroy(d_data->stop_nb);
+        CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->stop_nb");
+        stat = cudaStreamDestroy(d_data->nb_stream); /* TODO check stat !*/
+        CU_RET_ERR(stat, "cudaStreamDestroy failed on d_data->nb_stream");
     }
+
+    stat = cudaGetTextureReference(&texnbfp, "texnbfp");
+    CU_RET_ERR(stat, "cudaGetTextureReference on texnbfp failed");
+    stat = cudaUnbindTexture(texnbfp);
+    CU_RET_ERR(stat, "cudaUnbindTexture failed on texnbfp");
 
     stat = cudaFree(d_data->nbfp);
     CU_RET_ERR(stat, "cudaFree failed on d_data->nbfp");
+
+    stat = cudaThreadExit();
+    CU_RET_ERR(stat, "cudaThreadExit failed");
 
     fprintf(fplog, "Cleaned up CUDA data structures.\n");
 }

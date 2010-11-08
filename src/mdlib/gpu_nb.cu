@@ -13,6 +13,8 @@
 #define CELL_SIZE           (GPU_NS_CELL_SIZE)
 #define NB_DEFAULT_THREADS  (CELL_SIZE * CELL_SIZE)
 
+texture<float, 1, cudaReadModeElementType> texnbfp;
+
 #include "gpu_nb_kernels.h"
 
 __global__ void __empty_kernel() {}
@@ -41,6 +43,7 @@ void cu_do_nb(t_cudata d_data)
             dim_block.x, dim_block.y, dim_block.z, dim_grid.x, dim_grid.y, d_data->ncj, d_data->napc);
     }
 
+
     /* sync nonbonded calculations */   
 #if 0    
     k_calc_nb<<<dim_grid, dim_block, shmem>>>(*d_data);
@@ -51,7 +54,8 @@ void cu_do_nb(t_cudata d_data)
                                                   d_data->atom_types, 
                                                   d_data->cj, 
                                                   d_data->nbfp,
-                                                  d_data->f);
+                                                  d_data->f,
+                                                  d_data->cell_pair_group);
 #endif    
     CU_LAUNCH_ERR_SYNC("k_calc_nb");
 }
@@ -60,11 +64,21 @@ void cu_stream_nb(t_cudata d_data,
                   /*const gmx_nblist_t *nblist, */
                   const gmx_nb_atomdata_t *nbatom)
 {
-    int     nb_blocks = calc_nb_blocknr(d_data->nlist);
+    int     nb_blocks = calc_nb_blocknr(d_data->nlist)/d_data->cell_pair_group;
     dim3    dim_block(CELL_SIZE, CELL_SIZE, 1); 
     dim3    dim_grid(nb_blocks, 1, 1); 
     int     shmem = CELL_SIZE * CELL_SIZE * sizeof(float4); /* force buffer 4*4*CELL_SIZE^2 */
     // cudaStream_t st = d_data->nb_stream;
+    static int     cacheConf = 0;
+
+
+    /* XXX XXX */
+    if (cacheConf == 0)
+    {
+        cudaFuncSetCacheConfig(&k_calc_nb, cudaFuncCachePreferL1); 
+        cacheConf++;
+    }
+
 
     if (debug)
     {
@@ -87,7 +101,8 @@ void cu_stream_nb(t_cudata d_data,
                                                   d_data->atom_types, 
                                                   d_data->cj, 
                                                   d_data->nbfp,
-                                                  d_data->f);
+                                                  d_data->f, 
+                                                  d_data->cell_pair_group);
 #endif
     CU_LAUNCH_ERR("k_calc_nb");
    

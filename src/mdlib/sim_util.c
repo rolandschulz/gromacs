@@ -441,8 +441,10 @@ void do_force(FILE *fplog,t_commrec *cr,
     t_pbc  pbc;
     float  cycles_ppdpme,cycles_pme,cycles_seppme,cycles_force;
     t_cudata d_data = fr->gpu_data;
-    float gpu_nb_time = 0;
-
+    float gpu_nb_time = 0; 
+    static float gpu_nb_total = 0;
+    static int stepcount = 0;
+    
     start  = mdatoms->start;
     homenr = mdatoms->homenr;
 
@@ -661,7 +663,6 @@ void do_force(FILE *fplog,t_commrec *cr,
         wallcycle_start(wcycle,ewcSEND_X_GPU);
         if (fr->streamGPU)
         {            
-            // cu_upload_X(d_data, fr->nbat->x);
             cu_stream_nb(fr->gpu_data, fr->nbat);
         }
         else
@@ -814,8 +815,13 @@ void do_force(FILE *fplog,t_commrec *cr,
             wallcycle_start(wcycle,ewcRECV_F_GPU);\
             if (fr->streamGPU)
             {
-                cu_blockwait_nb(fr->gpu_data, &gpu_nb_time);                                
-                // cu_download_F(fr->nbat->f, d_data);
+                stepcount++;
+                cu_blockwait_nb(fr->gpu_data, &gpu_nb_time);
+                gpu_nb_total += gpu_nb_time;
+                if (!(stepcount % 50) || stepcount == 5001)
+                {
+                    printf("nb time, step %4d: %5.3f ms\n", stepcount, gpu_nb_total/stepcount);
+                }
             }
             else 
             {

@@ -1,9 +1,9 @@
 #include "cudatype_utils.h"
 
-__device__ void reduce_force(float4 *fbuf, float4 *fout,
+/* 32x32 */
+__device__ void reduce_force32(float4 *fbuf, float4 *fout,
                              int tidxx, int tidxy, int ai) 
 {
-#if 1
     /* 1024 -> 512: 32x16 threads */
     if (tidxy < CELL_SIZE/2)
     {
@@ -34,9 +34,70 @@ __device__ void reduce_force(float4 *fbuf, float4 *fout,
         fout[ai] = fbuf[tidxx * CELL_SIZE + tidxy] + 
             fbuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/32];
     }
-#endif 
 }
 
+__device__ void reduce_force24(float4 *fbuf, float4 *fout,
+                             int tidxx, int tidxy, int ai)
+{
+    if (tidxy == 0)
+    {      
+        float4 f = make_float4(0.0f);
+        # pragma unroll 24
+        for (int j = tidxx * CELL_SIZE; j < (tidxx + 1) * CELL_SIZE; j++)
+        {
+            f.x += fbuf[j].x;
+            f.y += fbuf[j].y;
+            f.z += fbuf[j].z;
+            // fbuf += forcebuf[i];
+        } 
+        fout[ai] = f;
+    }
+}
+
+
+/* 16x16 */
+__device__ void reduce_force16(float4 *fbuf, float4 *fout,
+                             int tidxx, int tidxy, int ai) 
+{
+    /* 256 -> 128: 32x4 threads */
+    if (tidxy < CELL_SIZE/2)
+    {
+        fbuf[tidxx * CELL_SIZE + tidxy] += 
+            fbuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/2];
+    }
+    /* 128 -> 64: 32x2 threads */
+    if (tidxy < CELL_SIZE/4)
+    {
+        fbuf[tidxx * CELL_SIZE + tidxy] += 
+            fbuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/4];
+    }
+    /* 64 -> 32: 32 threads */
+    if (tidxy < CELL_SIZE/8)
+    {
+        fbuf[tidxx * CELL_SIZE + tidxy] += 
+            fbuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/8];
+    }
+    /* 32 -> 16: 16 threads */   
+    if (tidxy < CELL_SIZE/16)
+    {
+        fout[ai] = fbuf[tidxx * CELL_SIZE + tidxy] + 
+            fbuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/16];
+    }
+}
+
+inline __device__ void reduce_force(float4 *fbuf, float4 *fout,
+                             int tidxx, int tidxy, int ai) 
+{
+#if CELL_SIZE ==16
+    reduce_force16(fbuf, fout, tidxx, tidxy, ai);
+#endif 
+#if CELL_SIZE == 24
+    reduce_force32(fbuf, fout, tidxx, tidxy, ai);  
+#endif 
+#if CELL_SIZE == 32
+    reduce_force32(fbuf, fout, tidxx, tidxy, ai);  
+#endif 
+}
 /*  Launch parameterts: 
         - #blocks   = #neighbor lists, blockId = neigbor_listId
         - #threads  = CELL_SIZE^2
@@ -51,7 +112,8 @@ __global__ void k_calc_nb(const gmx_nbs_jlist_t *nblist,
                           const int *atom_types, 
                           const int *cjlist, 
                           const float *nbfp,
-                          float4 *f)
+                          float4 *f,
+                          int cpg)
 {
     unsigned int tidxx  = threadIdx.x; // local
     unsigned int tidxy  = threadIdx.y; 
@@ -69,21 +131,27 @@ __global__ void k_calc_nb(const gmx_nbs_jlist_t *nblist,
           dVdr;
     float4 f4tmp, fbuf;
     float3 xi, xj, rv;
+    gmx_nbs_jlist_t nbl;
 
     extern __shared__ float4 forcebuf[];  // force buffer  
 
-    ci          = nblist[bidx].ci; /* i cell index = current block index */
+    for (int i = 0; i < cpg; i++)
+    {
+
+    nbl         = nblist[cpg * bidx + i];
+//     nbl         = nblist[bidx];       
+    ci          = nbl.ci; /* i cell index = current block index */
     ai          = ci * CELL_SIZE + tidxx;  /* i atom index */
-    cij_start   = nblist[bidx].jind_start; /* first ...*/
-    cij_end     = nblist[bidx].jind_end;  /* and last index of j cells */
-    ntypes      = ntypes;
+    cij_start   = nbl.jind_start; /* first ...*/
+    cij_end     = nbl.jind_end;  /* and last index of j cells */
 
     // load i atom data into registers
     f4tmp   = xq[ai];
     xi      = make_float3(f4tmp.x, f4tmp.y, f4tmp.z);
     /* qi      = f4tmp.w; */
     typei   = atom_types[ai];
- 
+    
+
 #if 0
     if (tidxy == 0)
     {
@@ -109,7 +177,11 @@ __global__ void k_calc_nb(const gmx_nbs_jlist_t *nblist,
         
             /* TODO more uncool stuff here */
             c6          = nbfp[2 * (ntypes * typei + typej)]; // LJ C6 
+                          // tex1Dfetch(texnbfp, 2 * (ntypes * typei + typej));
+                          // 1; 
             c12         = nbfp[2 * (ntypes * typei + typej) + 1]; // LJ C12
+                          // tex1Dfetch(texnbfp, 2 * (ntypes * typei + typej) + 1);                       
+                          // 1;
             rv          = xi - xj;
             inv_r       = 1.0f / norm(rv);
             inv_r2      = inv_r * inv_r;
@@ -124,7 +196,7 @@ __global__ void k_calc_nb(const gmx_nbs_jlist_t *nblist,
     }        
     forcebuf[tidx] = fbuf;
     __syncthreads();
-
+    
     /* reduce forces */
 #if 1
     // XXX lame reduction 
@@ -132,21 +204,21 @@ __global__ void k_calc_nb(const gmx_nbs_jlist_t *nblist,
     {      
         fbuf = make_float4(0.0f);
         # pragma unroll 24
-        for (j = tidxx * CELL_SIZE; j < (tidxx + 1) * CELL_SIZE; j++)
+        for (int j = tidxx * CELL_SIZE; j < (tidxx + 1) * CELL_SIZE; j++)
         {
             fbuf.x += forcebuf[j].x;
             fbuf.y += forcebuf[j].y;
             fbuf.z += forcebuf[j].z;
-            // fbuf += forcebuf[i];
         }            
         f[ai] = fbuf; 
     }
 #else
     reduce_force(forcebuf, f, tidxx, tidxy, ai); 
 #endif 
+    } /* for i */
 }
 
-__global__ void k_calc_nb(struct cudata devData)
+__global__ void k_calc_nb1(struct cudata devData)
 {
     t_cudata devD = &devData;    
     unsigned int tidxx  = threadIdx.x; // local

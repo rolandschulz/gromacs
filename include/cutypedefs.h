@@ -4,6 +4,8 @@
 #include "types/nblist_box.h"
 #include "cutypedefs_ext.h"
 
+#define GPU_CELL_PAIR_GROUP 1
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -45,6 +47,8 @@ struct cudata
     int             ncj; /* # of i-j cell pairs */
     int             cj_nalloc; /* allocation size for cj */
     int             *cj; /* j cells */
+
+    int             cell_pair_group;
 };
 
 #ifdef __cplusplus

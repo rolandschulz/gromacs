@@ -79,12 +79,6 @@ int upload_cudata(void * /*d_dest*/, void * /*h_src*/, size_t /*bytes*/);
 
 int upload_cudata_alloc(void ** /*d_dest*/, void * /*h_src*/, size_t /*bytes*/);
 
-void * pmalloc(size_t /*bytes*/); 
-
-void pfree(void * /*h_ptr*/); 
-
-void prealloc(void ** /*h_ptr*/, size_t /*nbytes*/);
-
 #ifdef __cplusplus
 }
 #endif
