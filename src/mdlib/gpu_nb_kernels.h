@@ -36,7 +36,89 @@ __device__ void reduce_force32(float4 *fbuf, float4 *fout,
     }
 }
 
-__device__ void reduce_force24(float4 *fbuf, float4 *fout,
+/* 16x16 */
+__device__ void reduce_force16(float4 *fbuf, float4 *fout,
+                             int tidxx, int tidxy, int ai) 
+{
+    /* 256 -> 128: 16x8 threads */
+    if (tidxy < CELL_SIZE/2)
+    {
+        fbuf[tidxx * CELL_SIZE + tidxy] += 
+            fbuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/2];
+    }
+    /* 128 -> 64: 16x4 threads */
+    if (tidxy < CELL_SIZE/4)
+    {
+        fbuf[tidxx * CELL_SIZE + tidxy] += 
+            fbuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/4];
+    }
+    /* 64 -> 32: 16x2 threads */
+    if (tidxy < CELL_SIZE/8)
+    {
+        fbuf[tidxx * CELL_SIZE + tidxy] += 
+            fbuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/8];
+    }
+    /* 32 -> 16: 16 threads */   
+    if (tidxy < CELL_SIZE/16)
+    {
+        fout[ai] = fbuf[tidxx * CELL_SIZE + tidxy] + 
+            fbuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/16];
+    }
+}
+
+/* 8x8 */
+__device__ void reduce_force8(float4 *fbuf, float4 *fout,
+                             int tidxx, int tidxy, int ai) 
+{
+    /* 64 -> 32: 8x4 threads */
+    if (tidxy < CELL_SIZE/2)
+    {
+        fbuf[tidxx * CELL_SIZE + tidxy] += 
+            fbuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/2];
+    }
+    /* 32 -> 16: 8x2 threads */
+    if (tidxy < CELL_SIZE/4)
+    {
+        fbuf[tidxx * CELL_SIZE + tidxy] += 
+            fbuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/4];
+    }   
+    /* 16 ->  8: 8 threads */   
+    if (tidxy < CELL_SIZE/8)
+    {
+        fout[ai] = fbuf[tidxx * CELL_SIZE + tidxy] + 
+            fbuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/8];
+    }
+}
+
+__device__ void reduce_force_pow2(float4 *fbuf, float4 *fout,
+                             int tidxx, int tidxy, int ai)
+{
+    int i = CELL_SIZE/2;
+    
+    /* Reduce the initial CELL_SIZE values for each i atom to half 
+       every step by using CELL_SIZE * i threads. */
+    while (i > 1)
+    {
+        if (tidxy < i)
+        {
+
+            fbuf[tidxx * CELL_SIZE + tidxy] += 
+                fbuf[tidxx * CELL_SIZE + tidxy + i];
+        }
+        i >>= 1;
+    }
+
+    /* i == 1, last reduction step, writing to global mem */
+    if (tidxy == 0)
+    {
+        fout[ai] = fbuf[tidxx * CELL_SIZE + tidxy] +
+                fbuf[tidxx * CELL_SIZE + tidxy + i];
+    }
+}
+
+/* FIXME for some @#$@#%! reason it does not work if in a separate function.
+   Maybe it has something to do with the volatile business... */
+__device__ void reduce_force_generic(float4 *fbuf, float4 *fout,
                              int tidxx, int tidxy, int ai)
 {
     if (tidxy == 0)
@@ -54,54 +136,22 @@ __device__ void reduce_force24(float4 *fbuf, float4 *fout,
     }
 }
 
-
-/* 16x16 */
-__device__ void reduce_force16(float4 *fbuf, float4 *fout,
-                             int tidxx, int tidxy, int ai) 
-{
-    /* 256 -> 128: 32x4 threads */
-    if (tidxy < CELL_SIZE/2)
-    {
-        fbuf[tidxx * CELL_SIZE + tidxy] += 
-            fbuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/2];
-    }
-    /* 128 -> 64: 32x2 threads */
-    if (tidxy < CELL_SIZE/4)
-    {
-        fbuf[tidxx * CELL_SIZE + tidxy] += 
-            fbuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/4];
-    }
-    /* 64 -> 32: 32 threads */
-    if (tidxy < CELL_SIZE/8)
-    {
-        fbuf[tidxx * CELL_SIZE + tidxy] += 
-            fbuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/8];
-    }
-    /* 32 -> 16: 16 threads */   
-    if (tidxy < CELL_SIZE/16)
-    {
-        fout[ai] = fbuf[tidxx * CELL_SIZE + tidxy] + 
-            fbuf[tidxx * CELL_SIZE + tidxy + CELL_SIZE/16];
-    }
-}
-
 inline __device__ void reduce_force(float4 *fbuf, float4 *fout,
                              int tidxx, int tidxy, int ai) 
 {
-#if CELL_SIZE ==16
-    reduce_force16(fbuf, fout, tidxx, tidxy, ai);
-#endif 
-#if CELL_SIZE == 24
-    reduce_force32(fbuf, fout, tidxx, tidxy, ai);  
-#endif 
-#if CELL_SIZE == 32
-    reduce_force32(fbuf, fout, tidxx, tidxy, ai);  
-#endif 
+    if (CELL_SIZE & (CELL_SIZE - 1))
+    {
+        reduce_force_pow2(fbuf, fout, tidxx, tidxy, ai);
+    }
+    else 
+    {
+        reduce_force_generic(fbuf, fout, tidxx, tidxy, ai);
+    }
 }
 /*  Launch parameterts: 
         - #blocks   = #neighbor lists, blockId = neigbor_listId
         - #threads  = CELL_SIZE^2
-        - shmem     = CELL_SIZE^2 * sizof(float4)
+        - shmem     = CELL_SIZE^2 * sizeof(float4)
         - registers = 47
 
     Each thread calculates an i force-component taking one pair of i-j atoms.
@@ -137,9 +187,8 @@ __global__ void k_calc_nb(const gmx_nbs_jlist_t *nblist,
 
     for (int i = 0; i < cpg; i++)
     {
-
+    
     nbl         = nblist[cpg * bidx + i];
-//     nbl         = nblist[bidx];       
     ci          = nbl.ci; /* i cell index = current block index */
     ai          = ci * CELL_SIZE + tidxx;  /* i atom index */
     cij_start   = nbl.jind_start; /* first ...*/
@@ -164,7 +213,7 @@ __global__ void k_calc_nb(const gmx_nbs_jlist_t *nblist,
     // loop over i-s neighboring cells
     for (j = cij_start ; j < cij_end; j++)
     {        
-        cj      = cjlist[j]; // TODO quite uncool operation
+        cj      = cjlist[j];
         aj      = cj * CELL_SIZE + tidxy;
 
         if (aj != ai)
@@ -198,7 +247,7 @@ __global__ void k_calc_nb(const gmx_nbs_jlist_t *nblist,
     __syncthreads();
     
     /* reduce forces */
-#if 1
+#if 0 // CELL_SIZE != 8 && CELL_SIZE != 16 && CELL_SIZE != 32
     // XXX lame reduction 
     if (tidxy == 0)
     {      

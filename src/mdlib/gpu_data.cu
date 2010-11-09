@@ -28,8 +28,10 @@ void init_cudata_ff(FILE *fplog,
     char                *env_var;
     int                 itmp;
 
+#if 0 /* texture business */
     cudaChannelFormatDesc   cd;
     const textureReference  *texnbfp;
+#endif
 
     int eventflags = ( USE_CUDA_ENVENT_BLOCKING_SYNC ? cudaEventBlockingSync: cudaEventDefault );
 
@@ -60,7 +62,7 @@ void init_cudata_ff(FILE *fplog,
     stat = cudaMalloc((void **)&d_data->nbfp, 2*ntypes*ntypes*sizeof(*(d_data->nbfp)));
     CU_RET_ERR(stat, "cudaMalloc failed on d_data->nbfp"); 
     upload_cudata(d_data->nbfp, nbat->nbfp, 2*ntypes*ntypes*sizeof(*(d_data->nbfp)));
-#if 0
+#if 0 /* texture business */
     stat = cudaGetTextureReference(&texnbfp, "texnbfp");
     CU_RET_ERR(stat, "cudaGetTextureReference on texnbfp failed");
     cd = cudaCreateChannelDesc<float>();

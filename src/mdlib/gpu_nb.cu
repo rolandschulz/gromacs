@@ -75,6 +75,7 @@ void cu_stream_nb(t_cudata d_data,
     /* XXX XXX */
     if (cacheConf == 0)
     {
+        printf("cell_pair_group=%d\n", d_data->cell_pair_group);
         cudaFuncSetCacheConfig(&k_calc_nb, cudaFuncCachePreferL1); 
         cacheConf++;
     }
