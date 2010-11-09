@@ -187,7 +187,7 @@ __global__ void k_calc_nb(const gmx_nbs_jlist_t *nblist,
 
     for (int i = 0; i < cpg; i++)
     {
-    
+    //     nbl         = nblist[bidx];
     nbl         = nblist[cpg * bidx + i];
     ci          = nbl.ci; /* i cell index = current block index */
     ai          = ci * CELL_SIZE + tidxx;  /* i atom index */
@@ -199,16 +199,7 @@ __global__ void k_calc_nb(const gmx_nbs_jlist_t *nblist,
     xi      = make_float3(f4tmp.x, f4tmp.y, f4tmp.z);
     /* qi      = f4tmp.w; */
     typei   = atom_types[ai];
-    
 
-#if 0
-    if (tidxy == 0)
-    {
-        printf("Thread %5d(%2d, %2d) in block %d working on ci=%d, ai=%d; xi=(%5.1f, %5.1f, %5.1f ); cij=%4d-%4d \n",
-                tidx, tidxx, tidxy, bidx, ci, ai, xi.x, xi.y, xi.z, cij_start, cij_end);
-    }
-#endif
-   
     fbuf = make_float4(0.0f);
     // loop over i-s neighboring cells
     for (j = cij_start ; j < cij_end; j++)
@@ -266,7 +257,15 @@ __global__ void k_calc_nb(const gmx_nbs_jlist_t *nblist,
 #endif 
     } /* for i */
 }
-
+    
+#if 0
+    if (tidxy == 0)
+    {
+        printf("Thread %5d(%2d, %2d) in block %d working on ci=%d, ai=%d; xi=(%5.1f, %5.1f, %5.1f ); cij=%4d-%4d \n",
+                tidx, tidxx, tidxy, bidx, ci, ai, xi.x, xi.y, xi.z, cij_start, cij_end);
+    }
+#endif
+   
 __global__ void k_calc_nb1(struct cudata devData)
 {
     t_cudata devD = &devData;    

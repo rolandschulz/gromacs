@@ -89,8 +89,7 @@ void cu_stream_nb(t_cudata d_data,
 
     /* async copy HtoD x */
     cudaEventRecord(d_data->start_nb, 0);
-    cudaMemcpyAsync(d_data->xq, nbatom->x, d_data->natoms*sizeof(*d_data->xq), 
-                    cudaMemcpyHostToDevice, 0);    
+    upload_cudata_async(d_data->xq, nbatom->x, d_data->natoms*sizeof(*d_data->xq), 0);
 
     /* async nonbonded calculations */        
 #if 0
@@ -108,8 +107,7 @@ void cu_stream_nb(t_cudata d_data,
     CU_LAUNCH_ERR("k_calc_nb");
    
     /* async copy DtoH f */    
-    cudaMemcpyAsync(nbatom->f, d_data->f, d_data->natoms*sizeof(*d_data->f), 
-                    cudaMemcpyDeviceToHost, 0);
+    download_cudata_async(nbatom->f, d_data->f, d_data->natoms*sizeof(*d_data->f), 0);
     cudaEventRecord(d_data->stop_nb, 0);
 }
 

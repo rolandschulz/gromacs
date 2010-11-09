@@ -38,6 +38,7 @@ struct cudata
     gmx_bool        streamGPU;
     cudaStream_t    nb_stream;
     cudaEvent_t     start_nb, stop_nb;
+    cudaEvent_t     start_atomdata, stop_atomdata;
 
     /* neighbor list data */
     int             napc;   /* number of atoms per cell */

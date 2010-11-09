@@ -53,6 +53,10 @@ void init_cudata_ff(FILE *fplog,
         CU_RET_ERR(stat, "cudaEventCreate on start_nb failed");
         stat = cudaEventCreateWithFlags(&(d_data->stop_nb), eventflags);
         CU_RET_ERR(stat, "cudaEventCreate on stop_nb failed");
+        stat = cudaEventCreateWithFlags(&(d_data->start_atomdata), eventflags);
+        CU_RET_ERR(stat, "cudaEventCreate on start_atomdata failed");
+        stat = cudaEventCreateWithFlags(&(d_data->stop_atomdata), eventflags);
+        CU_RET_ERR(stat, "cudaEventCreate on stop_atomdata failed");       
     }   
 
     stat = cudaStreamCreate(&d_data->nb_stream);
@@ -125,6 +129,9 @@ void init_cudata_atoms(t_cudata d_data,
     int         nlist   = nblist->nlist;
     int         ncj     = nblist->ncj;
    
+    /* asynch copy all data */
+    cudaEventRecord(d_data->start_atomdata, 0);
+
     if (d_data->napc < 0)
     {
         d_data->napc = nblist->napc;
@@ -159,7 +166,6 @@ void init_cudata_atoms(t_cudata d_data,
 
         d_data->nalloc = nalloc;
     }
-    upload_cudata(d_data->atom_types, atomdata->type, natoms*sizeof(*(d_data->atom_types)));
     /* XXX for the moment we just set all 8 values to the same value... 
        ATM not, we'll do that later */    
     d_data->natoms = natoms;
@@ -179,7 +185,6 @@ void init_cudata_atoms(t_cudata d_data,
 
         d_data->nblist_nalloc = nblist_nalloc;
     }
-    upload_cudata(d_data->nblist, nblist->list, nlist*sizeof(*(d_data->nblist)));
     d_data->nlist = nlist;
 
     if (ncj > d_data->ncj) 
@@ -197,10 +202,24 @@ void init_cudata_atoms(t_cudata d_data,
 
         d_data->cj_nalloc = cj_nalloc;
     }
-    upload_cudata(d_data->cj, nblist->cj, ncj*sizeof(*(d_data->cj)));
     d_data->ncj = ncj;
+
+
+    upload_cudata_async(d_data->atom_types, atomdata->type, natoms*sizeof(*(d_data->atom_types)), 0);
+    upload_cudata_async(d_data->nblist, nblist->list, nlist*sizeof(*(d_data->nblist)), 0);
+    upload_cudata_async(d_data->cj, nblist->cj, ncj*sizeof(*(d_data->cj)), 0);
+    cudaEventRecord(d_data->stop_atomdata, 0);
 }
 
+void cu_blockwait_atomdata(t_cudata d_data, float *time)
+{    
+    cudaError_t stat;     
+
+    stat = cudaEventSynchronize(d_data->stop_atomdata);
+    CU_RET_ERR(stat, "the async trasfer of atomdata has failed");   
+   
+    cudaEventElapsedTime(time, d_data->start_atomdata, d_data->stop_atomdata);
+}
 
 void destroy_cudata(FILE *fplog, t_cudata d_data)
 {

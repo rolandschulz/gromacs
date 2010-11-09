@@ -442,6 +442,7 @@ void do_force(FILE *fplog,t_commrec *cr,
     float  cycles_ppdpme,cycles_pme,cycles_seppme,cycles_force;
     t_cudata d_data = fr->gpu_data;
     float gpu_nb_time = 0; 
+    float gpu_atomdata_time = 0;
     static float gpu_nb_total = 0;
     static int stepcount = 0;
     
@@ -647,7 +648,6 @@ void do_force(FILE *fplog,t_commrec *cr,
             /* initialize the gpu atom datastructures */
             if (fr->useGPU)
             {
-                // FIXME 
                 init_cudata_atoms(fr->gpu_data, fr->nbat, &(fr->nbl));
             }
 #endif
@@ -658,6 +658,14 @@ void do_force(FILE *fplog,t_commrec *cr,
 #ifdef GMX_GPU
     if (fr->useGPU)
     {
+        /* wait for the atomdata trasfer to be finished */
+        if (bNS && fr->streamGPU)
+        {
+            cu_blockwait_atomdata(d_data, &gpu_atomdata_time);
+
+            printf("atomdata trasfer time, step %4d: %5.3f ms\n", stepcount, gpu_atomdata_time);
+        }
+
         /* Launch GPU-accelerated nonbonded calculations.
            Both tocopying /from device and kernel execution is asynchronous */
         wallcycle_start(wcycle,ewcSEND_X_GPU);

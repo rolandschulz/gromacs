@@ -72,11 +72,11 @@ extern "C" {
 #endif
 
 int download_cudata(void * /*h_dest*/, void * /*d_src*/, size_t /*bytes*/);
-
+int download_cudata_async(void * /*h_dest*/, void * /*d_src*/, size_t /*bytes*/, cudaStream_t /*stream = 0*/);
 int download_cudata_alloc(void ** /*h_dest*/, void * /*d_src*/, size_t /*bytes*/);
 
 int upload_cudata(void * /*d_dest*/, void * /*h_src*/, size_t /*bytes*/);
-
+int upload_cudata_async(void * /*d_dest*/, void * /*h_src*/, size_t /*bytes*/, cudaStream_t /*stream = 0*/);
 int upload_cudata_alloc(void ** /*d_dest*/, void * /*h_src*/, size_t /*bytes*/);
 
 #ifdef __cplusplus
