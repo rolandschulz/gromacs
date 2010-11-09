@@ -1344,6 +1344,7 @@ void init_forcerec(FILE *fp,
     gmx_bool    bTab,bSep14tab,bNormalnblists;
     t_nblists *nbl;
     int     *nm_ind,egp_flags;
+    int     napc;
     
     fr->bDomDec = DOMAINDECOMP(cr);
 
@@ -1830,10 +1831,22 @@ void init_forcerec(FILE *fp,
     
     snew(fr->excl_load,fr->nthreads+1);
 
-    fr->emulateGPU = (!fr->useGPU && getenv("GMX_EMULATE_GPU") != NULL);
-    if (fp)
+    /* nsbox neighbor searching and GPU stuff */
+    napc = GPU_NS_CELL_SIZE;
+
+    env = getenv("GMX_EMULATE_GPU");
+    fr->emulateGPU = (env != NULL);
+    if (fr->emulateGPU)
     {
-        fprintf(fp, "Emulating GPU.\n");
+        sscanf(env,"%d",&napc);
+        if (napc == 0)
+        {
+            napc = GPU_NS_CELL_SIZE;
+        }
+        if (fp != NULL)
+        {
+            fprintf(fp, "Emulating GPU, using %d atoms per cell\n",napc);
+        }
     }
 
     /* turn GPU acceleration on if GMX_GPU is defined */
@@ -1863,13 +1876,25 @@ void init_forcerec(FILE *fp,
     }
  #endif   
 
-
     if (fr->useGPU || fr->emulateGPU)
     {
-        gmx_nbsearch_init(&fr->nbs,GPU_NS_CELL_SIZE);
-        gmx_nblist_init(&fr->nbl, &pmalloc, &pfree);
+        gmx_nbsearch_init(&fr->nbs,napc);
+        gmx_nblist_init(&fr->nbl,
+#ifdef GMX_GPU
+                        &pmalloc, &pfree
+#else
+                        NULL, NULL
+#endif
+            );
+        gmx_nblist_init(&fr->nbl, NULL, NULL);
         snew(fr->nbat,1);
-        gmx_nb_atomdata_init(fr->nbat,4,fr->ntype,fr->nbfp, &pmalloc, &pfree);
+        gmx_nb_atomdata_init(fr->nbat,4,fr->ntype,fr->nbfp,
+#ifdef GMX_GPU
+                             &pmalloc, &pfree
+#else
+                             NULL, NULL
+#endif
+            );
         if (fr->useGPU)
         {
 
