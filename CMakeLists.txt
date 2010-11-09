@@ -402,6 +402,9 @@ endif(GMX_OPENMM)
 
 if(GMX_GPU)
     set(CUDA_BUILD_EMULATION OFF)
+    if ("${CUDA_NVCC_FLAGS}" STREQUAL "")
+        set(CUDA_NVCC_FLAGS "-arch=sm_20;-use_fast_math;" CACHE STRING "" FORCE)
+    endif()
     find_package(CUDA 3.1 REQUIRED)
     add_definitions(-DGMX_GPU)
     if(CMAKE_BUILD_TYPE STREQUAL "DEBUG")    
@@ -753,6 +756,10 @@ if (NOT DEFINED GROMACS_C_FLAGS_SET)
         "${GROMACS_LINKER_FLAGS} ${CMAKE_EXE_LINKER_FLAGS}" 
         CACHE STRING "Linker flags" FORCE) 
 endif (NOT DEFINED GROMACS_C_FLAGS_SET)
+
+#if(GMX_GPU)
+#   set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS}${GROMACS_CXX_FLAGS}")
+#endif()
 
 ########################################################################
 # Specify install locations and which subdirectories to process        #
