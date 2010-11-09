@@ -661,7 +661,7 @@ static void add_js_to_list(gmx_nblist_t *nbl,int cjf,int cjl)
     nbl->list[nbl->nlist-1].jind_end = jind_end;
 }
 
-static void nblist_alloc_aligned(void **ptr,int nbytes)
+static void nblist_alloc_aligned(void **ptr,size_t nbytes)
 {
     *ptr = save_calloc_aligned("ptr",__FILE__,__LINE__,nbytes,1,16);
 }

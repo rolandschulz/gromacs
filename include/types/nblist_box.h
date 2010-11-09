@@ -45,7 +45,7 @@ typedef struct gmx_nbsearch * gmx_nbsearch_t;
  * of size nbytes.
  * Error handling should be done within this function.
  */
-typedef void gmx_nbat_alloc_t(void **ptr,int nbytes);
+typedef void gmx_nbat_alloc_t(void **ptr,size_t nbytes);
 
 /* Function that should free the memory pointed to by *ptr.
  * NULL should not be passed to this function.
