@@ -220,14 +220,16 @@ static void sort_column(int *a,int n,rvec *x,real invh,int nsort,int *sort)
     }
 }
 
-static void calc_bounding_box(int nc,int napc,int stride,real *x,real *bb)
+static void calc_bounding_box(int nc,int napc,int na,
+                              int stride,real *x,real *bb)
 {
-    int  i,c,j,cbb0;
+    int  i,c,nabb,j,cbb0;
     real xl,xh,yl,yh,zl,zh;
 
     i = 0;
     for(c=0; c<nc; c++)
     {
+        nabb = min(napc,na-c*napc);
         xl = x[i+XX];
         xh = x[i+XX];
         yl = x[i+YY];
@@ -235,7 +237,7 @@ static void calc_bounding_box(int nc,int napc,int stride,real *x,real *bb)
         zl = x[i+ZZ];
         zh = x[i+ZZ];
         i += stride;
-        for(j=1; j<napc; j++)
+        for(j=1; j<nabb; j++)
         {
             xl = min(xl,x[i+XX]);
             xh = max(xh,x[i+XX]);
@@ -306,10 +308,10 @@ static void copy_rvec_to_nbat_real(const int *a,int na,int na_round,
 /* We might need to place filler particles to fill ub the cell to na_round.
  * The coefficients (LJ and q) for such particles are zero.
  * But we might still get NaN as 0*NaN when distances are too small.
- * We hope that -100 nm is far away enough from to zero
+ * We hope that -107 nm is far away enough from to zero
  * to avoid accidental short distances to particles shifted down for pbc.
  */
-#define NBAT_FAR_AWAY 100
+#define NBAT_FAR_AWAY 107
 
     switch (stride)
     {
@@ -327,9 +329,9 @@ static void copy_rvec_to_nbat_real(const int *a,int na,int na_round,
          */
         for(; i<na_round; i++)
         {
-            xnb[j++] = cx;
-            xnb[j++] = cy;
-            xnb[j++] = -(NBAT_FAR_AWAY + i);
+            xnb[j++] = -NBAT_FAR_AWAY*(1 + cx);
+            xnb[j++] = -NBAT_FAR_AWAY*(1 + cy);
+            xnb[j++] = -NBAT_FAR_AWAY&(1 + i);
         }
         break;
     case 4:
@@ -347,9 +349,9 @@ static void copy_rvec_to_nbat_real(const int *a,int na,int na_round,
          */
         for(; i<na_round; i++)
         {
-            xnb[j++] = cx;
-            xnb[j++] = cy;
-            xnb[j++] = -(NBAT_FAR_AWAY + i);
+            xnb[j++] = -NBAT_FAR_AWAY*(1 + cx);
+            xnb[j++] = -NBAT_FAR_AWAY*(1 + cy);
+            xnb[j++] = -NBAT_FAR_AWAY*(1 + i);
             j++;
         }
         break;
@@ -450,7 +452,7 @@ static void calc_cell_indices(gmx_nbsearch_t nbs,
         copy_rvec_to_nbat_real(axy,na,ncz*nbs->napc,x,nbat->xstride,xnb,
                                cx,cy);
 
-        calc_bounding_box(ncz,nbs->napc,nbat->xstride,xnb,
+        calc_bounding_box(ncz,nbs->napc,na,nbat->xstride,xnb,
                           nbs->bb+nbs->cxy_ind[i]*NNBSBB);
     }
 
@@ -905,6 +907,9 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,real rcut,real rlist,
 
                         for(cy=cyf; cy<=cyl; cy++)
                         {
+                            c0 = nbs->cxy_ind[cx*nbs->ncy+cy];
+                            c1 = nbs->cxy_ind[cx*nbs->ncy+cy+1];
+
                             d2zxy = d2zx;
                             if (cy*nbs->sy > by1)
                             {
@@ -914,10 +919,8 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,real rcut,real rlist,
                             {
                                 d2zxy += sqr((cy+1)*nbs->sy - by0);
                             }
-                            if (d2zxy < rl2)
+                            if (c1 > c0 && d2zxy < rl2)
                             {
-                                c0 = nbs->cxy_ind[cx*nbs->ncy+cy];
-                                c1 = nbs->cxy_ind[cx*nbs->ncy+cy+1];
                                 cs = c0 + (int)(bz1_frac*(c1 - c0));
                                 if (cs >= c1)
                                 {
