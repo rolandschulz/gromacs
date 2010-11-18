@@ -86,6 +86,8 @@ nsbox_generic_kernel(const gmx_nblist_t         *nbl,
     real *        vdwparam;
     int *         shift;
     int *         type;
+
+    int           npair;
 	
     /* Coulomb is temporary hard-coded to RF */
     icoul               = 2;
@@ -112,7 +114,8 @@ nsbox_generic_kernel(const gmx_nblist_t         *nbl,
     ntype               = nbat->ntype;
 
     x = nbat->x;
-	
+
+    npair = 0;
     for(n=0; n<nbl->nlist; n++)
     {
         nbln = &nbl->list[n];
@@ -166,6 +169,10 @@ nsbox_generic_kernel(const gmx_nblist_t         *nbl,
                     if (rsq >= rcut2)
                     {
                         continue;
+                    }
+                    if (type[ia] != ntype-1 && type[ja] != ntype-1)
+                    {
+                        npair++;
                     }
                     rinv             = gmx_invsqrt(rsq);
                     rinvsq           = rinv*rinv;  
@@ -316,5 +323,10 @@ nsbox_generic_kernel(const gmx_nblist_t         *nbl,
         ggid = 0;
         Vc[ggid]         = Vc[ggid] + 0.5*vctot;
         Vvdw[ggid]       = Vvdw[ggid] + 0.5*Vvdwtot;
+    }
+
+    if (debug)
+    {
+        fprintf(debug,"generic kernel total real atom pairs: %d\n",npair);
     }
 }
