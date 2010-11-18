@@ -174,7 +174,7 @@ static void sort_column(int *a,int n,rvec *x,real invh,int nsort,int *sort)
          * but that might already be in use,
          * in that case find the first empty cell higher up
          */
-        if (sort[zi] == 0)
+        if (sort[zi] < 0)
         {
             sort[zi] = a[i];
         }
@@ -298,9 +298,18 @@ static void copy_int_to_nbat_int(const int *a,int na,int na_round,
 }
 
 static void copy_rvec_to_nbat_real(const int *a,int na,int na_round,
-                                   rvec *x,int stride,real *xnb)
+                                   rvec *x,int stride,real *xnb,
+                                   int cx,int cy)
 {
     int i,j;
+
+/* We might need to place filler particles to fill ub the cell to na_round.
+ * The coefficients (LJ and q) for such particles are zero.
+ * But we might still get NaN as 0*NaN when distances are too small.
+ * We hope that -100 nm is far away enough from to zero
+ * to avoid accidental short distances to particles shifted down for pbc.
+ */
+#define NBAT_FAR_AWAY 100
 
     switch (stride)
     {
@@ -318,9 +327,9 @@ static void copy_rvec_to_nbat_real(const int *a,int na,int na_round,
          */
         for(; i<na_round; i++)
         {
-            xnb[j++] = x[a[na-1]][XX];
-            xnb[j++] = x[a[na-1]][YY];
-            xnb[j++] = x[a[na-1]][ZZ];
+            xnb[j++] = cx;
+            xnb[j++] = cy;
+            xnb[j++] = -(NBAT_FAR_AWAY + i);
         }
         break;
     case 4:
@@ -338,9 +347,9 @@ static void copy_rvec_to_nbat_real(const int *a,int na,int na_round,
          */
         for(; i<na_round; i++)
         {
-            xnb[j++] = x[a[na-1]][XX];
-            xnb[j++] = x[a[na-1]][YY];
-            xnb[j++] = x[a[na-1]][ZZ];
+            xnb[j++] = cx;
+            xnb[j++] = cy;
+            xnb[j++] = -(NBAT_FAR_AWAY + i);
             j++;
         }
         break;
@@ -426,6 +435,9 @@ static void calc_cell_indices(gmx_nbsearch_t nbs,
     /* Sort the atoms within each x,y column on z coordinate */
     for(i=0; i<nbs->ncx*nbs->ncy; i++)
     {
+        cx = i/nbs->ncy;
+        cy = i - cx*nbs->ncy;
+
         na  = nbs->cxy_na[i];
         ncz = nbs->cxy_ind[i+1] - nbs->cxy_ind[i];
         ash = nbs->cxy_ind[i]*nbs->napc;
@@ -435,7 +447,8 @@ static void calc_cell_indices(gmx_nbsearch_t nbs,
         sort_column(axy,na,x,ncz*nbs->napc*SORT_GRID_OVERSIZE/box[ZZ][ZZ],
                     ncz*nbs->napc*SGSF,nbs->sort_work);
 
-        copy_rvec_to_nbat_real(axy,na,ncz*nbs->napc,x,nbat->xstride,xnb);
+        copy_rvec_to_nbat_real(axy,na,ncz*nbs->napc,x,nbat->xstride,xnb,
+                               cx,cy);
 
         calc_bounding_box(ncz,nbs->napc,nbat->xstride,xnb,
                           nbs->bb+nbs->cxy_ind[i]*NNBSBB);

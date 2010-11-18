@@ -134,11 +134,6 @@ nsbox_generic_kernel(const gmx_nblist_t         *nbl,
             {
                 ia               = ci*nbl->napc + ic;
 
-                if (type[ia] == ntype-1)
-                {
-                    continue;
-                }
-
                 is               = ia*nbat->xstride;
                 ix               = shX + x[is+0];
                 iy               = shY + x[is+1];
@@ -155,7 +150,7 @@ nsbox_generic_kernel(const gmx_nblist_t         *nbl,
                     ja               = cj*nbl->napc + jc;
 
                     /* Currently only handles self exclusions */
-                    if (type[ja] == ntype-1 || ja == ia)
+                    if (ja == ia)
                     {
                         continue;
                     }
