@@ -38,6 +38,11 @@
 extern "C" {
 #endif
 
+#define NSUBCELL_Z 4
+#define NSUBCELL_Y 1
+#define NSUBCELL_X 1
+#define NSUBCELL   (NSUBCELL_Z*NSUBCELL_Y*NSUBCELL_X)
+
 /* Abstract type for neighbor searching data */
 typedef struct gmx_nbsearch * gmx_nbsearch_t;
 
@@ -54,25 +59,35 @@ typedef void gmx_nbat_free_t(void *ptr);
 
 /* Smaller neighbor list list unit */
 typedef struct {
-    int ci;         /* i-cell              */
-    int shift;      /* Shift vector index  */
-    int jind_start; /* Start index into cj */
-    int jind_end;   /* End index into cj   */
-} gmx_nbs_jlist_t;
+    int ci;            /* i-cell              */
+    int shift;         /* Shift vector index  */
+    int sj_ind_start;  /* Start index into sj */
+    int sj_ind_end;    /* End index into sj   */
+} gmx_nbs_ci_t;
+
+typedef struct {
+    int sj;            /* The j innerloop sub cell                   */
+    int si_ind;        /* Index into i innerloop sub cells,          *
+                        * the index end is ii_ind of the next j cell */
+} gmx_nbs_sj_t;
 
 typedef struct {
     gmx_nbat_alloc_t *alloc;
     gmx_nbat_free_t  *free;
-    int      napc;         /* Number of atoms per cell             */
-    gmx_bool TwoWay;       /* Each pair once or twice in the list? */
-    real     rcut;         /* The cut-off distance                 */
-    real     rlist;        /* The radius for constructing the list */
-    int      nlist;        /* The number of lists                  */
-    gmx_nbs_jlist_t *list; /* The lists                            */
-    int      list_nalloc;  /* Allocation size of list              */
-    int      ncj;          /* The total number of i-j-cell pairs   */
-    int      *cj;          /* Array of j-cells                     */
-    int      cj_nalloc;    /* Allocation size of cj                */
+    int      napc;         /* The number of atoms per super cell       */
+    int      naps;         /* The number of atoms per sub cell         */
+    gmx_bool TwoWay;       /* Each pair once or twice in the list?     */
+    real     rcut;         /* The cut-off distance                     */
+    real     rlist;        /* The radius for constructing the list     */
+    int      nci;          /* The number of i super cells in the list  */
+    gmx_nbs_ci_t *ci;      /* The i super cell list                    */
+    int      ci_nalloc;    /* The allocation size of ci                */
+    int      nsj;          /* The total number of j sub cell           */
+    gmx_nbs_sj_t *sj;      /* The j super cell list (size nsj+1)       */
+    int      sj_nalloc;    /* The allocation isze of sj                */
+    int      nsi;          /* The total number of i sub cells          */
+    int      *si;          /* Array of i sub-cells (in pairs with j)   */
+    int      si_nalloc;    /* Allocation size of ii                    */
 } gmx_nblist_t;
 
 typedef struct {
