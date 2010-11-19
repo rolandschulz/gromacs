@@ -648,7 +648,7 @@ void do_force(FILE *fplog,t_commrec *cr,
             /* initialize the gpu atom datastructures */
             if (fr->useGPU)
             {
-                init_cudata_atoms(fr->gpu_data, fr->nbat, &(fr->nbl));
+                init_cudata_atoms(fr->gpu_data, fr->nbat, &(fr->nbl), fr->streamGPU);
             }
 #endif
         }

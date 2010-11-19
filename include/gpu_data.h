@@ -14,7 +14,8 @@ void init_cudata_ff(FILE * /*fplog*/,
 
 void init_cudata_atoms(t_cudata /*d_data*/, 
                         const gmx_nb_atomdata_t * /*atomdata*/, 
-                        const gmx_nblist_t *  /*nblist*/);
+                        const gmx_nblist_t *  /*nblist*/,
+                        gmx_bool /*doStream*/);
 
 void destroy_cudata(FILE * /*fplog*/, 
                     t_cudata  /*d_data*/);

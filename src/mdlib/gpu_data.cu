@@ -124,7 +124,8 @@ void init_cudata_ff(FILE *fplog,
 /* natoms gets the value of fr->natoms_force */
 void init_cudata_atoms(t_cudata d_data, 
                        const gmx_nb_atomdata_t *atomdata, 
-                       const gmx_nblist_t *nblist)
+                       const gmx_nblist_t *nblist,
+                       gmx_bool doStream)
 {
     cudaError_t stat;
     int         nalloc, nblist_nalloc, cj_nalloc;
@@ -207,10 +208,18 @@ void init_cudata_atoms(t_cudata d_data,
     }
     d_data->ncj = ncj;
 
-
-    upload_cudata_async(d_data->atom_types, atomdata->type, natoms*sizeof(*(d_data->atom_types)), 0);
-    upload_cudata_async(d_data->nblist, nblist->list, nlist*sizeof(*(d_data->nblist)), 0);
-    upload_cudata_async(d_data->cj, nblist->cj, ncj*sizeof(*(d_data->cj)), 0);
+    if(doStream)
+    {
+        upload_cudata_async(d_data->atom_types, atomdata->type, natoms*sizeof(*(d_data->atom_types)), 0);
+        upload_cudata_async(d_data->nblist, nblist->list, nlist*sizeof(*(d_data->nblist)), 0);
+        upload_cudata_async(d_data->cj, nblist->cj, ncj*sizeof(*(d_data->cj)), 0);
+    }
+    else 
+    {
+        upload_cudata(d_data->atom_types, atomdata->type, natoms*sizeof(*(d_data->atom_types)));
+        upload_cudata(d_data->nblist, nblist->list, nlist*sizeof(*(d_data->nblist)));
+        upload_cudata(d_data->cj, nblist->cj, ncj*sizeof(*(d_data->cj)));
+    }
     cudaEventRecord(d_data->stop_atomdata, 0);
 }
 
