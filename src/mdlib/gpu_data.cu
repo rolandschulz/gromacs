@@ -73,6 +73,9 @@ void init_cudata_ff(FILE *fplog,
     stat = cudaBindTexture(NULL, texnbfp, d_data->nbfp, &cd, 2*d_data->ntypes*d_data->ntypes);
     CU_RET_ERR(stat, "cudaBindTexture on texnbfp failed");
 #endif
+    stat = cudaMalloc((void**)&d_data->shiftvec, SHIFTS*sizeof(*d_data->shiftvec));
+    CU_RET_ERR(stat, "cudaMalloc failed on d_data->shiftvec");
+
     if (fplog != NULL)
     {
         fprintf(fplog, "Initialized CUDA data structures.\n");

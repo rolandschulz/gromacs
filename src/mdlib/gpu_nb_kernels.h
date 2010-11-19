@@ -110,9 +110,17 @@ __device__ void reduce_force_pow2(float4 *fbuf, float4 *fout,
 
     /* i == 1, last reduction step, writing to global mem */
     if (tidxy == 0)
-    {
+    {        
+        atomicAdd(&fout[ai].x, fbuf[tidxx * CELL_SIZE + tidxy].x +
+                fbuf[tidxx * CELL_SIZE + tidxy + i].x);
+        atomicAdd(&fout[ai].y, fbuf[tidxx * CELL_SIZE + tidxy].y +
+                fbuf[tidxx * CELL_SIZE + tidxy + i].y);
+        atomicAdd(&fout[ai].z, fbuf[tidxx * CELL_SIZE + tidxy].z +
+                fbuf[tidxx * CELL_SIZE + tidxy + i].z);
+      /*
         fout[ai] = fbuf[tidxx * CELL_SIZE + tidxy] +
                 fbuf[tidxx * CELL_SIZE + tidxy + i];
+        */
     }
 }
 
@@ -163,6 +171,7 @@ __global__ void k_calc_nb(const gmx_nbs_jlist_t *nblist,
                           const int *cjlist, 
                           const float *nbfp,
                           float4 *f,
+                          const float3 *shiftvec,
                           int cpg)
 {
     unsigned int tidxx  = threadIdx.x; // local
@@ -175,20 +184,22 @@ __global__ void k_calc_nb(const gmx_nbs_jlist_t *nblist,
         cij_start, cij_end, 
         typei, typej,
         j; //, ntypes;
-    float /* qi, qj, */
+    float qi_f, qj,
           inv_r, inv_r2, inv_r6, 
           c6, c12, 
-          dVdr;
+          dVdr, r2;
     float4 f4tmp, fbuf;
     float3 xi, xj, rv;
+    float3 shift;
     gmx_nbs_jlist_t nbl;
 
     extern __shared__ float4 forcebuf[];  // force buffer  
 
-    for (int i = 0; i < cpg; i++)
+    //for (int i = 0; i < cpg; i++)
     {
-    //     nbl         = nblist[bidx];
-    nbl         = nblist[cpg * bidx + i];
+
+    nbl         = nblist[bidx];
+    // nbl         = nblist[cpg * bidx + i];
     ci          = nbl.ci; /* i cell index = current block index */
     ai          = ci * CELL_SIZE + tidxx;  /* i atom index */
     cij_start   = nbl.jind_start; /* first ...*/
@@ -197,8 +208,10 @@ __global__ void k_calc_nb(const gmx_nbs_jlist_t *nblist,
     // load i atom data into registers
     f4tmp   = xq[ai];
     xi      = make_float3(f4tmp.x, f4tmp.y, f4tmp.z);
-    /* qi      = f4tmp.w; */
+    qi_f    = GPU_FACEL * f4tmp.w;
     typei   = atom_types[ai];
+    shift   = shiftvec[nbl.shift];
+    xi      += shift;
 
     fbuf = make_float4(0.0f);
     // loop over i-s neighboring cells
@@ -212,21 +225,24 @@ __global__ void k_calc_nb(const gmx_nbs_jlist_t *nblist,
             // all threads load an atom from j cell into shmem!
             f4tmp   = xq[aj];
             xj      = make_float3(f4tmp.x, f4tmp.y, f4tmp.z);
-            /* qj      = f4tmp.w; */ 
+            qj      = f4tmp.w; 
             typej   = atom_types[aj];
         
-            /* TODO more uncool stuff here */
             c6          = nbfp[2 * (ntypes * typei + typej)]; // LJ C6 
                           // tex1Dfetch(texnbfp, 2 * (ntypes * typei + typej));
                           // 1; 
             c12         = nbfp[2 * (ntypes * typei + typej) + 1]; // LJ C12
                           // tex1Dfetch(texnbfp, 2 * (ntypes * typei + typej) + 1);                       
-                          // 1;
+                          // 1;            
             rv          = xi - xj;
-            inv_r       = 1.0f / norm(rv);
+            r2          = norm2(rv);
+            inv_r       = 1.0f / sqrt(r2);
             inv_r2      = inv_r * inv_r;
             inv_r6      = inv_r2 * inv_r2 * inv_r2;
-            dVdr        = inv_r6 * (12.0 * c12 * inv_r6 - 6.0 * c6) * inv_r2;
+            
+            dVdr        = qi_f * qj * inv_r2 * inv_r;
+                          // qi_f * qj * (erfc(r2 * inv_r) * inv_r + exp(-r2)) * inv_r2;
+            dVdr        += inv_r6 * (12.0 * c12 * inv_r6 - 6.0 * c6) * inv_r2;
 
             // accumulate forces            
             fbuf.x += rv.x * dVdr;
@@ -236,7 +252,7 @@ __global__ void k_calc_nb(const gmx_nbs_jlist_t *nblist,
     }        
     forcebuf[tidx] = fbuf;
     __syncthreads();
-    
+
     /* reduce forces */
 #if 0 // CELL_SIZE != 8 && CELL_SIZE != 16 && CELL_SIZE != 32
     // XXX lame reduction 

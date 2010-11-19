@@ -12,6 +12,7 @@
 
 #define CELL_SIZE           (GPU_NS_CELL_SIZE)
 #define NB_DEFAULT_THREADS  (CELL_SIZE * CELL_SIZE)
+#define GPU_FACEL           (138.935485)
 
 texture<float, 1, cudaReadModeElementType> texnbfp;
 
@@ -30,7 +31,7 @@ inline int calc_nb_blocknr(int nwork_units)
     return retval;
 }
 
-void cu_do_nb(t_cudata d_data)
+void cu_do_nb(t_cudata d_data,rvec shiftvec[]) 
 {
     int     nb_blocks = calc_nb_blocknr(d_data->nlist);
     dim3    dim_block(CELL_SIZE, CELL_SIZE, 1); 
@@ -43,6 +44,10 @@ void cu_do_nb(t_cudata d_data)
             dim_block.x, dim_block.y, dim_block.z, dim_grid.x, dim_grid.y, d_data->ncj, d_data->napc);
     }
 
+    /* set the forces to 0 */
+    cudaMemset(d_data->f, 0, d_data->natoms*sizeof(*d_data->f));
+
+    upload_cudata(d_data->shiftvec, shiftvec, SHIFTS*sizeof(*d_data->shiftvec));   
 
     /* sync nonbonded calculations */   
 #if 0    
@@ -55,6 +60,7 @@ void cu_do_nb(t_cudata d_data)
                                                   d_data->cj, 
                                                   d_data->nbfp,
                                                   d_data->f,
+                                                  d_data->shiftvec,
                                                   d_data->cell_pair_group);
 #endif    
     CU_LAUNCH_ERR_SYNC("k_calc_nb");
@@ -62,7 +68,8 @@ void cu_do_nb(t_cudata d_data)
 
 void cu_stream_nb(t_cudata d_data, 
                   /*const gmx_nblist_t *nblist, */
-                  const gmx_nb_atomdata_t *nbatom)
+                  const gmx_nb_atomdata_t *nbatom,
+                  rvec shiftvec[])
 {
     int     nb_blocks = calc_nb_blocknr(d_data->nlist)/d_data->cell_pair_group;
     dim3    dim_block(CELL_SIZE, CELL_SIZE, 1); 
@@ -89,7 +96,12 @@ void cu_stream_nb(t_cudata d_data,
 
     /* async copy HtoD x */
     cudaEventRecord(d_data->start_nb, 0);
+    
+    /* set the forces to 0 */
+    cudaMemsetAsync(d_data->f, 0, d_data->natoms*sizeof(*d_data->f), 0);
+
     upload_cudata_async(d_data->xq, nbatom->x, d_data->natoms*sizeof(*d_data->xq), 0);
+    upload_cudata_async(d_data->shiftvec, shiftvec, SHIFTS*sizeof(*d_data->shiftvec), 0);   
 
     /* async nonbonded calculations */        
 #if 0
@@ -101,7 +113,8 @@ void cu_stream_nb(t_cudata d_data,
                                                   d_data->atom_types, 
                                                   d_data->cj, 
                                                   d_data->nbfp,
-                                                  d_data->f, 
+                                                  d_data->f,
+                                                  d_data->shiftvec,
                                                   d_data->cell_pair_group);
 #endif
     CU_LAUNCH_ERR("k_calc_nb");

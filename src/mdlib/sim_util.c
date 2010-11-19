@@ -671,12 +671,12 @@ void do_force(FILE *fplog,t_commrec *cr,
         wallcycle_start(wcycle,ewcSEND_X_GPU);
         if (fr->streamGPU)
         {            
-            cu_stream_nb(fr->gpu_data, fr->nbat);
+            cu_stream_nb(fr->gpu_data, fr->nbat, fr->shift_vec);
         }
         else
         {
             cu_upload_X(d_data, fr->nbat->x);
-            cu_do_nb(d_data);
+            cu_do_nb(d_data, fr->shift_vec);
         }
         wallcycle_stop(wcycle,ewcSEND_X_GPU);
     }

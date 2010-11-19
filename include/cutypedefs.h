@@ -49,6 +49,8 @@ struct cudata
     int             cj_nalloc; /* allocation size for cj */
     int             *cj; /* j cells */
 
+    float3          *shiftvec;
+
     int             cell_pair_group;
 };
 
