@@ -33,7 +33,7 @@ inline int calc_nb_blocknr(int nwork_units)
 
 void cu_do_nb(t_cudata d_data,rvec shiftvec[]) 
 {
-    int     nb_blocks = calc_nb_blocknr(d_data->nlist);
+    int     nb_blocks = calc_nb_blocknr(d_data->nlist)/d_data->cell_pair_group;
     dim3    dim_block(CELL_SIZE, CELL_SIZE, 1); 
     dim3    dim_grid(nb_blocks, 1, 1); 
     int     shmem = CELL_SIZE * CELL_SIZE * sizeof(float4); /* force buffer */
@@ -47,22 +47,18 @@ void cu_do_nb(t_cudata d_data,rvec shiftvec[])
     /* set the forces to 0 */
     cudaMemset(d_data->f, 0, d_data->natoms*sizeof(*d_data->f));
 
+    /* upload shift vec */
     upload_cudata(d_data->shiftvec, shiftvec, SHIFTS*sizeof(*d_data->shiftvec));   
 
     /* sync nonbonded calculations */   
-#if 0    
-    k_calc_nb<<<dim_grid, dim_block, shmem>>>(*d_data);
-#else
     k_calc_nb<<<dim_grid, dim_block, shmem>>>(d_data->nblist,             
+                                                  d_data->cj, 
+                                                  d_data->atom_types, 
                                                   d_data->ntypes, 
                                                   d_data->xq, 
-                                                  d_data->atom_types, 
-                                                  d_data->cj, 
                                                   d_data->nbfp,
-                                                  d_data->f,
                                                   d_data->shiftvec,
-                                                  d_data->cell_pair_group);
-#endif    
+                                                  d_data->f);
     CU_LAUNCH_ERR_SYNC("k_calc_nb");
 }
 
@@ -82,25 +78,21 @@ void cu_stream_nb(t_cudata d_data,
     /* XXX XXX */
     if (cacheConf == 0)
     {
+        printf("~> Thread block: %dx%dx%d\n~> Grid: %dx%d\n~> #Cells: %d (%d)\n",         
+        dim_block.x, dim_block.y, dim_block.z, dim_grid.x, dim_grid.y, d_data->ncj, d_data->napc);
+
         printf("cell_pair_group=%d\n", d_data->cell_pair_group);
-        cudaFuncSetCacheConfig(&k_calc_nb, cudaFuncCachePreferL1); 
+        cudaFuncSetCacheConfig(&k_calc_nb, cudaFuncCachePreferShared); 
         cacheConf++;
     }
 
-
-    if (debug)
-    {
-        printf("~> Thread block: %dx%dx%d\n~> Grid: %dx%d\n~> #Cells: %d (%d)\n", 
-            dim_block.x, dim_block.y, dim_block.z, dim_grid.x, dim_grid.y, d_data->ncj, d_data->napc);
-    }  
-
-    /* async copy HtoD x */
     cudaEventRecord(d_data->start_nb, 0);
     
     /* set the forces to 0 */
     cudaMemsetAsync(d_data->f, 0, d_data->natoms*sizeof(*d_data->f), 0);
-
+    /* upload x, Q */
     upload_cudata_async(d_data->xq, nbatom->x, d_data->natoms*sizeof(*d_data->xq), 0);
+    /* upload shift vec */
     upload_cudata_async(d_data->shiftvec, shiftvec, SHIFTS*sizeof(*d_data->shiftvec), 0);   
 
     /* async nonbonded calculations */        
@@ -108,14 +100,13 @@ void cu_stream_nb(t_cudata d_data,
     k_calc_nb<<<dim_grid, dim_block, shmem, 0>>>(*d_data);
 #else
     k_calc_nb<<<dim_grid, dim_block, shmem, 0>>>(d_data->nblist,             
+                                                  d_data->cj, 
+                                                  d_data->atom_types, 
                                                   d_data->ntypes, 
                                                   d_data->xq, 
-                                                  d_data->atom_types, 
-                                                  d_data->cj, 
                                                   d_data->nbfp,
-                                                  d_data->f,
                                                   d_data->shiftvec,
-                                                  d_data->cell_pair_group);
+                                                  d_data->f);    
 #endif
     CU_LAUNCH_ERR("k_calc_nb");
    
