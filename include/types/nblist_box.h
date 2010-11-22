@@ -38,9 +38,9 @@
 extern "C" {
 #endif
 
-#define NSUBCELL_Z 4
-#define NSUBCELL_Y 1
-#define NSUBCELL_X 1
+#define NSUBCELL_Z 2
+#define NSUBCELL_Y 2
+#define NSUBCELL_X 2
 #define NSUBCELL   (NSUBCELL_Z*NSUBCELL_Y*NSUBCELL_X)
 
 /* Abstract type for neighbor searching data */
