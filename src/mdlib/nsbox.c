@@ -168,8 +168,9 @@ static int set_grid_size_xy(gmx_nbsearch_t nbs,int n,matrix box)
 #define SORT_GRID_OVERSIZE 2
 #define SGSF (SORT_GRID_OVERSIZE + 1)
 
-static void sort_column(int dim,int *a,int n,rvec *x,real invh,
-                        int nsort,int *sort)
+static void sort_column(int dim,gmx_bool Backwards,
+                        int *a,int n,rvec *x,
+                        real invh,int nsort,int *sort)
 {
     int i,c;
     int zi,zim;
@@ -239,11 +240,24 @@ static void sort_column(int dim,int *a,int n,rvec *x,real invh,
     }
 
     c = 0;
-    for(zi=0; zi<nsort; zi++)
+    if (!Backwards)
     {
-        if (sort[zi] >= 0)
+        for(zi=0; zi<nsort; zi++)
         {
-            a[c++] = sort[zi];
+            if (sort[zi] >= 0)
+            {
+                a[c++] = sort[zi];
+            }
+        }
+    }
+    else
+    {
+        for(zi=nsort-1; zi>=0; zi--)
+        {
+            if (sort[zi] >= 0)
+            {
+                a[c++] = sort[zi];
+            }
         }
     }
     if (c < n)
@@ -510,7 +524,8 @@ static void calc_cell_indices(gmx_nbsearch_t nbs,
         ash = nbs->cxy_ind[i]*nbs->napc;
 
         /* Sort the atoms within each x,y column on z coordinate */
-        sort_column(ZZ,nbs->a+ash,na,x,
+        sort_column(ZZ,FALSE,
+                    nbs->a+ash,na,x,
                     ncz*nbs->napc*SORT_GRID_OVERSIZE/box[ZZ][ZZ],
                     ncz*nbs->napc*SGSF,nbs->sort_work);
 
@@ -540,7 +555,8 @@ static void calc_cell_indices(gmx_nbsearch_t nbs,
             }
 
 #if NSUBCELL_Y > 1
-            sort_column(YY,nbs->a+ash_z,na_z,x,
+            sort_column(YY,(sub_z & 1),
+                        nbs->a+ash_z,na_z,x,
                         nbs->inv_sy,subdiv_z*SGSF,nbs->sort_work);
 #endif
 
@@ -550,7 +566,8 @@ static void calc_cell_indices(gmx_nbsearch_t nbs,
                 na_y  = min(subdiv_y,na-(ash_y-ash));
 
 #if NSUBCELL_X > 1
-                sort_column(XX,nbs->a+ash_y,na_y,x,
+                sort_column(XX,((cz*NSUBCELL_Y + sub_y) & 1),
+                            nbs->a+ash_y,na_y,x,
                             nbs->inv_sy,subdiv_y*SGSF,nbs->sort_work);
 #endif
 
@@ -900,6 +917,7 @@ static void make_subcell_list(gmx_nblist_t *nbl,
 {
     int npair;
     int sj,si1,si,csj,csi;
+#define ISUBCELL_GROUP 1
 
     for(sj=0; sj<nsubc[cj]; sj++)
     {
@@ -929,11 +947,28 @@ static void make_subcell_list(gmx_nblist_t *nbl,
             {
                 nbl->si[nbl->nsi++] = ci*NSUBCELL + si;
                 npair++;
+                si += ISUBCELL_GROUP - 1;
             }
         }
 
         if (npair > 0)
         {
+#if ISUBCELL_GROUP > 1
+            /* Check for indexing out of the i super cell */
+            if (nbl->si[nbl->nsi-1] > (ci + 1)*NSUBCELL - ISUBCELL_GROUP)
+            {
+                /* Move back all i sub cells until it fits */
+                nbl->si[nbl->nsi-1] = (ci + 1)*NSUBCELL - ISUBCELL_GROUP;
+                si = nbl->nsi - 2;
+                while (si >= nbl->sj[nbl->nsj].si_ind &&
+                       nbl->si[si] > nbl->si[si+1] - ISUBCELL_GROUP)
+                {
+                    nbl->si[si] = nbl->si[si+1] - ISUBCELL_GROUP;
+                    si--;
+                }
+            }
+#endif
+
             /* We have a useful sj entry,
              * close it now.
              */
