@@ -120,8 +120,6 @@ inline __device__ void reduce_force_pow2(float4 *fbuf, float4 *fout,
     }
 }
 
-/* FIXME for some @#$@#%! reason it does not work if in a separate function.
-   Maybe it has something to do with the volatile business... */
 inline __device__ void reduce_force_generic(float4 *fbuf, float4 *fout,
         int tidxx, int tidxy, int aidx)
 {
@@ -156,7 +154,7 @@ inline __device__ void reduce_force(float4 *forcebuf, float4 *f,
 /*  Launch parameterts: 
     - #blocks   = #neighbor lists, blockId = neigbor_listId
     - #threads  = CELL_SIZE^2
-    - shmem     = CELL_SIZE^2 * sizeof(float4)
+    - shmem     = (1 + NSUBCELL) * CELL_SIZE^2 * sizeof(float4)
     - registers = 40/44
 
     Each thread calculates an i force-component taking one pair of i-j atoms.

@@ -73,10 +73,10 @@ void cu_stream_nb(t_cudata d_data,
     int     nb_blocks = calc_nb_blocknr(d_data->nci)/d_data->cell_pair_group;
     dim3    dim_block(CELL_SIZE, CELL_SIZE, 1); 
     dim3    dim_grid(nb_blocks, 1, 1); 
-    int     shmem =  (1 + NSUBCELL) * CELL_SIZE * CELL_SIZE * sizeof(float4); /* force buffer 4*4*CELL_SIZE^2 */
+    /* force buffers in shmem */
+    int     shmem =  (1 + NSUBCELL) * CELL_SIZE * CELL_SIZE * sizeof(float4);
     // cudaStream_t st = d_data->nb_stream;
     static int     cacheConf = 0;
-
 
     /* XXX XXX */
     if (cacheConf == 0)
@@ -100,9 +100,6 @@ void cu_stream_nb(t_cudata d_data,
     upload_cudata_async(d_data->shiftvec, shiftvec, SHIFTS*sizeof(*d_data->shiftvec), 0);   
 
     /* async nonbonded calculations */        
-#if 0
-    k_calc_nb<<<dim_grid, dim_block, shmem, 0>>>(*d_data);
-#else
     k_calc_nb<<<dim_grid, dim_block, shmem, 0>>>(d_data->ci,             
                                                   d_data->sj, 
                                                   d_data->si,
@@ -112,8 +109,7 @@ void cu_stream_nb(t_cudata d_data,
                                                   d_data->nbfp,
                                                   d_data->shiftvec,
                                                   d_data->f);    
-#endif
-    CU_LAUNCH_ERR("k_calc_nb");
+    CU_LAUNCH_ERR_SYNC("k_calc_nb");
    
     /* async copy DtoH f */    
     download_cudata_async(nbatom->f, d_data->f, d_data->natoms*sizeof(*d_data->f), 0);

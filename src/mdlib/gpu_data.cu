@@ -125,7 +125,7 @@ void init_cudata_ff(FILE *fplog,
     *dp_data = d_data;
 }
 
-/* natoms gets the value of fr->natoms_force */
+/* TODO: move initilizations into a function! */
 void init_cudata_atoms(t_cudata d_data, 
                        const gmx_nb_atomdata_t *atomdata, 
                        const gmx_nblist_t *nblist,
@@ -181,7 +181,7 @@ void init_cudata_atoms(t_cudata d_data,
 
     if (nci > d_data->ci_nalloc) 
     {
-        ci_nalloc = nci * 1.2 + 100; // FIXME
+        ci_nalloc = nci * 1.2 + 100;
 
         /* free up first if the arrays have already been initialized */
         if (d_data->ci_nalloc != -1)
@@ -198,7 +198,7 @@ void init_cudata_atoms(t_cudata d_data,
 
     if (nsj_1 > d_data->nsj_1) 
     {
-        sj_nalloc = nsj_1 * 1.2 + 100; // FIXME
+        sj_nalloc = nsj_1 * 1.2 + 100;
 
         /* free up first if the arrays have already been initialized */
         if (d_data->sj_nalloc != -1)
@@ -207,7 +207,7 @@ void init_cudata_atoms(t_cudata d_data,
         }
 
         stat = cudaMalloc((void **)&d_data->sj, sj_nalloc*sizeof(*(d_data->sj)));
-        CU_RET_ERR(stat, "cudaMalloc failed on d_data->");    
+        CU_RET_ERR(stat, "cudaMalloc failed on d_data->sj");    
 
         d_data->sj_nalloc = sj_nalloc;
     }
@@ -284,6 +284,7 @@ void destroy_cudata(FILE *fplog, t_cudata d_data)
 
     destroy_cudata_atoms(d_data);
 
+    destroy_cudata_ci(d_data);
     destroy_cudata_sj(d_data);
     destroy_cudata_si(d_data);
 
