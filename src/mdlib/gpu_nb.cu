@@ -15,6 +15,7 @@
 #define GPU_FACEL           (138.935485)
 
 texture<float, 1, cudaReadModeElementType> texnbfp;
+// __device__ __constant__ c_nbfp;
 
 #include "gpu_nb_kernels.h"
 
@@ -33,15 +34,16 @@ inline int calc_nb_blocknr(int nwork_units)
 
 void cu_do_nb(t_cudata d_data,rvec shiftvec[]) 
 {
-    int     nb_blocks = calc_nb_blocknr(d_data->nlist)/d_data->cell_pair_group;
+    int     nb_blocks = calc_nb_blocknr(d_data->nci)/d_data->cell_pair_group;
     dim3    dim_block(CELL_SIZE, CELL_SIZE, 1); 
     dim3    dim_grid(nb_blocks, 1, 1); 
-    int     shmem = CELL_SIZE * CELL_SIZE * sizeof(float4); /* force buffer */
+    int     shmem = (1 + NSUBCELL) * CELL_SIZE * CELL_SIZE * sizeof(float4); /* force buffer */
 
     if (debug)
     {
-        printf("~> Thread block: %dx%dx%d\n~> Grid: %dx%d\n~> #Cells: %d (%d)\n", 
-            dim_block.x, dim_block.y, dim_block.z, dim_grid.x, dim_grid.y, d_data->ncj, d_data->napc);
+        printf("~> Thread block: %dx%dx%d\n~> Grid: %dx%d\n~> #SubCell pairs: %d (%d)\n", 
+            dim_block.x, dim_block.y, dim_block.z, dim_grid.x, dim_grid.y, d_data->nsi, 
+            d_data->naps);
     }
 
     /* set the forces to 0 */
@@ -51,8 +53,9 @@ void cu_do_nb(t_cudata d_data,rvec shiftvec[])
     upload_cudata(d_data->shiftvec, shiftvec, SHIFTS*sizeof(*d_data->shiftvec));   
 
     /* sync nonbonded calculations */   
-    k_calc_nb<<<dim_grid, dim_block, shmem>>>(d_data->nblist,             
-                                                  d_data->cj, 
+    k_calc_nb<<<dim_grid, dim_block, shmem>>>(d_data->ci,
+                                                  d_data->sj, 
+                                                  d_data->si,
                                                   d_data->atom_types, 
                                                   d_data->ntypes, 
                                                   d_data->xq, 
@@ -67,10 +70,10 @@ void cu_stream_nb(t_cudata d_data,
                   const gmx_nb_atomdata_t *nbatom,
                   rvec shiftvec[])
 {
-    int     nb_blocks = calc_nb_blocknr(d_data->nlist)/d_data->cell_pair_group;
+    int     nb_blocks = calc_nb_blocknr(d_data->nci)/d_data->cell_pair_group;
     dim3    dim_block(CELL_SIZE, CELL_SIZE, 1); 
     dim3    dim_grid(nb_blocks, 1, 1); 
-    int     shmem = CELL_SIZE * CELL_SIZE * sizeof(float4); /* force buffer 4*4*CELL_SIZE^2 */
+    int     shmem =  (1 + NSUBCELL) * CELL_SIZE * CELL_SIZE * sizeof(float4); /* force buffer 4*4*CELL_SIZE^2 */
     // cudaStream_t st = d_data->nb_stream;
     static int     cacheConf = 0;
 
@@ -78,8 +81,9 @@ void cu_stream_nb(t_cudata d_data,
     /* XXX XXX */
     if (cacheConf == 0)
     {
-        printf("~> Thread block: %dx%dx%d\n~> Grid: %dx%d\n~> #Cells: %d (%d)\n",         
-        dim_block.x, dim_block.y, dim_block.z, dim_grid.x, dim_grid.y, d_data->ncj, d_data->napc);
+        printf("~> Thread block: %dx%dx%d\n~> Grid: %dx%d\n~> #Cells/Subcells: %d/%d (%d)\n",         
+        dim_block.x, dim_block.y, dim_block.z, dim_grid.x, dim_grid.y, d_data->nsi, 
+        NSUBCELL, d_data->naps);
 
         printf("cell_pair_group=%d\n", d_data->cell_pair_group);
         cudaFuncSetCacheConfig(&k_calc_nb, cudaFuncCachePreferShared); 
@@ -99,8 +103,9 @@ void cu_stream_nb(t_cudata d_data,
 #if 0
     k_calc_nb<<<dim_grid, dim_block, shmem, 0>>>(*d_data);
 #else
-    k_calc_nb<<<dim_grid, dim_block, shmem, 0>>>(d_data->nblist,             
-                                                  d_data->cj, 
+    k_calc_nb<<<dim_grid, dim_block, shmem, 0>>>(d_data->ci,             
+                                                  d_data->sj, 
+                                                  d_data->si,
                                                   d_data->atom_types, 
                                                   d_data->ntypes, 
                                                   d_data->xq, 

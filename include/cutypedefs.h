@@ -41,13 +41,19 @@ struct cudata
     cudaEvent_t     start_atomdata, stop_atomdata;
 
     /* neighbor list data */
-    int             napc;   /* number of atoms per cell */
-    int             nlist;  /* size of nblist */
-    int             nblist_nalloc; /* allocation size for nblist */
-    gmx_nbs_jlist_t *nblist; /* list of cell interactions, corresponds to the gmx_nbs_jlist_t*/
-    int             ncj; /* # of i-j cell pairs */
-    int             cj_nalloc; /* allocation size for cj */
-    int             *cj; /* j cells */
+    int             naps;   /* number of atoms per cell */
+
+    int             nci;  /* size of ci */
+    int             ci_nalloc; /* allocation size for ci */
+    gmx_nbs_ci_t     *ci; /* list of i-cells ("supercells") */
+
+    int             nsj_1;        /* # of i-j cell subcell pairs +1 for closing the list */
+    int             sj_nalloc;  /* allocation size for sj */
+    gmx_nbs_sj_t    *sj;        /* j subcell list, contain j subcell number and index into the i subcell list */
+
+    int      nsi;          /* The total number of i sub cells          */
+    int      *si;          /* Array of i sub-cells (in pairs with j)   */
+    int      si_nalloc;    /* Allocation size of ii                    */
 
     float3          *shiftvec;
 

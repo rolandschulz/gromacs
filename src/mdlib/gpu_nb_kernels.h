@@ -91,7 +91,7 @@ __device__ void reduce_force8(float4 *fbuf, float4 *fout,
 }
 
 inline __device__ void reduce_force_pow2(float4 *fbuf, float4 *fout,
-        int tidxx, int tidxy, int ai)
+        int tidxx, int tidxy, int aidx)
 {
     int i = CELL_SIZE/2;
 
@@ -111,11 +111,11 @@ inline __device__ void reduce_force_pow2(float4 *fbuf, float4 *fout,
     /* i == 1, last reduction step, writing to global mem */
     if (tidxy == 0)
     {                
-        atomicAdd(&fout[ai].x, fbuf[tidxx * CELL_SIZE + tidxy].x +
+        atomicAdd(&fout[aidx].x, fbuf[tidxx * CELL_SIZE + tidxy].x +
                 fbuf[tidxx * CELL_SIZE + tidxy + i].x);
-        atomicAdd(&fout[ai].y, fbuf[tidxx * CELL_SIZE + tidxy].y +
+        atomicAdd(&fout[aidx].y, fbuf[tidxx * CELL_SIZE + tidxy].y +
                 fbuf[tidxx * CELL_SIZE + tidxy + i].y);
-        atomicAdd(&fout[ai].z, fbuf[tidxx * CELL_SIZE + tidxy].z +
+        atomicAdd(&fout[aidx].z, fbuf[tidxx * CELL_SIZE + tidxy].z +
                 fbuf[tidxx * CELL_SIZE + tidxy + i].z);              
     }
 }
@@ -123,7 +123,7 @@ inline __device__ void reduce_force_pow2(float4 *fbuf, float4 *fout,
 /* FIXME for some @#$@#%! reason it does not work if in a separate function.
    Maybe it has something to do with the volatile business... */
 inline __device__ void reduce_force_generic(float4 *fbuf, float4 *fout,
-        int tidxx, int tidxy, int ai)
+        int tidxx, int tidxy, int aidx)
 {
     if (tidxy == 0)
     {      
@@ -135,9 +135,9 @@ inline __device__ void reduce_force_generic(float4 *fbuf, float4 *fout,
             f.z += fbuf[j].z;
         } 
         
-        atomicAdd(&fout[ai].x, f.x);
-        atomicAdd(&fout[ai].y, f.y);
-        atomicAdd(&fout[ai].z, f.z);
+        atomicAdd(&fout[aidx].x, f.x);
+        atomicAdd(&fout[aidx].y, f.y);
+        atomicAdd(&fout[aidx].z, f.z);
     }
 }
 
@@ -161,8 +161,9 @@ inline __device__ void reduce_force(float4 *forcebuf, float4 *f,
 
     Each thread calculates an i force-component taking one pair of i-j atoms.
  */
-__global__ void k_calc_nb(const gmx_nbs_jlist_t *nblist, 
-                          const int *cjlist, 
+__global__ void k_calc_nb(const gmx_nbs_ci_t *nbl_ci, 
+                          const gmx_nbs_sj_t *nbl_sj,
+                          const int *nbl_si,
                           const int *atom_types, 
                           int ntypes, 
                           const float4 *xq, 
@@ -175,76 +176,105 @@ __global__ void k_calc_nb(const gmx_nbs_jlist_t *nblist,
     unsigned int tidx   = tidxx * blockDim.y + tidxy;
     unsigned int bidx   = blockIdx.x;
 
-    int ci, cj, 
+    int ci, si, sj, si_offset, 
         ai, aj, 
         cij_start, cij_end, 
+        si_start, si_end,
         typei, typej,
-        j; //, ntypes;
-    float qi_f, qj,
+        i, j; //, ntypes;
+    float qi, qj_f,
           r2, inv_r, inv_r2, inv_r6, 
           c6, c12, 
           dVdr;
-    float4 f4tmp, fbuf;
+    float4 f4tmp, fsj_buf;
     float3 xi, xj, rv;
     float3 shift;
-    gmx_nbs_jlist_t nbl;
+    float3 f_ij;
+    gmx_nbs_ci_t nb_ci;
 
-    extern __shared__ float4 forcebuf[];  // force buffer  
+    extern __shared__ float4 forcebuf[];  // force buffer      
 
-    nbl         = nblist[bidx];
-    ci          = nbl.ci; /* i cell index = current block index */
-    ai          = ci * CELL_SIZE + tidxx;  /* i atom index */
-    cij_start   = nbl.jind_start; /* first ...*/
-    cij_end     = nbl.jind_end;  /* and last index of j cells */
+    nb_ci       = nbl_ci[bidx];
+    ci          = nb_ci.ci; /* i cell index = current block index */
+    cij_start   = nb_ci.sj_ind_start; /* first ...*/
+    cij_end     = nb_ci.sj_ind_end;  /* and last index of j cells */
 
-    // load i atom data into registers
-    f4tmp   = xq[ai];
-    xi      = make_float3(f4tmp.x, f4tmp.y, f4tmp.z);
-    qi_f    = GPU_FACEL * f4tmp.w;
-    typei   = atom_types[ai];
-    shift   = shiftvec[nbl.shift];
-    xi      += shift;
+    shift   = shiftvec[nb_ci.shift];
+    
+    for(si_offset = 0; si_offset < NSUBCELL; si_offset++)
+    {       
+        forcebuf[(1 + si_offset) * CELL_SIZE * CELL_SIZE + tidx] = 
+            make_float4(0.0);
+    }
 
-    fbuf = make_float4(0.0f);
     // loop over i-s neighboring cells
     for (j = cij_start ; j < cij_end; j++)
     {        
-        cj      = cjlist[j];
-        aj      = cj * CELL_SIZE + tidxy;
+        sj          = nbl_sj[j].sj; /* TODO int4? */
+        si_start    = nbl_sj[j].si_ind;
+        si_end      = nbl_sj[j + 1].si_ind;
+        aj          = sj * CELL_SIZE + tidxy;
 
-        if (aj != ai)
+        /* load j atom data into registers */
+        f4tmp   = xq[aj];
+        xj      = make_float3(f4tmp.x, f4tmp.y, f4tmp.z);
+        qj_f    = GPU_FACEL * f4tmp.w;
+        typej   = atom_types[aj];        
+        xj      -= shift;
+    
+        fsj_buf = make_float4(0.0);
+
+        for (i = si_start; i < si_end; i++)            
         {
-            // all threads load an atom from j cell into shmem!
-            f4tmp   = xq[aj];
-            xj      = make_float3(f4tmp.x, f4tmp.y, f4tmp.z);
-            qj      = f4tmp.w; 
-            typej   = atom_types[aj];
+            si = nbl_si[i];
+            si_offset = si - ci * NSUBCELL;
+            ai  = si * CELL_SIZE + tidxx;  /* i atom index */
 
-            c6          = nbfp[2 * (ntypes * typei + typej)]; // LJ C6 
-                        // tex1Dfetch(texnbfp, 2 * (ntypes * typei + typej));
-            c12         = nbfp[2 * (ntypes * typei + typej) + 1]; // LJ C12
-                        // tex1Dfetch(texnbfp, 2 * (ntypes * typei + typej) + 1);                       
-            rv          = xi - xj;
-            r2          = norm2(rv);
-            inv_r       = 1.0f / sqrt(r2);
-            inv_r2      = inv_r * inv_r;
-            inv_r6      = inv_r2 * inv_r2 * inv_r2;
+            if (aj != ai)
+            {
+                // all threads load an atom from i cell into shmem!                
+                f4tmp   = xq[ai];
+                xi      = make_float3(f4tmp.x, f4tmp.y, f4tmp.z);
+                qi      = f4tmp.w; 
+                typei   = atom_types[ai];
 
-            dVdr        = qi_f * qj * inv_r2 * inv_r;
-                        // qi_f * qj * (erfc(r2 * inv_r) * inv_r + exp(-r2)) * inv_r2;
-            dVdr        += inv_r6 * (12.0 * c12 * inv_r6 - 6.0 * c6) * inv_r2;
+                c6          = nbfp[2 * (ntypes * typei + typej)]; // LJ C6 
+                // tex1Dfetch(texnbfp, 2 * (ntypes * typei + typej));
+                c12         = nbfp[2 * (ntypes * typei + typej) + 1]; // LJ C12
+                // tex1Dfetch(texnbfp, 2 * (ntypes * typei + typej) + 1);                       
+                rv          = xi - xj;
+                r2          = norm2(rv);
+                inv_r       = 1.0f / sqrt(r2);
+                inv_r2      = inv_r * inv_r;
+                inv_r6      = inv_r2 * inv_r2 * inv_r2;
 
-            // accumulate forces            
-            fbuf.x += rv.x * dVdr;
-            fbuf.y += rv.y * dVdr;
-            fbuf.z += rv.z * dVdr; 
+                dVdr        = qi * qj_f * inv_r2 * inv_r;
+                // qi_f * qj * (erfc(r2 * inv_r) * inv_r + exp(-r2)) * inv_r2;
+                dVdr        += inv_r6 * (12.0 * c12 * inv_r6 - 6.0 * c6) * inv_r2;
+
+                f_ij = rv * dVdr;
+
+                // accumulate forces            
+                fsj_buf -= f_ij;
+
+                forcebuf[tidx + (1 + si_offset) * CELL_SIZE * CELL_SIZE] += f_ij; 
+            }            
         }
-    }        
-    forcebuf[tidx] = fbuf;
+        /* reduce over j */
+        forcebuf[tidx] = fsj_buf;
+        __syncthreads();
+
+        /* reduce forces */
+        reduce_force(forcebuf, f, tidxy, tidxx, aj);  
+    }       
     __syncthreads();
 
-    /* reduce forces */
-    reduce_force(forcebuf, f, tidxx, tidxy, ai); 
+    for(si_offset = 0; si_offset < NSUBCELL; si_offset++)
+    {       
+        ai  = (ci * NSUBCELL + si_offset) * CELL_SIZE + tidxx;  /* i atom index */
+        reduce_force(forcebuf + (1 + si_offset) * CELL_SIZE * CELL_SIZE, 
+                f, tidxx, tidxy, ai);
+    }
 }
 
 #if 0

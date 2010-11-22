@@ -28,6 +28,10 @@ inline __host__ __device__ void operator+=(float3 &a, float3 b)
 {
     a.x += b.x; a.y += b.y; a.z += b.z;
 }
+inline __host__ __device__ void operator-=(float3 &a, float3 b)
+{
+    a.x -= b.x; a.y -= b.y; a.z -= b.z;
+}
 inline __host__ __device__ float norm(float3 a)
 {
     return sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
@@ -71,6 +75,11 @@ inline __host__ __device__ void operator+=(float4 &a, float3 b)
 {
     a.x += b.x; a.y += b.y; a.z += b.z;
 }
+inline __host__ __device__ void operator-=(float4 &a, float3 b)
+{
+    a.x -= b.x; a.y -= b.y; a.z -= b.z;
+}
+
 inline __host__ __device__ float norm(float4 a)
 {
     return sqrt(a.x * a.x + a.y * a.y + a.z * a.z + a.w * a.w);

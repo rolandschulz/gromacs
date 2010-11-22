@@ -14,8 +14,9 @@
 
 /* forward declaration*/
 void destroy_cudata_atoms(t_cudata /*d_data*/);
-void destroy_cudata_nblist(t_cudata /*d_data*/);
-void destroy_cudata_cj(t_cudata /*d_data*/);
+void destroy_cudata_ci(t_cudata /*d_data*/);
+void destroy_cudata_sj(t_cudata /*d_data*/);
+void destroy_cudata_si(t_cudata /*d_data*/);
 
 void init_cudata_ff(FILE *fplog, 
                     t_cudata *dp_data,
@@ -88,17 +89,20 @@ void init_cudata_ff(FILE *fplog,
        in init_cudata_atoms */
     d_data->xq      = NULL;
     d_data->f       = NULL;
-    d_data->nblist  = NULL;
-    d_data->cj      = NULL;
+    d_data->ci      = NULL;
+    d_data->sj      = NULL;
+    d_data->si      = NULL;
 
     /* size -1 just means that it has not been initialized yet */
     d_data->natoms          = -1;
     d_data->nalloc          = -1;
-    d_data->nlist           = -1;
-    d_data->nblist_nalloc   = -1;
-    d_data->ncj             = -1;
-    d_data->cj_nalloc       = -1;
-    d_data->napc            = -1;
+    d_data->nci             = -1;
+    d_data->ci_nalloc       = -1;
+    d_data->nsj_1           = -1;
+    d_data->sj_nalloc       = -1;
+    d_data->nsi             = -1;
+    d_data->si_nalloc       = -1;
+    d_data->naps            = -1;
 
     if ((env_var = getenv("GMX_CELL_PAIR_GROUP")) != NULL)
     {
@@ -128,24 +132,25 @@ void init_cudata_atoms(t_cudata d_data,
                        gmx_bool doStream)
 {
     cudaError_t stat;
-    int         nalloc, nblist_nalloc, cj_nalloc;
+    int         nalloc, ci_nalloc, sj_nalloc, si_nalloc;
     int         natoms  = atomdata->natoms;
-    int         nlist   = nblist->nlist;
-    int         ncj     = nblist->ncj;
+    int         nci     = nblist->nci;
+    int         nsj_1   = nblist->nsj + 1;
+    int         nsi     = nblist->nsi;
    
     /* asynch copy all data */
     cudaEventRecord(d_data->start_atomdata, 0);
 
-    if (d_data->napc < 0)
+    if (d_data->naps < 0)
     {
-        d_data->napc = nblist->napc;
+        d_data->naps = nblist->naps;
     }
     else
     {
-        if (d_data->napc != nblist->napc)
+        if (d_data->naps != nblist->naps)
         {
             gmx_fatal(FARGS, "Internal error: the #atoms per cell has changed (from %d to %d)",
-                    d_data->nblist, nblist->napc);
+                    d_data->naps, nblist->naps);
         }
     }
 
@@ -174,51 +179,70 @@ void init_cudata_atoms(t_cudata d_data,
        ATM not, we'll do that later */    
     d_data->natoms = natoms;
 
-    if (nlist > d_data->nblist_nalloc) 
+    if (nci > d_data->ci_nalloc) 
     {
-        nblist_nalloc = nlist * 1.2 + 100; // FIXME
+        ci_nalloc = nci * 1.2 + 100; // FIXME
 
         /* free up first if the arrays have already been initialized */
-        if (d_data->nblist_nalloc != -1)
+        if (d_data->ci_nalloc != -1)
         {
-            destroy_cudata_nblist(d_data);                
+            destroy_cudata_ci(d_data);                
         }
 
-        stat = cudaMalloc((void **)&d_data->nblist, nblist_nalloc*sizeof(*(d_data->nblist)));
-        CU_RET_ERR(stat, "cudaMalloc failed on d_data->nblist");           
+        stat = cudaMalloc((void **)&d_data->ci, ci_nalloc*sizeof(*(d_data->ci)));
+        CU_RET_ERR(stat, "cudaMalloc failed on d_data->ci");           
 
-        d_data->nblist_nalloc = nblist_nalloc;
+        d_data->ci_nalloc = ci_nalloc;
     }
-    d_data->nlist = nlist;
+    d_data->nci = nci;
 
-    if (ncj > d_data->ncj) 
+    if (nsj_1 > d_data->nsj_1) 
     {
-        cj_nalloc = ncj * 1.2 + 100; // FIXME
+        sj_nalloc = nsj_1 * 1.2 + 100; // FIXME
 
         /* free up first if the arrays have already been initialized */
-        if (d_data->cj_nalloc != -1)
+        if (d_data->sj_nalloc != -1)
         {
-            destroy_cudata_cj(d_data);                
+            destroy_cudata_sj(d_data);                
         }
 
-        stat = cudaMalloc((void **)&d_data->cj, cj_nalloc*sizeof(*(d_data->cj)));
-        CU_RET_ERR(stat, "cudaMalloc failed on d_data->nblist");    
+        stat = cudaMalloc((void **)&d_data->sj, sj_nalloc*sizeof(*(d_data->sj)));
+        CU_RET_ERR(stat, "cudaMalloc failed on d_data->");    
 
-        d_data->cj_nalloc = cj_nalloc;
+        d_data->sj_nalloc = sj_nalloc;
     }
-    d_data->ncj = ncj;
+    d_data->nsj_1 = nsj_1;
+
+    if (nsi > d_data->nsi)
+    {
+        si_nalloc = nsi * 1.2 + 100;
+
+        /* free up first if the arrays have already been initialized */
+        if (d_data->si_nalloc != -1)
+        {
+            destroy_cudata_si(d_data);                
+        }
+
+        stat = cudaMalloc((void **)&d_data->si, si_nalloc*sizeof(*(d_data->si)));
+        CU_RET_ERR(stat, "cudaMalloc failed on d_data->si");    
+
+        d_data->si_nalloc = si_nalloc;
+    }
+    d_data->nsi = nsi;
 
     if(doStream)
     {
         upload_cudata_async(d_data->atom_types, atomdata->type, natoms*sizeof(*(d_data->atom_types)), 0);
-        upload_cudata_async(d_data->nblist, nblist->list, nlist*sizeof(*(d_data->nblist)), 0);
-        upload_cudata_async(d_data->cj, nblist->cj, ncj*sizeof(*(d_data->cj)), 0);
+        upload_cudata_async(d_data->ci, nblist->ci, nci*sizeof(*(d_data->ci)), 0);
+        upload_cudata_async(d_data->sj, nblist->sj, nsj_1*sizeof(*(d_data->sj)), 0);
+        upload_cudata_async(d_data->si, nblist->si, nsi*sizeof(*(d_data->si)), 0);       
     }
     else 
     {
         upload_cudata(d_data->atom_types, atomdata->type, natoms*sizeof(*(d_data->atom_types)));
-        upload_cudata(d_data->nblist, nblist->list, nlist*sizeof(*(d_data->nblist)));
-        upload_cudata(d_data->cj, nblist->cj, ncj*sizeof(*(d_data->cj)));
+        upload_cudata(d_data->ci, nblist->ci, nci*sizeof(*(d_data->ci)));
+        upload_cudata(d_data->sj, nblist->sj, nsj_1*sizeof(*(d_data->sj)));
+        upload_cudata(d_data->si, nblist->si, nsi*sizeof(*(d_data->si)));    
     }
     cudaEventRecord(d_data->stop_atomdata, 0);
 }
@@ -229,7 +253,7 @@ void cu_blockwait_atomdata(t_cudata d_data, float *time)
 
     stat = cudaEventSynchronize(d_data->stop_atomdata);
     CU_RET_ERR(stat, "the async trasfer of atomdata has failed");   
-   
+
     cudaEventElapsedTime(time, d_data->start_atomdata, d_data->stop_atomdata);
 }
 
@@ -246,7 +270,7 @@ void destroy_cudata(FILE *fplog, t_cudata d_data)
         CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->start_nb");
         stat = cudaEventDestroy(d_data->stop_nb);
         CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->stop_nb");
-        stat = cudaStreamDestroy(d_data->nb_stream); /* TODO check stat !*/
+        stat = cudaStreamDestroy(d_data->nb_stream); 
         CU_RET_ERR(stat, "cudaStreamDestroy failed on d_data->nb_stream");
     }
 
@@ -257,6 +281,11 @@ void destroy_cudata(FILE *fplog, t_cudata d_data)
 
     stat = cudaFree(d_data->nbfp);
     CU_RET_ERR(stat, "cudaFree failed on d_data->nbfp");
+
+    destroy_cudata_atoms(d_data);
+
+    destroy_cudata_sj(d_data);
+    destroy_cudata_si(d_data);
 
     stat = cudaThreadExit();
     CU_RET_ERR(stat, "cudaThreadExit failed");
@@ -278,24 +307,34 @@ void destroy_cudata_atoms(t_cudata d_data)
     d_data->nalloc = -1;
 }
 
-void destroy_cudata_nblist(t_cudata d_data)
+void destroy_cudata_ci(t_cudata d_data)
 {
     cudaError_t stat;
 
-    stat = cudaFree(d_data->nblist);
-    CU_RET_ERR(stat, "cudaFree failed on d_data->nblist");
-    d_data->nlist = -1;
-    d_data->nblist_nalloc = -1;
+    stat = cudaFree(d_data->ci);
+    CU_RET_ERR(stat, "cudaFree failed on d_data->ci");
+    d_data->nci = -1;
+    d_data->ci_nalloc = -1;
 }
 
-void destroy_cudata_cj(t_cudata d_data)
+void destroy_cudata_sj(t_cudata d_data)
 {
     cudaError_t stat;
 
-    stat = cudaFree(d_data->cj);
-    CU_RET_ERR(stat, "cudaFree failed on d_data->cj");
-    d_data->ncj = -1;
-    d_data->cj_nalloc = -1;
+    stat = cudaFree(d_data->sj);
+    CU_RET_ERR(stat, "cudaFree failed on d_data->sj");
+    d_data->nsj_1 = -1;
+    d_data->sj_nalloc = -1;
+}
+
+void destroy_cudata_si(t_cudata d_data)
+{
+    cudaError_t stat;
+
+    stat = cudaFree(d_data->si);
+    CU_RET_ERR(stat, "cudaFree failed on d_data->si");
+    d_data->nsi = -1;
+    d_data->si_nalloc = -1;
 }
 
 int cu_upload_X(t_cudata d_data, real *h_x) 
