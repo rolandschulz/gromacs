@@ -1,5 +1,9 @@
 #include "cudatype_utils.h"
 
+#define CELL_SIZE_2     (CELL_SIZE * CELL_SIZE)
+#define STRIDE_DIM      (CELL_SIZE_2)
+#define STRIDE_SI       (3*STRIDE_DIM)
+
 /* 32x32 */
 __device__ void reduce_force32(float4 *fbuf, float4 *fout,
         int tidxx, int tidxy, int ai) 
@@ -151,6 +155,102 @@ inline __device__ void reduce_force(float4 *forcebuf, float4 *f,
         reduce_force_pow2(forcebuf, f, tidxx, tidxy, ai);
     }
 }
+
+/* 8x8 */
+__device__ void reduce_force8_strided(float *fbuf, float4 *fout,
+        int tidxx, int tidxy, int ai) 
+{
+    /* 64 -> 32: 8x4 threads */
+    if (tidxy < CELL_SIZE/2)
+    {
+        fbuf[                 tidxx * CELL_SIZE + tidxy] += fbuf[                 tidxx * CELL_SIZE + tidxy + CELL_SIZE/2];
+        fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy] += fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy + CELL_SIZE/2];
+        fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy] += fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy + CELL_SIZE/2];
+    }
+    /* 32 -> 16: 8x2 threads */
+    if (tidxy < CELL_SIZE/4)
+    {
+        fbuf[                 tidxx * CELL_SIZE + tidxy] += fbuf[                 tidxx * CELL_SIZE + tidxy + CELL_SIZE/4];
+        fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy] += fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy + CELL_SIZE/4];
+        fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy] += fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy + CELL_SIZE/4];
+    }   
+    /* 16 ->  8: 8 threads */   
+    if (tidxy < CELL_SIZE/8)
+    {
+        atomicAdd(&fout[ai].x, fbuf[                 tidxx * CELL_SIZE + tidxy] + fbuf[                 tidxx * CELL_SIZE + tidxy + CELL_SIZE/8]);
+        atomicAdd(&fout[ai].y, fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy] + fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy + CELL_SIZE/8]);
+        atomicAdd(&fout[ai].z, fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy] + fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy + CELL_SIZE/8]);
+    }
+}
+
+inline __device__ void reduce_force_pow2_strided(float *fbuf, float4 *fout,
+        int tidxx, int tidxy, int aidx)
+{
+    int i = CELL_SIZE/2;
+
+    /* Reduce the initial CELL_SIZE values for each i atom to half 
+       every step by using CELL_SIZE * i threads. */
+    # pragma unroll 5
+    while (i > 1)
+    {
+        if (tidxy < i)
+        {
+
+            fbuf[                 tidxx * CELL_SIZE + tidxy] += fbuf[                 tidxx * CELL_SIZE + tidxy + i];
+            fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy] += fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy + i];
+            fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy] += fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy + i];          
+        }
+        i >>= 1;
+    }
+
+    /* i == 1, last reduction step, writing to global mem */
+    if (tidxy == 0)
+    {                
+        atomicAdd(&fout[aidx].x, 
+            fbuf[                 tidxx * CELL_SIZE + tidxy] + fbuf[                 tidxx * CELL_SIZE + tidxy + i]);
+        atomicAdd(&fout[aidx].y, 
+            fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy] + fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy + i]);
+        atomicAdd(&fout[aidx].z, 
+            fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy] + fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy + i]);              
+    }
+}
+
+
+inline __device__ void reduce_force_generic_strided(float *fbuf, float4 *fout,
+        int tidxx, int tidxy, int aidx)
+{
+    if (tidxy == 0)
+    {      
+        float4 f = make_float4(0.0f);
+        for (int j = tidxx * CELL_SIZE; j < (tidxx + 1) * CELL_SIZE; j++)
+        {
+            f.x += fbuf[                 j];
+            f.y += fbuf[    STRIDE_DIM + j];
+            f.z += fbuf[2 * STRIDE_DIM + j];
+        } 
+        
+        atomicAdd(&fout[aidx].x, f.x);
+        atomicAdd(&fout[aidx].y, f.y);
+        atomicAdd(&fout[aidx].z, f.z);
+    }
+}
+
+inline __device__ void reduce_force_strided(float *forcebuf, float4 *f,
+        int tidxx, int tidxy, int ai) 
+{   
+    if (1 || (CELL_SIZE & (CELL_SIZE - 1)))
+    {
+        reduce_force_generic_strided(forcebuf, f, tidxx, tidxy, ai);
+    }
+   
+    else 
+    {
+        reduce_force8_strided(forcebuf, f, tidxx, tidxy, ai);
+        // reduce_force_pow2_strided(forcebuf, f, tidxx, tidxy, ai);
+    }
+}
+
+
 /*  Launch parameterts: 
     - #blocks   = #neighbor lists, blockId = neigbor_listId
     - #threads  = CELL_SIZE^2
@@ -169,8 +269,8 @@ __global__ void k_calc_nb(const gmx_nbs_ci_t *nbl_ci,
                           const float3 *shiftvec,
                           float4 *f)
 {
-    unsigned int tidxx  = threadIdx.x;
-    unsigned int tidxy  = threadIdx.y; 
+    unsigned int tidxx  = threadIdx.y;
+    unsigned int tidxy  = threadIdx.x; 
     unsigned int tidx   = tidxx * blockDim.y + tidxy;
     unsigned int bidx   = blockIdx.x;
 
@@ -184,25 +284,27 @@ __global__ void k_calc_nb(const gmx_nbs_ci_t *nbl_ci,
           r2, inv_r, inv_r2, inv_r6, 
           c6, c12, 
           dVdr;
-    float4 f4tmp, fsj_buf;
+    float4 f4tmp;
     float3 xi, xj, rv;
     float3 shift;
-    float3 f_ij;
+    float3 f_ij, fsj_buf;
     gmx_nbs_ci_t nb_ci;
 
-    extern __shared__ float4 forcebuf[];  // force buffer      
+    extern __shared__ float forcebuf[];  // force buffer      
+    float3 f_j_buf[NSUBCELL]; 
 
     nb_ci       = nbl_ci[bidx];
     ci          = nb_ci.ci; /* i cell index = current block index */
     cij_start   = nb_ci.sj_ind_start; /* first ...*/
     cij_end     = nb_ci.sj_ind_end;  /* and last index of j cells */
 
-    shift   = shiftvec[nb_ci.shift];
+    shift       = shiftvec[nb_ci.shift];
     
     for(si_offset = 0; si_offset < NSUBCELL; si_offset++)
     {       
-        forcebuf[(1 + si_offset) * CELL_SIZE * CELL_SIZE + tidx] = 
-            make_float4(0.0);
+        forcebuf[                 (1 + si_offset) * STRIDE_SI + tidx] = 0.0;
+        forcebuf[    STRIDE_DIM + (1 + si_offset) * STRIDE_SI + tidx] = 0.0;
+        forcebuf[2 * STRIDE_DIM + (1 + si_offset) * STRIDE_SI + tidx] = 0.0;      
     }
 
     // loop over i-s neighboring cells
@@ -220,7 +322,7 @@ __global__ void k_calc_nb(const gmx_nbs_ci_t *nbl_ci,
         typej   = atom_types[aj];        
         xj      -= shift;
     
-        fsj_buf = make_float4(0.0);
+        fsj_buf = make_float3(0.0);
 
         for (i = si_start; i < si_end; i++)            
         {
@@ -228,7 +330,7 @@ __global__ void k_calc_nb(const gmx_nbs_ci_t *nbl_ci,
             si_offset = si - ci * NSUBCELL;
             ai  = si * CELL_SIZE + tidxx;  /* i atom index */
 
-            if (aj != ai)
+            if (aj > ai)
             {
                 // all threads load an atom from i cell into shmem!                
                 f4tmp   = xq[ai];
@@ -252,26 +354,33 @@ __global__ void k_calc_nb(const gmx_nbs_ci_t *nbl_ci,
 
                 f_ij = rv * dVdr;
 
-                // accumulate forces            
+                // accumulate j forces            
                 fsj_buf -= f_ij;
 
-                forcebuf[tidx + (1 + si_offset) * CELL_SIZE * CELL_SIZE] += f_ij; 
+                // accumulate i forces
+                // forcebuf[tidx + (1 + si_offset) * CELL_SIZE * CELL_SIZE] += f_ij; 
+                forcebuf[                 (1 + si_offset) * STRIDE_SI + tidx] += f_ij.x; 
+                forcebuf[    STRIDE_DIM + (1 + si_offset) * STRIDE_SI + tidx] += f_ij.y; 
+                forcebuf[2 * STRIDE_DIM + (1 + si_offset) * STRIDE_SI + tidx] += f_ij.z; 
             }            
         }
-        /* reduce over j */
-        forcebuf[tidx] = fsj_buf;
+        /* store j forces in shmem */
+        // forcebuf[tidx] = fsj_buf;
+        forcebuf[                 tidx] = fsj_buf.x;
+        forcebuf[    STRIDE_DIM + tidx] = fsj_buf.y;
+        forcebuf[2 * STRIDE_DIM + tidx] = fsj_buf.z; 
         __syncthreads();
 
-        /* reduce forces */
-        reduce_force(forcebuf, f, tidxy, tidxx, aj);  
+        /* reduce j forces */
+        reduce_force_strided(forcebuf, f, tidxy, tidxx, aj);  
     }       
     __syncthreads();
 
+    /* reduce i forces */
     for(si_offset = 0; si_offset < NSUBCELL; si_offset++)
     {       
         ai  = (ci * NSUBCELL + si_offset) * CELL_SIZE + tidxx;  /* i atom index */
-        reduce_force(forcebuf + (1 + si_offset) * CELL_SIZE * CELL_SIZE, 
-                f, tidxx, tidxy, ai);
+        reduce_force_strided(forcebuf + (1 + si_offset) * STRIDE_SI, f, tidxx, tidxy, ai);
     }
 }
 
