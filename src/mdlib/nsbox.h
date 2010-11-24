@@ -54,7 +54,9 @@ void gmx_nblist_init(gmx_nblist_t * nbl,
                      gmx_nbat_free_t  *free);
 
 /* Make a neighborlist with radius rlist, store it in nbl */
-void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,real rcut,real rlist,
+void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
+                              const gmx_nb_atomdata_t *nbat,
+                              real rcut,real rlist,
                               gmx_nblist_t *nbl);
 
 /* Initialize the non-bonded atom data structure with stride xstride for x.
