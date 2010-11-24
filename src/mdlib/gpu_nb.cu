@@ -53,7 +53,7 @@ void cu_do_nb(t_cudata d_data,rvec shiftvec[])
     upload_cudata(d_data->shiftvec, shiftvec, SHIFTS*sizeof(*d_data->shiftvec));   
 
     /* sync nonbonded calculations */   
-    k_calc_nb<<<dim_grid, dim_block, shmem>>>(d_data->ci,
+    k_calc_nb_1<<<dim_grid, dim_block, shmem>>>(d_data->ci,
                                                   d_data->sj, 
                                                   d_data->si,
                                                   d_data->atom_types, 
@@ -86,7 +86,8 @@ void cu_stream_nb(t_cudata d_data,
         NSUBCELL, d_data->naps);
 
         printf("cell_pair_group=%d\n", d_data->cell_pair_group);
-        cudaFuncSetCacheConfig(&k_calc_nb, cudaFuncCachePreferShared); 
+        cudaFuncSetCacheConfig(&k_calc_nb_1, cudaFuncCachePreferShared);        
+        cudaFuncSetCacheConfig(&k_calc_nb_2, cudaFuncCachePreferL1); 
         cacheConf++;
     }
 
@@ -100,7 +101,7 @@ void cu_stream_nb(t_cudata d_data,
     upload_cudata_async(d_data->shiftvec, shiftvec, SHIFTS*sizeof(*d_data->shiftvec), 0);   
 
     /* async nonbonded calculations */        
-    k_calc_nb<<<dim_grid, dim_block, shmem, 0>>>(d_data->ci,             
+    k_calc_nb_1<<<dim_grid, dim_block, shmem, 0>>>(d_data->ci,             
                                                   d_data->sj, 
                                                   d_data->si,
                                                   d_data->atom_types, 
