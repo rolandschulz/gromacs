@@ -405,7 +405,7 @@ static void clear_nbat_real(int na,int stride,real *xnb)
 }
 
 static void copy_rvec_to_nbat_real(const int *a,int na,int na_round,
-                                   rvec *x,int stride,real *xnb,
+                                   rvec *x,int nbatXFormat,real *xnb,
                                    int cx,int cy,int cz)
 {
     int i,j;
@@ -418,9 +418,9 @@ static void copy_rvec_to_nbat_real(const int *a,int na,int na_round,
  */
 #define NBAT_FAR_AWAY 107
 
-    switch (stride)
+    switch (nbatXFormat)
     {
-    case 3:
+    case nbatXYZ:
         j = 0;
         for(i=0; i<na; i++)
         {
@@ -439,7 +439,7 @@ static void copy_rvec_to_nbat_real(const int *a,int na,int na_round,
             xnb[j++] = -NBAT_FAR_AWAY*(1 + cz + i);
         }
         break;
-    case 4:
+    case nbatXYZQ:
         j = 0;
         for(i=0; i<na; i++)
         {
@@ -629,7 +629,7 @@ static void calc_cell_indices(gmx_nbsearch_t nbs,
                     if (na_x > 0)
                     {
                         copy_rvec_to_nbat_real(nbs->a+ash_x,na_x,nbs->naps,x,
-                                               nbat->xstride,xnb,
+                                               nbat->XFormat,xnb,
                                                nbs->naps*(cx*NSUBCELL_X+sub_x),
                                                nbs->naps*(cy*NSUBCELL_Y+sub_y),
                                                nbs->naps*sub_z);
@@ -730,7 +730,7 @@ static void nb_realloc_real(real **ptr,int n,
 static void gmx_nb_atomdata_realloc(gmx_nb_atomdata_t *nbat,int n)
 {
     nb_realloc_int(&nbat->type,n,nbat->alloc,nbat->free);
-    if (nbat->xstride == 3)
+    if (nbat->XFormat != nbatXYZQ)
     {
         nb_realloc_real(&nbat->q,n,nbat->alloc,nbat->free);
     }
@@ -1510,7 +1510,7 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
     }
 }
 
-void gmx_nb_atomdata_init(gmx_nb_atomdata_t *nbat,int xstride,
+void gmx_nb_atomdata_init(gmx_nb_atomdata_t *nbat,int nbatXFormat,
                           int ntype,const real *nbfp,
                           gmx_nbat_alloc_t *alloc,
                           gmx_nbat_free_t  *free)
@@ -1560,8 +1560,9 @@ void gmx_nb_atomdata_init(gmx_nb_atomdata_t *nbat,int xstride,
 
     nbat->natoms  = 0;
     nbat->type    = NULL;
+    nbat->XFormat = nbatXFormat;
     nbat->q       = NULL;
-    nbat->xstride = xstride;
+    nbat->xstride = (nbatXFormat == nbatXYZQ ? 4 : 3);
     nbat->x       = NULL;
     nbat->nalloc  = 0;
 }
@@ -1597,7 +1598,7 @@ void gmx_nb_atomdata_set_charges(gmx_nb_atomdata_t *nbat,
         na  = nbs->cxy_na[cxy];
         na_round = (nbs->cxy_ind[cxy+1] - nbs->cxy_ind[cxy])*nbs->napc;
 
-        if (nbat->xstride == 4)
+        if (nbat->XFormat == nbatXYZQ)
         {
             q = nbat->x + ash*nbat->xstride + 3;
             for(i=0; i<na; i++)
@@ -1612,6 +1613,21 @@ void gmx_nb_atomdata_set_charges(gmx_nb_atomdata_t *nbat,
                 q += 4;
             }
         }
+        else
+        {
+            q = nbat->q + ash;
+            for(i=0; i<na; i++)
+            {
+                *q = charge[nbs->a[ash+i]];
+                q++;
+            }
+            /* Complete the partially filled last cell with zeros */
+            for(; i<na_round; i++)
+            {
+                *q = 0;
+                q++;
+            }
+        }
     }
 }
 
@@ -1619,7 +1635,7 @@ void gmx_nb_atomdata_add_nbat_f_to_f(const gmx_nbsearch_t nbs,
                                      const gmx_nb_atomdata_t *nbat,
                                      rvec *f)
 {
-    int  cxy,na,ash,j;
+    int  cxy,na,ash,i;
     const int  *a;
     const real *fnb;
 
@@ -1632,22 +1648,22 @@ void gmx_nb_atomdata_add_nbat_f_to_f(const gmx_nbsearch_t nbs,
         a   = nbs->a + ash;
         fnb = nbat->f + ash*nbat->xstride;
 
-        switch (nbat->xstride)
+        switch (nbat->XFormat)
         {
-        case 3:
-            for(j=0; j<na; j++)
+        case nbatXYZ:
+            for(i=0; i<na; i++)
             {
-                f[a[j]][XX] += fnb[j*3];
-                f[a[j]][YY] += fnb[j*3+1];
-                f[a[j]][ZZ] += fnb[j*3+2];
+                f[a[i]][XX] += fnb[i*3];
+                f[a[i]][YY] += fnb[i*3+1];
+                f[a[i]][ZZ] += fnb[i*3+2];
             }
             break;
-        case 4:
-            for(j=0; j<na; j++)
+        case nbatXYZQ:
+            for(i=0; i<na; i++)
             {
-                f[a[j]][XX] += fnb[j*4];
-                f[a[j]][YY] += fnb[j*4+1];
-                f[a[j]][ZZ] += fnb[j*4+2];
+                f[a[i]][XX] += fnb[i*4];
+                f[a[i]][YY] += fnb[i*4+1];
+                f[a[i]][ZZ] += fnb[i*4+2];
             }
             break;
         default:

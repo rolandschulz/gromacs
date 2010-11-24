@@ -1894,13 +1894,14 @@ void init_forcerec(FILE *fp,
 #ifdef GMX_GPU
         if (!fr->emulateGPU)
         {
-            gmx_nb_atomdata_init(fr->nbat,4,fr->ntype,fr->nbfp,
+            gmx_nb_atomdata_init(fr->nbat,nbatXYZQ,fr->ntype,fr->nbfp,
                                  &pmalloc, &pfree);
         }
         else
 #endif
         {
-            gmx_nb_atomdata_init(fr->nbat,4,fr->ntype,fr->nbfp,NULL,NULL);
+            gmx_nb_atomdata_init(fr->nbat,nbatXYZQ,fr->ntype,fr->nbfp,
+                                 NULL,NULL);
         }
         if (fr->useGPU)
         {

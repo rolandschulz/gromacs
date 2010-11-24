@@ -59,11 +59,12 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
                               real rcut,real rlist,
                               gmx_nblist_t *nbl);
 
-/* Initialize the non-bonded atom data structure with stride xstride for x.
+/* Initialize the non-bonded atom data structure.
+ * The enum for nbatXFormat is in the file defining gmx_nb_atomdata_t.
  * Copy the ntypes*ntypes*2 sized nbfp non-bonded parameter list
  * to the atom data structure.
  */
-void gmx_nb_atomdata_init(gmx_nb_atomdata_t *nbat,int xstride,
+void gmx_nb_atomdata_init(gmx_nb_atomdata_t *nbat,int nbatXFormat,
                           int ntypes,const real *nbfp,
                           gmx_nbat_alloc_t *alloc,
                           gmx_nbat_free_t  *free);

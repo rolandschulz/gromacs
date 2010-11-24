@@ -90,6 +90,8 @@ typedef struct {
     int      si_nalloc;    /* Allocation size of ii                    */
 } gmx_nblist_t;
 
+enum { nbatXYZ, nbatXYZQ };
+
 typedef struct {
     gmx_nbat_alloc_t *alloc;
     gmx_nbat_free_t  *free;
@@ -97,6 +99,7 @@ typedef struct {
     real *nbfp;   /* The Lennard-Jones C6 and C12 params, size ntype^2  */
     int  natoms;  /* Number of atoms                                    */
     int  *type;   /* Atom types                                         */
+    int  XFormat; /* The format of x (and q), enum                      */
     real *q;      /* Charges, could be NULL if incorporated in x        */
     int  xstride; /* stride for a coordinate in x (usually 3 or 4)      */
     real *x;      /* x and possibly q, size natoms*xstride              */
