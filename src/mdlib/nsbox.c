@@ -67,7 +67,6 @@ gmx_subcell_in_range_t(int naps,
                        int csj,int stride,const real *x_or_bb_j,
                        real rl2);
 
-static gmx_subcell_in_range_t subc_in_range_bb;
 static gmx_subcell_in_range_t subc_in_range_x;
 static gmx_subcell_in_range_t subc_in_range_sse8;
 
@@ -106,7 +105,9 @@ typedef struct gmx_nbsearch {
     int  sort_work_nalloc;
 
     gmx_subcell_in_range_t *subc_dc;
-    real *x_or_bb;
+
+    real *bb_si;
+    real *x_si;
 } gmx_nbsearch_t_t;
 
 
@@ -127,13 +128,14 @@ void gmx_nbsearch_init(gmx_nbsearch_t * nbs,int natoms_subcell)
     (*nbs)->sort_work   = NULL;
     (*nbs)->sort_work_nalloc = 0;
 
+    snew_aligned((*nbs)->bb_si,NSUBCELL*NNBSBB,16);
+
     if (getenv("GMX_NSBOX_BB") != NULL)
     {
-        /* Use bounding box sub cell pair distances,
+        /* Use only bounding box sub cell pair distances,
          * fast, but produces slighlty more sub cell pairs.
          */
-        (*nbs)->subc_dc = subc_in_range_bb;
-        snew_aligned((*nbs)->x_or_bb,NSUBCELL*NNBSBB,16);
+        (*nbs)->subc_dc = NULL;
     }
     else
     {
@@ -141,13 +143,13 @@ void gmx_nbsearch_init(gmx_nbsearch_t * nbs,int natoms_subcell)
         if (natoms_subcell == 8 && getenv("GMX_NSBOX_NOSSE") == NULL)
         {
             (*nbs)->subc_dc = subc_in_range_sse8;
-            snew_aligned((*nbs)->x_or_bb,(*nbs)->napc*DIM,16);
+            snew_aligned((*nbs)->x_si,(*nbs)->napc*DIM,16);
         }
         else
 #endif
         { 
             (*nbs)->subc_dc = subc_in_range_x;
-            snew_aligned((*nbs)->x_or_bb,(*nbs)->napc*DIM,16);
+            snew_aligned((*nbs)->x_si,(*nbs)->napc*DIM,16);
         }
     }
 }
@@ -199,10 +201,7 @@ static int set_grid_size_xy(gmx_nbsearch_t nbs,int n,matrix box)
         srenew(nbs->a,nbs->nc_nalloc*nbs->napc);
         srenew(nbs->nsubc,nbs->nc_nalloc);
         srenew(nbs->bbcz,nbs->nc_nalloc*NNBSBB_D);
-        if (nbs->subc_dc == subc_in_range_bb)
-        {
-            srenew(nbs->bb,nbs->nc_nalloc*NSUBCELL*NNBSBB);
-        }
+        srenew(nbs->bb,nbs->nc_nalloc*NSUBCELL*NNBSBB);
     }
 
     nbs->sx = box[XX][XX]/nbs->ncx;
@@ -634,11 +633,8 @@ static void calc_cell_indices(gmx_nbsearch_t nbs,
                                                nbs->naps*(cy*NSUBCELL_Y+sub_y),
                                                nbs->naps*sub_z);
 
-                        if (nbs->subc_dc == subc_in_range_bb)
-                        {
-                            calc_bounding_box(na_x,nbat->xstride,xnb,
-                                              nbs->bb+(ash_x/nbs->naps)*NNBSBB);
-                        }
+                        calc_bounding_box(na_x,nbat->xstride,xnb,
+                                          nbs->bb+(ash_x/nbs->naps)*NNBSBB);
 
                         if (gmx_debug_at)
                         {
@@ -672,10 +668,8 @@ static void calc_cell_indices(gmx_nbsearch_t nbs,
     {
         fprintf(debug,"ns non-zero sub-cells: %d average atoms %.2f\n",
                 nbs->nsubc_tot,n/(double)nbs->nsubc_tot);
-        if (nbs->subc_dc == subc_in_range_bb)
-        {
-            print_bbsizes(debug,nbs,box);
-        }
+
+        print_bbsizes(debug,nbs,box);
     }
 }
 
@@ -810,10 +804,9 @@ static real box_dist2(real bx0,real bx1,real by0,real by1,real bz0,real bz1,
     return d2;
 }
 
-static gmx_bool subc_in_range_bb(int naps,
-                                 int si,const real *bb_i_ci,
-                                 int csj,int stride,const real *bb_j_all,
-                                 real rl2)
+static real subc_bb_dist2(int naps,
+                          int si,const real *bb_i_ci,
+                          int csj,const real *bb_j_all)
 {
     const real *bb_i,*bb_j;
     real d2;
@@ -842,7 +835,7 @@ static gmx_bool subc_in_range_bb(int naps,
     dm0 = max(dm,0);
     d2 += dm0*dm0;
 
-    return (d2 < rl2);
+    return d2;
 }
 
 static gmx_bool subc_in_range_x(int naps,
@@ -1075,21 +1068,13 @@ static void make_subcell_list(const gmx_nbsearch_t nbs,
                               gmx_nblist_t *nbl,
                               int ci,int cj,
                               int stride,const real *x,
-                              real rl2)
+                              real rl2,real rbb2)
 {
-    const real *x_or_bb;
-    int npair;
-    int sj,si1,si,csj;
+    int  npair;
+    int  sj,si1,si,csj;
+    real d2;
+    gmx_bool InRange;
 #define ISUBCELL_GROUP 1
-
-    if (nbs->subc_dc == subc_in_range_bb)
-    {
-        x_or_bb = nbs->bb;
-    }
-    else
-    {
-        x_or_bb = x;
-    }
 
     for(sj=0; sj<nbs->nsubc[cj]; sj++)
     {
@@ -1107,7 +1092,21 @@ static void make_subcell_list(const gmx_nbsearch_t nbs,
         npair = 0;
         for(si=0; si<si1; si++)
         {
-            if (nbs->subc_dc(nbs->naps,si,nbs->x_or_bb,csj,stride,x_or_bb,rl2))
+            d2 = subc_bb_dist2(nbs->naps,si,nbs->bb_si,csj,nbs->bb);
+
+            if (nbs->subc_dc == NULL)
+            {
+                InRange = (d2 < rl2);
+            }
+            else
+            {
+                InRange = (d2 < rbb2 ||
+                           (d2 < rl2 &&
+                            nbs->subc_dc(nbs->naps,si,nbs->x_si,
+                                         csj,stride,x,rl2)));
+            }
+
+            if (InRange)
             {
                 nbl->si[nbl->nsi++] = ci*NSUBCELL + si;
                 npair++;
@@ -1183,9 +1182,26 @@ static void clear_nblist(gmx_nblist_t *nbl)
     nbl->nsi = 0;
 }
 
-static void set_subbox_i_x_or_bb(const gmx_nbsearch_t nbs,int ci,
-                                 real shx,real shy,real shz,
-                                 int stride,const real *x)
+static void set_subcell_i_bb(const gmx_nbsearch_t nbs,int ci,
+                            real shx,real shy,real shz)
+{
+    int ia,i;
+    
+    ia = ci*NSUBCELL*NNBSBB;
+    for(i=0; i<NSUBCELL*NNBSBB; i+=NNBSBB)
+    {
+        nbs->bb_si[i+0] = nbs->bb[ia+i+0] + shx;
+        nbs->bb_si[i+1] = nbs->bb[ia+i+1] + shx;
+        nbs->bb_si[i+2] = nbs->bb[ia+i+2] + shy;
+        nbs->bb_si[i+3] = nbs->bb[ia+i+3] + shy;
+        nbs->bb_si[i+4] = nbs->bb[ia+i+4] + shz;
+        nbs->bb_si[i+5] = nbs->bb[ia+i+5] + shz;
+    }
+}
+
+static void set_subcell_i_x(const gmx_nbsearch_t nbs,int ci,
+                            real shx,real shy,real shz,
+                            int stride,const real *x)
 {
     int si,io,ia,i,j;
 
@@ -1199,38 +1215,21 @@ static void set_subbox_i_x_or_bb(const gmx_nbsearch_t nbs,int ci,
                 ia = ci*NSUBCELL*nbs->naps + io;
                 for(j=0; j<4; j++)
                 {
-                    nbs->x_or_bb[io*3 + j + 0] = x[(ia+j)*stride+0] + shx;
-                    nbs->x_or_bb[io*3 + j + 4] = x[(ia+j)*stride+1] + shy;
-                    nbs->x_or_bb[io*3 + j + 8] = x[(ia+j)*stride+2] + shz;
+                    nbs->x_si[io*3 + j + 0] = x[(ia+j)*stride+0] + shx;
+                    nbs->x_si[io*3 + j + 4] = x[(ia+j)*stride+1] + shy;
+                    nbs->x_si[io*3 + j + 8] = x[(ia+j)*stride+2] + shz;
                 }
             }
         }
     }
     else
     {
-        if (nbs->subc_dc == subc_in_range_x)
+        ia = ci*NSUBCELL*nbs->naps;
+        for(i=0; i<nbs->napc; i++)
         {
-            ia = ci*NSUBCELL*nbs->naps;
-            for(i=0; i<nbs->napc; i++)
-            {
-                nbs->x_or_bb[i*3 + 0] = x[(ia+i)*stride + 0] + shx;
-                nbs->x_or_bb[i*3 + 1] = x[(ia+i)*stride + 1] + shy;
-                nbs->x_or_bb[i*3 + 2] = x[(ia+i)*stride + 2] + shz;
-            }
-        }
-        else
-        {
-            /* Use the bounding boxes */
-            ia = ci*NSUBCELL*NNBSBB;
-            for(i=0; i<NSUBCELL*NNBSBB; i+=NNBSBB)
-            {
-                nbs->x_or_bb[i+0] = nbs->bb[ia+i+0] + shx;
-                nbs->x_or_bb[i+1] = nbs->bb[ia+i+1] + shx;
-                nbs->x_or_bb[i+2] = nbs->bb[ia+i+2] + shy;
-                nbs->x_or_bb[i+3] = nbs->bb[ia+i+3] + shy;
-                nbs->x_or_bb[i+4] = nbs->bb[ia+i+4] + shz;
-                nbs->x_or_bb[i+5] = nbs->bb[ia+i+5] + shz;
-            }
+            nbs->x_si[i*3 + 0] = x[(ia+i)*stride + 0] + shx;
+            nbs->x_si[i*3 + 1] = x[(ia+i)*stride + 1] + shy;
+            nbs->x_si[i*3 + 2] = x[(ia+i)*stride + 2] + shz;
         }
     }
 }
@@ -1242,7 +1241,7 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
 {
     gmx_bool bDomDec;
     matrix box;
-    real rl2;
+    real rl2,rbb2;
     int  d,ci,ci_xy,ci_x,ci_y,cj;
     ivec shp;
     int  tx,ty,tz;
@@ -1269,9 +1268,31 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
 
     clear_nblist(nbl);
 
+    copy_mat(nbs->box,box);
+
     rl2 = nbl->rlist*nbl->rlist;
 
-    copy_mat(nbs->box,box);
+    if (nbs->subc_dc == NULL)
+    {
+        rbb2 = rl2;
+    }
+    else
+    {
+        /* If the distance between two sub-cell bounding boxes is less
+         * than the nblist cut-off minus half of the average x/y diagonal
+         * spacing of the sub-cells, do not check the distance between
+         * all particle pairs in the sub-cell, since this pairs is very
+         * likely to have atom pairs within the cut-off.
+         */
+        rbb2 = sqr(max(0,
+                       nbl->rlist -
+                       0.5*sqrt(sqr(box[XX][XX]/(nbs->ncx*NSUBCELL_X)) +
+                                sqr(box[YY][YY]/(nbs->ncy*NSUBCELL_Y)))));
+    }
+    if (debug)
+    {
+        fprintf(debug,"ns bounding box only distance %f\n",sqrt(rbb2));
+    }
 
     /* Set the shift range */
     for(d=0; d<DIM; d++)
@@ -1381,8 +1402,13 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
                         cxf = ci_x;
                     }
 
-                    set_subbox_i_x_or_bb(nbs,ci,shx,shy,shz,
-                                         nbat->xstride,nbat->x);
+                    set_subcell_i_bb(nbs,ci,shx,shy,shz);
+
+                    if (nbs->subc_dc != NULL)
+                    {
+                        set_subcell_i_x(nbs,ci,shx,shy,shz,
+                                        nbat->xstride,nbat->x);
+                    }
 
                     for(cx=cxf; cx<=cxl; cx++)
                     {
@@ -1491,7 +1517,7 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
                                     {
                                         make_subcell_list(nbs,nbl,ci,cj,
                                                           nbat->xstride,nbat->x,
-                                                          rl2);
+                                                          rl2,rbb2);
                                     }
                                 }
                             }
