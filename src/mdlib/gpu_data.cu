@@ -8,7 +8,7 @@
 #include "cudautils.h"
 #include "gpu_data.h"
 
-#define USE_CUDA_ENVENT_BLOCKING_SYNC TRUE
+#define USE_CUDA_EVENT_BLOCKING_SYNC FALSE /* makes the CPU thread busy-wait! */
 
 /*** CUDA MD Data operations ***/
 
@@ -34,7 +34,7 @@ void init_cudata_ff(FILE *fplog,
     const textureReference  *texnbfp;
 #endif
 
-    int eventflags = ( USE_CUDA_ENVENT_BLOCKING_SYNC ? cudaEventBlockingSync: cudaEventDefault );
+    int eventflags = ( USE_CUDA_EVENT_BLOCKING_SYNC ? cudaEventBlockingSync: cudaEventDefault );
 
     if (dp_data == NULL) return;
     

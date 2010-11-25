@@ -32,7 +32,7 @@ inline int calc_nb_blocknr(int nwork_units)
     return retval;
 }
 
-void cu_do_nb(t_cudata d_data,rvec shiftvec[]) 
+void cu_do_nb(t_cudata d_data, rvec shiftvec[]) 
 {
     int     nb_blocks = calc_nb_blocknr(d_data->nci)/d_data->cell_pair_group;
     dim3    dim_block(CELL_SIZE, CELL_SIZE, 1); 
@@ -68,7 +68,8 @@ void cu_do_nb(t_cudata d_data,rvec shiftvec[])
 void cu_stream_nb(t_cudata d_data, 
                   /*const gmx_nblist_t *nblist, */
                   const gmx_nb_atomdata_t *nbatom,
-                  rvec shiftvec[])
+                  rvec shiftvec[],
+                  gmx_bool sync)
 {
     int     nb_blocks = calc_nb_blocknr(d_data->nci)/d_data->cell_pair_group;
     dim3    dim_block(CELL_SIZE, CELL_SIZE, 1); 
@@ -110,7 +111,14 @@ void cu_stream_nb(t_cudata d_data,
                                                   d_data->nbfp,
                                                   d_data->shiftvec,
                                                   d_data->f);    
-    CU_LAUNCH_ERR_SYNC("k_calc_nb");
+    if (sync)
+    {
+        CU_LAUNCH_ERR_SYNC("k_calc_nb");
+    }
+    else
+    {
+        CU_LAUNCH_ERR("k_calc_nb");
+    }
    
     /* async copy DtoH f */    
     download_cudata_async(nbatom->f, d_data->f, d_data->natoms*sizeof(*d_data->f), 0);

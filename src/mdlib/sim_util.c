@@ -672,7 +672,7 @@ void do_force(FILE *fplog,t_commrec *cr,
         wallcycle_start(wcycle,ewcSEND_X_GPU);
         if (fr->streamGPU)
         {            
-            cu_stream_nb(fr->gpu_data, fr->nbat, fr->shift_vec);
+            cu_stream_nb(fr->gpu_data, fr->nbat, fr->shift_vec, !fr->streamGPU);
         }
         else
         {
