@@ -59,7 +59,7 @@
 #define CU_RET_ERR(status, msg) do { } while (0)
 #define CU_CHECK_PREV_ERR()     do { } while (0)
 #define CU_LAUNCH_ERR(msg)      do { } while (0)
-#define CU_LAUNCH_ERR_SINC(msg) do { } while (0)
+#define CU_LAUNCH_ERR_SYNC(msg) do { } while (0)
 
 #endif /* CHECK_CUDA_ERRORS */ 
 
