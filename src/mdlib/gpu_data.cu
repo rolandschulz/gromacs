@@ -7,6 +7,7 @@
 #include "cutypedefs.h"
 #include "cudautils.h"
 #include "gpu_data.h"
+#include "cupmalloc.h"
 
 #define USE_CUDA_EVENT_BLOCKING_SYNC FALSE /* makes the CPU thread busy-wait! */
 
@@ -58,6 +59,10 @@ void init_cudata_ff(FILE *fplog,
         CU_RET_ERR(stat, "cudaEventCreate on start_atomdata failed");
         stat = cudaEventCreateWithFlags(&(d_data->stop_atomdata), eventflags);
         CU_RET_ERR(stat, "cudaEventCreate on stop_atomdata failed");       
+#if 0 // WC malloc stuff
+        stat = cudaEventCreateWithFlags(&(d_data->start_x_trans), eventflags);
+        stat = cudaEventCreateWithFlags(&(d_data->stop_x_trans), eventflags);
+#endif
     }   
 
     stat = cudaStreamCreate(&d_data->nb_stream);
@@ -92,6 +97,8 @@ void init_cudata_ff(FILE *fplog,
     d_data->ci      = NULL;
     d_data->sj      = NULL;
     d_data->si      = NULL;
+
+    d_data->h_xq    = NULL;
 
     /* size -1 just means that it has not been initialized yet */
     d_data->natoms          = -1;
@@ -230,6 +237,15 @@ void init_cudata_atoms(t_cudata d_data,
     }
     d_data->nsi = nsi;
 
+#if 0 // WC malloc stuff
+    if (d_data->h_xq) 
+    {
+        pfree(d_data->h_xq);
+    }
+    pmalloc_wc((void**)&d_data->h_xq, d_data->nalloc*sizeof(*d_data->h_xq));
+    memcpy(d_data->h_xq, atomdata->x, d_data->nalloc*sizeof(*d_data->h_xq));
+#endif
+
     if(doStream)
     {
         upload_cudata_async(d_data->atom_types, atomdata->type, natoms*sizeof(*(d_data->atom_types)), 0);
@@ -245,6 +261,7 @@ void init_cudata_atoms(t_cudata d_data,
         upload_cudata(d_data->si, nblist->si, nsi*sizeof(*(d_data->si)));    
     }
     cudaEventRecord(d_data->stop_atomdata, 0);
+ 
 }
 
 void cu_blockwait_atomdata(t_cudata d_data, float *time)

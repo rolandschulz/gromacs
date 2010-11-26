@@ -24,7 +24,7 @@ struct cudata
     int     ntypes; /* number of atom types */
     int     *atom_types; /* atom type indices, size natoms */
     
-    /* ???? * exclusions;  not used */
+    unsigned long * excl;
     
     /* nonbonded paramters 
        TODO -> constant so some of them should be moved to constant memory */
@@ -39,6 +39,12 @@ struct cudata
     cudaStream_t    nb_stream;
     cudaEvent_t     start_nb, stop_nb;
     cudaEvent_t     start_atomdata, stop_atomdata;
+
+#if 1 // WC malloc stuff
+    cudaEvent_t     start_x_trans, stop_x_trans;
+    float   x_trans_time;
+    float4  *h_xq;
+#endif 
 
     /* neighbor list data */
     int             naps;   /* number of atoms per cell */

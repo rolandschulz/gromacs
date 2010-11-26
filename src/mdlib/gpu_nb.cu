@@ -26,7 +26,7 @@ inline int calc_nb_blocknr(int nwork_units)
     int retval = (nwork_units <= GRID_MAX_DIM ? nwork_units : GRID_MAX_DIM);
     if (retval != nwork_units)
     {
-        gmx_warning("Watch out, the number of nonbonded work units exceeds the maximum grid size (%d > %d)!",
+        gmx_fatal(FARGS, "Watch out, the number of nonbonded work units exceeds the maximum grid size (%d > %d)!",
                 nwork_units, GRID_MAX_DIM);
     }
     return retval;
@@ -77,7 +77,7 @@ void cu_stream_nb(t_cudata d_data,
     /* force buffers in shmem */
     int     shmem =  (1 + NSUBCELL) * CELL_SIZE * CELL_SIZE * 3 * sizeof(float); // FIXME
     // cudaStream_t st = d_data->nb_stream;
-    static int     cacheConf = 0;
+    static int  cacheConf = 0;
 
     /* XXX XXX */
     if (cacheConf == 0)
@@ -96,8 +96,16 @@ void cu_stream_nb(t_cudata d_data,
     
     /* set the forces to 0 */
     cudaMemsetAsync(d_data->f, 0, d_data->natoms*sizeof(*d_data->f), 0);
-    /* upload x, Q */
+
+#if 0 // WC malloc stuff
+    //**/ cudaEventRecord(d_data->start_x_trans, 0); 
+    ///**/ upload_cudata_async(d_data->xq, d_data->h_xq, d_data->natoms*sizeof(*d_data->xq), 0);
+    ///**/ cudaEventRecord(d_data->stop_x_trans, 0); 
+#endif
+
+    /* upload x, Q */    
     upload_cudata_async(d_data->xq, nbatom->x, d_data->natoms*sizeof(*d_data->xq), 0);
+
     /* upload shift vec */
     upload_cudata_async(d_data->shiftvec, shiftvec, SHIFTS*sizeof(*d_data->shiftvec), 0);   
 
@@ -151,11 +159,23 @@ gmx_bool cu_checkstat_nb(t_cudata d_data, float *time)
 
 void cu_blockwait_nb(t_cudata d_data, float *time)
 {    
-    cudaError_t stat;     
+    cudaError_t stat;
 
-    // stat = cudaStreamSynchronize(d_data->nb_stream);
+    // stat = cudaStreamSynchronize(d_data->nb_stream);    
     stat = cudaEventSynchronize(d_data->stop_nb);
-    CU_RET_ERR(stat, "the async execution of nonbonded calculations has failed");   
-   
+    CU_RET_ERR(stat, "the async execution of nonbonded calculations has failed"); 
     cudaEventElapsedTime(time, d_data->start_nb, d_data->stop_nb);
+ 
+#if 0 // WC malloc stuff  
+    float t;
+    int static step = 0;
+    stat = cudaEventSynchronize(d_data->stop_x_trans);
+    cudaEventElapsedTime(&t, d_data->start_x_trans, d_data->stop_x_trans);
+    d_data->x_trans_time += t;
+    step++;
+    if (step % 1000 == 0)
+    {
+        printf("xq transfer time (step %d): %5.3f ms\n", step, d_data->x_trans_time/step);
+    }
+#endif
 }

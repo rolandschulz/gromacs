@@ -6,7 +6,7 @@ extern "C" {
 #endif
 
 void pmalloc(void ** /*h_ptr*/, size_t /*nbytes*/);
-
+void pmalloc_wc(void **h_ptr, size_t nbytes);
 void pfree(void * /*h_ptr*/); 
 
 // void prealloc(void ** /*h_ptr*/, size_t /*nbytes*/);
