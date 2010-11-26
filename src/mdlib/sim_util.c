@@ -664,9 +664,11 @@ void do_force(FILE *fplog,t_commrec *cr,
         if (bNS && fr->streamGPU)
         {
             cu_blockwait_atomdata(d_data, &gpu_atomdata_time);
-
-            printf("atomdata trasfer time, step %4d: %5.3f ms\n", stepcount, gpu_atomdata_time);
-        }
+            if (stepcount % 1000 == 0)
+            {
+                printf("NS trasfer [%4d]:\t%5.3f ms\n", stepcount, gpu_atomdata_time);
+            }
+       }
 
         /* Launch GPU-accelerated nonbonded calculations.
            Both tocopying /from device and kernel execution is asynchronous */
@@ -828,9 +830,9 @@ void do_force(FILE *fplog,t_commrec *cr,
                 stepcount++;
                 cu_blockwait_nb(fr->gpu_data, &gpu_nb_time);
                 gpu_nb_total += gpu_nb_time;
-                if (!(stepcount % 50) || stepcount == 5001)
+                if (!(stepcount % 100) || stepcount == 5001)
                 {
-                    printf("nb time, step %4d: %5.3f ms\n", stepcount, gpu_nb_total/stepcount);
+                    printf("NB time [%4d]:\t %5.3f ms\n", stepcount, gpu_nb_total/stepcount);
                 }
             }
             else 
