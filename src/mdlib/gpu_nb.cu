@@ -14,9 +14,6 @@
 #define NB_DEFAULT_THREADS  (CELL_SIZE * CELL_SIZE)
 #define GPU_FACEL           (138.935485)
 
-texture<float, 1, cudaReadModeElementType> texnbfp;
-// __device__ __constant__ c_nbfp;
-
 #include "gpu_nb_kernels.h"
 
 __global__ void __empty_kernel() {}
@@ -32,39 +29,6 @@ inline int calc_nb_blocknr(int nwork_units)
     return retval;
 }
 
-void cu_do_nb(t_cudata d_data, rvec shiftvec[]) 
-{
-    int     nb_blocks = calc_nb_blocknr(d_data->nci)/d_data->cell_pair_group;
-    dim3    dim_block(CELL_SIZE, CELL_SIZE, 1); 
-    dim3    dim_grid(nb_blocks, 1, 1); 
-    int     shmem = (1 + NSUBCELL) * CELL_SIZE * CELL_SIZE * sizeof(float4); /* force buffer */
-
-    if (debug)
-    {
-        printf("~> Thread block: %dx%dx%d\n~> Grid: %dx%d\n~> #SubCell pairs: %d (%d)\n", 
-            dim_block.x, dim_block.y, dim_block.z, dim_grid.x, dim_grid.y, d_data->nsi, 
-            d_data->naps);
-    }
-
-    /* set the forces to 0 */
-    cudaMemset(d_data->f, 0, d_data->natoms*sizeof(*d_data->f));
-
-    /* upload shift vec */
-    upload_cudata(d_data->shiftvec, shiftvec, SHIFTS*sizeof(*d_data->shiftvec));   
-
-    /* sync nonbonded calculations */   
-    k_calc_nb_1<<<dim_grid, dim_block, shmem>>>(d_data->ci,
-                                                  d_data->sj, 
-                                                  d_data->si,
-                                                  d_data->atom_types, 
-                                                  d_data->ntypes, 
-                                                  d_data->xq, 
-                                                  d_data->nbfp,
-                                                  d_data->shiftvec,
-                                                  d_data->f);
-    CU_LAUNCH_ERR_SYNC("k_calc_nb");
-}
-
 void cu_stream_nb(t_cudata d_data, 
                   /*const gmx_nblist_t *nblist, */
                   const gmx_nb_atomdata_t *nbatom,
@@ -77,19 +41,19 @@ void cu_stream_nb(t_cudata d_data,
     /* force buffers in shmem */
     int     shmem =  (1 + NSUBCELL) * CELL_SIZE * CELL_SIZE * 3 * sizeof(float); // FIXME
     // cudaStream_t st = d_data->nb_stream;
-    static int  cacheConf = 0;
+    static gmx_bool  cache_conf_set = FALSE;
 
-    /* XXX XXX */
-    if (cacheConf == 0)
+    /* XXX fix this cause it's ugly */
+    if (!cache_conf_set)
     {
         printf("~> Thread block: %dx%dx%d\n~> Grid: %dx%d\n~> #Cells/Subcells: %d/%d (%d)\n",         
         dim_block.x, dim_block.y, dim_block.z, dim_grid.x, dim_grid.y, d_data->nsi, 
         NSUBCELL, d_data->naps);
 
-        printf("cell_pair_group=%d\n", d_data->cell_pair_group);
+        // printf("cell_pair_group=%d\n", d_data->cell_pair_group);
         cudaFuncSetCacheConfig(&k_calc_nb_1, cudaFuncCachePreferShared);        
         cudaFuncSetCacheConfig(&k_calc_nb_2, cudaFuncCachePreferL1); 
-        cacheConf++;
+        cache_conf_set = TRUE;
     }
 
     cudaEventRecord(d_data->start_nb, 0);
@@ -179,3 +143,39 @@ void cu_blockwait_nb(t_cudata d_data, float *time)
     }
 #endif
 }
+
+/* XXX: not called anyomore! */
+void cu_do_nb(t_cudata d_data, rvec shiftvec[]) 
+{
+    int     nb_blocks = calc_nb_blocknr(d_data->nci)/d_data->cell_pair_group;
+    dim3    dim_block(CELL_SIZE, CELL_SIZE, 1); 
+    dim3    dim_grid(nb_blocks, 1, 1); 
+    int     shmem = (1 + NSUBCELL) * CELL_SIZE * CELL_SIZE * sizeof(float4); /* force buffer */
+
+    if (debug)
+    {
+        printf("~> Thread block: %dx%dx%d\n~> Grid: %dx%d\n~> #SubCell pairs: %d (%d)\n", 
+            dim_block.x, dim_block.y, dim_block.z, dim_grid.x, dim_grid.y, d_data->nsi, 
+            d_data->naps);
+    }
+
+    /* set the forces to 0 */
+    cudaMemset(d_data->f, 0, d_data->natoms*sizeof(*d_data->f));
+
+    /* upload shift vec */
+    upload_cudata(d_data->shiftvec, shiftvec, SHIFTS*sizeof(*d_data->shiftvec));   
+
+    /* sync nonbonded calculations */   
+    k_calc_nb_1<<<dim_grid, dim_block, shmem>>>(d_data->ci,
+                                                  d_data->sj, 
+                                                  d_data->si,
+                                                  d_data->atom_types, 
+                                                  d_data->ntypes, 
+                                                  d_data->xq, 
+                                                  d_data->nbfp,
+                                                  d_data->shiftvec,
+                                                  d_data->f);
+    CU_LAUNCH_ERR_SYNC("k_calc_nb");
+}
+
+

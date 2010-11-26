@@ -26,14 +26,9 @@ void init_cudata_ff(FILE *fplog,
     t_cudata            d_data = NULL;    
     cudaError_t         stat;
     gmx_nb_atomdata_t   *nbat = fr->nbat;
-    int                 ntypes = nbat->ntype;    
+    int                 ntypes = nbat->ntype;
     char                *env_var;
     int                 itmp;
-
-#if 0 /* texture business */
-    cudaChannelFormatDesc   cd;
-    const textureReference  *texnbfp;
-#endif
 
     int eventflags = ( USE_CUDA_EVENT_BLOCKING_SYNC ? cudaEventBlockingSync: cudaEventDefault );
 
@@ -48,37 +43,25 @@ void init_cudata_ff(FILE *fplog,
     d_data->eps_rf = fr->epsilon_rf;   
 
     /* events for NB async ops */
-    d_data->streamGPU = fr->streamGPU;
-    if (d_data->streamGPU)
-    {
-        stat = cudaEventCreateWithFlags(&(d_data->start_nb), eventflags);
-        CU_RET_ERR(stat, "cudaEventCreate on start_nb failed");
-        stat = cudaEventCreateWithFlags(&(d_data->stop_nb), eventflags);
-        CU_RET_ERR(stat, "cudaEventCreate on stop_nb failed");
-        stat = cudaEventCreateWithFlags(&(d_data->start_atomdata), eventflags);
-        CU_RET_ERR(stat, "cudaEventCreate on start_atomdata failed");
-        stat = cudaEventCreateWithFlags(&(d_data->stop_atomdata), eventflags);
-        CU_RET_ERR(stat, "cudaEventCreate on stop_atomdata failed");       
+    d_data->streamGPU = fr->streamGPU;    
+    stat = cudaEventCreateWithFlags(&(d_data->start_nb), eventflags);
+    CU_RET_ERR(stat, "cudaEventCreate on start_nb failed");
+    stat = cudaEventCreateWithFlags(&(d_data->stop_nb), eventflags);
+    CU_RET_ERR(stat, "cudaEventCreate on stop_nb failed");
+    stat = cudaEventCreateWithFlags(&(d_data->start_atomdata), eventflags);
+    CU_RET_ERR(stat, "cudaEventCreate on start_atomdata failed");
+    stat = cudaEventCreateWithFlags(&(d_data->stop_atomdata), eventflags);
+    CU_RET_ERR(stat, "cudaEventCreate on stop_atomdata failed");       
 #if 0 // WC malloc stuff
-        stat = cudaEventCreateWithFlags(&(d_data->start_x_trans), eventflags);
-        stat = cudaEventCreateWithFlags(&(d_data->stop_x_trans), eventflags);
+    stat = cudaEventCreateWithFlags(&(d_data->start_x_trans), eventflags);
+    stat = cudaEventCreateWithFlags(&(d_data->stop_x_trans), eventflags);
 #endif
-    }   
-
-    stat = cudaStreamCreate(&d_data->nb_stream);
-    CU_RET_ERR(stat, "cudaSteamCreate on nb_stream failed");
 
     /* NB params */
     stat = cudaMalloc((void **)&d_data->nbfp, 2*ntypes*ntypes*sizeof(*(d_data->nbfp)));
     CU_RET_ERR(stat, "cudaMalloc failed on d_data->nbfp"); 
     upload_cudata(d_data->nbfp, nbat->nbfp, 2*ntypes*ntypes*sizeof(*(d_data->nbfp)));
-#if 0 /* texture business */
-    stat = cudaGetTextureReference(&texnbfp, "texnbfp");
-    CU_RET_ERR(stat, "cudaGetTextureReference on texnbfp failed");
-    cd = cudaCreateChannelDesc<float>();
-    stat = cudaBindTexture(NULL, texnbfp, d_data->nbfp, &cd, 2*d_data->ntypes*d_data->ntypes);
-    CU_RET_ERR(stat, "cudaBindTexture on texnbfp failed");
-#endif
+
     stat = cudaMalloc((void**)&d_data->shiftvec, SHIFTS*sizeof(*d_data->shiftvec));
     CU_RET_ERR(stat, "cudaMalloc failed on d_data->shiftvec");
 
@@ -98,7 +81,9 @@ void init_cudata_ff(FILE *fplog,
     d_data->sj      = NULL;
     d_data->si      = NULL;
 
+#if 0 // WC malloc stuff
     d_data->h_xq    = NULL;
+#endif 
 
     /* size -1 just means that it has not been initialized yet */
     d_data->natoms          = -1;
@@ -277,24 +262,18 @@ void cu_blockwait_atomdata(t_cudata d_data, float *time)
 void destroy_cudata(FILE *fplog, t_cudata d_data)
 {
     cudaError_t stat;
-    const textureReference *texnbfp;
 
     if (d_data == NULL) return;
 
-    if (d_data->streamGPU)
-    {
-        stat = cudaEventDestroy(d_data->start_nb);
-        CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->start_nb");
-        stat = cudaEventDestroy(d_data->stop_nb);
-        CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->stop_nb");
-        stat = cudaStreamDestroy(d_data->nb_stream); 
-        CU_RET_ERR(stat, "cudaStreamDestroy failed on d_data->nb_stream");
-    }
 
-    stat = cudaGetTextureReference(&texnbfp, "texnbfp");
-    CU_RET_ERR(stat, "cudaGetTextureReference on texnbfp failed");
-    stat = cudaUnbindTexture(texnbfp);
-    CU_RET_ERR(stat, "cudaUnbindTexture failed on texnbfp");
+    stat = cudaEventDestroy(d_data->start_nb);
+    CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->start_nb");
+    stat = cudaEventDestroy(d_data->stop_nb);
+    CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->stop_nb");
+    stat = cudaEventDestroy(d_data->start_atomdata);
+    CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->start_atomdata");
+    stat = cudaEventDestroy(d_data->stop_atomdata);
+    CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->stop_atomdata");
 
     stat = cudaFree(d_data->nbfp);
     CU_RET_ERR(stat, "cudaFree failed on d_data->nbfp");

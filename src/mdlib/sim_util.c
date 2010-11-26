@@ -661,7 +661,7 @@ void do_force(FILE *fplog,t_commrec *cr,
     if (fr->useGPU)
     {
         /* wait for the atomdata trasfer to be finished */
-        if (bNS && fr->streamGPU)
+        if (bNS)
         {
             cu_blockwait_atomdata(d_data, &gpu_atomdata_time);
             if (stepcount % 1000 == 0)
@@ -673,15 +673,9 @@ void do_force(FILE *fplog,t_commrec *cr,
         /* Launch GPU-accelerated nonbonded calculations.
            Both tocopying /from device and kernel execution is asynchronous */
         wallcycle_start(wcycle,ewcSEND_X_GPU);
-        if (fr->streamGPU)
-        {            
-            cu_stream_nb(fr->gpu_data, fr->nbat, fr->shift_vec, !fr->streamGPU);
-        }
-        else
-        {
-            cu_upload_X(d_data, fr->nbat->x);
-            cu_do_nb(d_data, fr->shift_vec);
-        }
+           
+        cu_stream_nb(fr->gpu_data, fr->nbat, fr->shift_vec, !fr->streamGPU);
+        
         wallcycle_stop(wcycle,ewcSEND_X_GPU);
     }
 #endif /* GMX_GPU */
@@ -825,20 +819,15 @@ void do_force(FILE *fplog,t_commrec *cr,
         {
 #ifdef GMX_GPU
             wallcycle_start(wcycle,ewcRECV_F_GPU);\
-            if (fr->streamGPU)
+
+            stepcount++;
+            cu_blockwait_nb(fr->gpu_data, &gpu_nb_time);
+            gpu_nb_total += gpu_nb_time;
+            if (!(stepcount % 100) || stepcount == 5001)
             {
-                stepcount++;
-                cu_blockwait_nb(fr->gpu_data, &gpu_nb_time);
-                gpu_nb_total += gpu_nb_time;
-                if (!(stepcount % 100) || stepcount == 5001)
-                {
-                    printf("NB time [%4d]:\t %5.3f ms\n", stepcount, gpu_nb_total/stepcount);
-                }
+                printf("NB time [%4d]:\t %5.3f ms\n", stepcount, gpu_nb_total/stepcount);
             }
-            else 
-            {
-                cu_download_F(fr->nbat->f, d_data);
-            }
+
             wallcycle_stop(wcycle,ewcRECV_F_GPU);
 #endif  /* GMX_GPU */
         }

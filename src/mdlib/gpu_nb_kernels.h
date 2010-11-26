@@ -63,6 +63,22 @@ inline __device__ void reduce_force_pow2_strided(float *fbuf, float4 *fout,
     }
 }
 
+inline __device__ void reduce_force_strided(float *forcebuf, float4 *f,
+        int tidxx, int tidxy, int ai)
+{
+    if ((CELL_SIZE & (CELL_SIZE - 1)))
+    {
+        // reduce_force_generic_strided(forcebuf, f, tidxx, tidxy, ai);
+    }
+
+    else
+    {
+        // reduce_force8_strided(forcebuf, f, tidxx, tidxy, ai);
+        // reduce_force_pow2_strided(forcebuf, f, tidxx, tidxy, ai);
+    }
+}
+
+
 
 inline __device__ void reduce_force_i_generic_strided(float *fbuf, float4 *fout,
         int tidxx, int tidxy, int aidx)
@@ -99,22 +115,6 @@ inline __device__ void reduce_force_j_generic_strided(float *fbuf, float4 *fout,
         atomicAdd(&fout[aidx].x, f.x);
         atomicAdd(&fout[aidx].y, f.y);
         atomicAdd(&fout[aidx].z, f.z);
-    }
-}
-
-
-inline __device__ void reduce_force_strided(float *forcebuf, float4 *f,
-        int tidxx, int tidxy, int ai)
-{
-    if (1 || (CELL_SIZE & (CELL_SIZE - 1)))
-    {
-        // reduce_force_generic_strided(forcebuf, f, tidxx, tidxy, ai);
-    }
-
-    else
-    {
-        reduce_force8_strided(forcebuf, f, tidxx, tidxy, ai);
-        // reduce_force_pow2_strided(forcebuf, f, tidxx, tidxy, ai);
     }
 }
 
@@ -206,9 +206,7 @@ __global__ void k_calc_nb_1(const gmx_nbs_ci_t *nbl_ci,
                 typei   = atom_types[ai];
 
                 c6          = nbfp[2 * (ntypes * typei + typej)]; // LJ C6
-                // tex1Dfetch(texnbfp, 2 * (ntypes * typei + typej));
                 c12         = nbfp[2 * (ntypes * typei + typej) + 1]; // LJ C12
-                // tex1Dfetch(texnbfp, 2 * (ntypes * typei + typej) + 1);
                 rv          = xi - xj;
                 r2          = norm2(rv);
                 inv_r       = 1.0f / sqrt(r2);
@@ -338,9 +336,7 @@ __global__ void k_calc_nb_2(const gmx_nbs_ci_t *nbl_ci,
                 typei   = atom_types[ai];
 
                 c6          = nbfp[2 * (ntypes * typei + typej)]; // LJ C6
-                // tex1Dfetch(texnbfp, 2 * (ntypes * typei + typej));
                 c12         = nbfp[2 * (ntypes * typei + typej) + 1]; // LJ C12
-                // tex1Dfetch(texnbfp, 2 * (ntypes * typei + typej) + 1);
                 rv          = xi - xj;
                 r2          = norm2(rv);
                 inv_r       = 1.0f / sqrt(r2);
