@@ -162,7 +162,7 @@ nsbox_generic_kernel(const gmx_nblist_t         *nbl,
                         ja               = sj*nbl->naps + jc;
                         
                         /* Currently only handles self exclusions */
-                        if (ja == ia || (!nbl->TwoWay && ja < ia))
+                        if (ja == ia || (!nbl->TwoWay && si == sj && ja < ia))
                         {
                             continue;
                         }

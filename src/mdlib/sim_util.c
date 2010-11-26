@@ -639,6 +639,7 @@ void do_force(FILE *fplog,t_commrec *cr,
 
             gmx_nbsearch_make_nblist(fr->nbs,fr->nbat,
                                      fr->rlist,fr->rlist+0.15,
+                                     800,
                                      &fr->nbl);
 
             gmx_nb_atomdata_set_atomtypes(fr->nbat,fr->nbs,mdatoms->typeA);

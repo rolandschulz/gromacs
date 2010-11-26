@@ -73,6 +73,7 @@ static gmx_subcell_in_range_t subc_in_range_sse8;
 typedef struct gmx_nbsearch {
     int  ePBC;
     matrix box;
+    real atom_density;
 
     int  naps;  /* Number of atoms in the inner loop / sub cell */
     int  napc;  /* Number of atoms in the super cell            */
@@ -158,18 +159,19 @@ static int set_grid_size_xy(gmx_nbsearch_t nbs,int n,matrix box)
 {
     real adens,tlen,tlen_x,tlen_y,nc_max;
 
+    nbs->atom_density = n/(box[XX][XX]*box[YY][YY]*box[ZZ][ZZ]);
+
     if (n > nbs->napc)
     {
-        adens = n/(box[XX][XX]*box[YY][YY]*box[ZZ][ZZ]);
         /* target cell length */
 #if 0
         /* Approximately cubic super cells */
-        tlen   = pow(nbs->napc/adens,1.0/3.0);
+        tlen   = pow(nbs->napc/nbs->atom_density,1.0/3.0);
         tlen_x = tlen;
         tlen_y = tlen;
 #else
         /* Approximately cubic sub cells */
-        tlen   = pow(nbs->naps/adens,1.0/3.0);
+        tlen   = pow(nbs->naps/nbs->atom_density,1.0/3.0);
         tlen_x = tlen*NSUBCELL_X;
         tlen_y = tlen*NSUBCELL_Y;
 #endif
@@ -1055,11 +1057,14 @@ static void print_nblist_statistics(FILE *fp,const gmx_nblist_t *nbl,
     int lmax,i,j,cjp,cj,l;
     double sl;
 
+    fprintf(fp,"nbl nci %d nsj %d nsi %d\n",nbl->nci,nbl->nsj,nbl->nsi);
     fprintf(fp,"nbl naps %d rl %g ncp %d per cell %.1f atoms %.1f ratio %.2f\n",
             nbl->naps,rl,nbl->nsi,nbl->nsi/(double)nbs->nsubc_tot,
             nbl->nsi/(double)nbs->nsubc_tot*nbs->naps,
             nbl->nsi/(double)nbs->nsubc_tot*nbs->naps/(0.5*4.0/3.0*M_PI*rl*rl*rl*nbs->nsubc_tot*nbs->naps/det(nbs->box)));
 
+    fprintf(fp,"nbl average j super cell list length %.1f\n",
+            nbl->nsj/(double)nbl->nci);
     fprintf(fp,"nbl average i sub cell list length %.1f\n",
             nbl->nsi/(double)nbl->nsj);
 }
@@ -1067,6 +1072,7 @@ static void print_nblist_statistics(FILE *fp,const gmx_nblist_t *nbl,
 static void make_subcell_list(const gmx_nbsearch_t nbs,
                               gmx_nblist_t *nbl,
                               int ci,int cj,
+                              gmx_bool SkipHalf,
                               int stride,const real *x,
                               real rl2,real rbb2)
 {
@@ -1080,7 +1086,7 @@ static void make_subcell_list(const gmx_nbsearch_t nbs,
     {
         csj = cj*NSUBCELL + sj;
 
-        if (!nbl->TwoWay && ci == cj)
+        if (SkipHalf)
         {
             si1 = sj + 1;
         }
@@ -1146,15 +1152,20 @@ static void make_subcell_list(const gmx_nbsearch_t nbs,
     }
 }
 
+static void nb_realloc_ci(gmx_nblist_t *nbl,int n)
+{
+    nbl->ci_nalloc = over_alloc_small(n);
+    nb_realloc_void((void **)&nbl->ci,
+                    nbl->nci*sizeof(*nbl->ci),
+                    nbl->ci_nalloc*sizeof(*nbl->ci),
+                    nbl->alloc,nbl->free);
+}
+
 static void new_ci_entry(gmx_nblist_t *nbl,int ci,int shift)
 {
     if (nbl->nci + 1 > nbl->ci_nalloc)
     {
-        nbl->ci_nalloc = over_alloc_small(nbl->nci+1);
-        nb_realloc_void((void **)&nbl->ci,
-                        nbl->nci*sizeof(*nbl->ci),
-                        nbl->ci_nalloc*sizeof(*nbl->ci),
-                        nbl->alloc,nbl->free);
+        nb_realloc_ci(nbl,nbl->nci+1);
     }
     nbl->ci[nbl->nci].ci           = ci;
     nbl->ci[nbl->nci].shift        = shift;
@@ -1163,14 +1174,43 @@ static void new_ci_entry(gmx_nblist_t *nbl,int ci,int shift)
     nbl->ci[nbl->nci].sj_ind_end   = nbl->ci[nbl->nci].sj_ind_start;
 }
 
-static void close_ci_entry(gmx_nblist_t *nbl)
+static void close_ci_entry(gmx_nblist_t *nbl,int max_jlist)
 {
+    int jlen,tlen;
+    int nb,b;
+
     /* All content of the new ci entry have already been filled correctly,
      * we only need to increase the count here (for non empty lists).
      */
-    if (nbl->ci[nbl->nci].sj_ind_end > nbl->ci[nbl->nci].sj_ind_start)
+    jlen = nbl->ci[nbl->nci].sj_ind_end - nbl->ci[nbl->nci].sj_ind_start;
+    if (jlen > 0)
     {
         nbl->nci++;
+
+        if (jlen > max_jlist)
+        {
+            /* Split ci in the minimum number of blocks <=jlen */
+            nb = (jlen + max_jlist - 1)/max_jlist;
+            /* Make blocks as similar sized as possible, last one smallest */
+            tlen = (jlen + nb - 1)/nb;
+
+            if (nbl->nci + nb - 1 > nbl->ci_nalloc)
+            {
+                nb_realloc_ci(nbl,nbl->nci+nb-1);
+            }
+            
+            /* Set the end of the last block to the current end */
+            nbl->ci[nbl->nci+nb-2].sj_ind_end = nbl->ci[nbl->nci-1].sj_ind_end;
+            for(b=1; b<nb; b++)
+            {
+                nbl->ci[nbl->nci-1].sj_ind_end =
+                    nbl->ci[nbl->nci-1].sj_ind_start + tlen;
+                nbl->ci[nbl->nci].sj_ind_start = nbl->ci[nbl->nci-1].sj_ind_end;
+                nbl->ci[nbl->nci].ci    = nbl->ci[nbl->nci-1].ci;
+                nbl->ci[nbl->nci].shift = nbl->ci[nbl->nci-1].shift;
+                nbl->nci++;
+            }
+        }
     }
 }
 
@@ -1234,17 +1274,57 @@ static void set_subcell_i_x(const gmx_nbsearch_t nbs,int ci,
     }
 }
 
+static int get_max_jlist(const gmx_nbsearch_t nbs,
+                         gmx_nblist_t *nbl,
+                         int min_ci_balanced)
+{
+    real xy_diag,r_eff_sup;
+    int  nj_est,nparts;
+    int  max_jlist;
+
+    /* The average diagonal of a super cell */
+    xy_diag = sqrt(sqr(nbs->box[XX][XX]/nbs->ncx) +
+                   sqr(nbs->box[YY][YY]/nbs->ncy) +
+                   sqr(nbs->box[ZZ][ZZ]*nbs->ncx*nbs->ncy/nbs->nc));
+
+    /* The formulas below are a heuristic estimate of the average nj per ci*/
+    r_eff_sup = nbl->rlist + 0.4*xy_diag;
+    
+    nj_est = (int)(0.5*4.0/3.0*M_PI*pow(r_eff_sup,3)*nbs->atom_density/nbs->naps + 0.5);
+
+    if (min_ci_balanced <= 0 || nbs->nc >= min_ci_balanced)
+    {
+        /* We don't need to worry */
+        max_jlist = SHIFTS*nbs->nc;
+    }
+    else
+    {
+        nparts = (min_ci_balanced + nbs->nc - 1)/nbs->nc;
+        max_jlist = (nj_est + nparts - 1)/nparts;
+    }
+
+    if (debug)
+    {
+        fprintf(debug,"nbl nj estimate %d, max_jlist %d\n",nj_est,max_jlist);
+    }
+
+    return max_jlist;
+}
+
 void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
                               const gmx_nb_atomdata_t *nbat,
                               real rcut,real rlist,
+                              int min_ci_balanced,
                               gmx_nblist_t *nbl)
 {
     gmx_bool bDomDec;
+    int  max_jlist;
     matrix box;
     real rl2,rbb2;
     int  d,ci,ci_xy,ci_x,ci_y,cj;
     ivec shp;
     int  tx,ty,tz;
+    int  shift;
     gmx_bool bMakeList;
     real shx,shy,shz;
     real *bbcz,*bb;
@@ -1265,6 +1345,8 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
 
     nbl->rcut   = rcut;
     nbl->rlist  = rlist;
+
+    max_jlist = get_max_jlist(nbs,nbl,min_ci_balanced);
 
     clear_nblist(nbl);
 
@@ -1291,7 +1373,7 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
     }
     if (debug)
     {
-        fprintf(debug,"ns bounding box only distance %f\n",sqrt(rbb2));
+        fprintf(debug,"nbl bounding box only distance %f\n",sqrt(rbb2));
     }
 
     /* Set the shift range */
@@ -1384,6 +1466,15 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
 
                 for (tx=-shp[XX]; tx<=shp[XX]; tx++)
                 {
+                    shift = XYZ2IS(tx,ty,tz);
+
+#ifdef NSBOX_SHIFT_BACKWARD
+                    if (shift > CENTRAL)
+                    {
+                        continue;
+                    }
+#endif
+
                     shx = tx*box[XX][XX] + ty*box[YY][XX] + tz*box[ZZ][XX];
 
                     bx0 = (ci_x  )*nbs->sx + shx;
@@ -1392,9 +1483,13 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
                     get_cell_range(bx0,bx1,nbs->ncx,nbs->sx,nbs->inv_sx,d2z,rl2,
                                    &cxf,&cxl); 
 
-                    new_ci_entry(nbl,ci,XYZ2IS(tx,ty,tz));
+                    new_ci_entry(nbl,ci,shift);
 
+#ifndef NSBOX_SHIFT_BACKWARD
                     if (!nbl->TwoWay && cxf < ci_x)
+#else
+                    if (!nbl->TwoWay && shift == CENTRAL && cxf < ci_x)
+#endif
                     {
                         /* Leave the pairs with i > j.
                          * x is the major index, so skip half of it.
@@ -1422,7 +1517,12 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
                             d2zx += sqr((cx+1)*nbs->sx - bx0);
                         }
 
+#ifndef NSBOX_SHIFT_BACKWARD
                         if (!nbl->TwoWay && cx == 0 && cyf < ci_y)
+#else
+                        if (!nbl->TwoWay &&
+                            cx == 0 && shift == CENTRAL && cyf < ci_y)
+#endif
                         {
                             /* Leave the pairs with i > j.
                              * Skip half of y when i and j have the same x.
@@ -1438,6 +1538,12 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
                         {
                             c0 = nbs->cxy_ind[cx*nbs->ncy+cy];
                             c1 = nbs->cxy_ind[cx*nbs->ncy+cy+1];
+#ifdef NSBOX_SHIFT_BACKWARD
+                            if (!nbl->TwoWay && shift == CENTRAL && c0 < ci)
+                            {
+                                c0 = ci;
+                            }
+#endif
 
                             d2zxy = d2zx;
                             if (cy*nbs->sy > by1)
@@ -1516,6 +1622,7 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
                                     for(cj=cf; cj<=cl; cj++)
                                     {
                                         make_subcell_list(nbs,nbl,ci,cj,
+                                                          (!nbl->TwoWay && shift == CENTRAL && ci == cj),
                                                           nbat->xstride,nbat->x,
                                                           rl2,rbb2);
                                     }
@@ -1524,7 +1631,7 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
                         }  
                     }
         
-                    close_ci_entry(nbl);
+                    close_ci_entry(nbl,max_jlist);
                 }
             }
         }
