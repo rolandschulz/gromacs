@@ -61,6 +61,9 @@
 #define NNBSBB_D 2
 #define NNBSBB   (3*NNBSBB_D)
 
+#define NSBOX_SHIFT_BACKWARD
+
+
 typedef gmx_bool
 gmx_subcell_in_range_t(int naps,
                        int si,const real *x_or_bb_i,
@@ -1613,7 +1616,14 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
                                 /* We want each atom/cell pair only once,
                                  * only use cj >= ci.
                                  */
+#ifndef NSBOX_SHIFT_BACKWARD
                                 cf = max(cf,ci);
+#else
+                                if (shift == CENTRAL)
+                                {
+                                    cf = max(cf,ci);
+                                }
+#endif
 
                                 if (cf <= cl)
                                 {
