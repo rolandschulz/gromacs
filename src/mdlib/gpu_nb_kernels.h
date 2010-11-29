@@ -127,15 +127,15 @@ inline __device__ void reduce_force_j_generic_strided(float *fbuf, float4 *fout,
 
     Each thread calculates an i force-component taking one pair of i-j atoms.
  */
-__global__ void k_calc_nb_1(const gmx_nbs_ci_t *nbl_ci,
-                          const gmx_nbs_sj_t *nbl_sj,
-                          const int *nbl_si,
-                          const int *atom_types,
-                          int ntypes,
-                          const float4 *xq,
-                          const float *nbfp,
-                          const float3 *shiftvec,
-                          float4 *f)
+__global__ void k_calc_nb_1(const gmx_nbl_ci_t *nbl_ci,
+                            const gmx_nbl_sj_t *nbl_sj,
+                            const gmx_nbl_si_t *nbl_si,
+                            const int *atom_types,
+                            int ntypes,
+                            const float4 *xq,
+                            const float *nbfp,
+                            const float3 *shiftvec,
+                            float4 *f)
 {
     unsigned int tidxx  = threadIdx.y;
     unsigned int tidxy  = threadIdx.x;
@@ -152,11 +152,12 @@ __global__ void k_calc_nb_1(const gmx_nbs_ci_t *nbl_ci,
           r2, inv_r, inv_r2, inv_r6,
           c6, c12,
           dVdr;
-    float4 f4tmp;
-    float3 xi, xj, rv;
-    float3 shift;
-    float3 f_ij, fsj_buf;
-    gmx_nbs_ci_t nb_ci;
+    float4  f4tmp;
+    float3  xi, xj, rv;
+    float3  shift;
+    float3  f_ij, fsj_buf;
+    gmx_nbl_ci_t    nb_ci;
+    unsigned int excl_bit;
 
     extern __shared__ float forcebuf[];  // force buffer
 
@@ -193,11 +194,13 @@ __global__ void k_calc_nb_1(const gmx_nbs_ci_t *nbl_ci,
 
         for (i = si_start; i < si_end; i++)
         {
-            si = nbl_si[i];
+            si = nbl_si[i].si;
             si_offset = si - ci * NSUBCELL;
             ai  = si * CELL_SIZE + tidxx;  /* i atom index */
 
-            if (aj > ai)
+            excl_bit = (nbl_si[i].excl >> tidx) & 1;
+
+            // if (aj != ai)
             {
                 // all threads load an atom from i cell into shmem!
                 f4tmp   = xq[ai];
@@ -217,7 +220,7 @@ __global__ void k_calc_nb_1(const gmx_nbs_ci_t *nbl_ci,
                 // qi_f * qj * (erfc(r2 * inv_r) * inv_r + exp(-r2)) * inv_r2;
                 dVdr        += inv_r6 * (12.0 * c12 * inv_r6 - 6.0 * c6) * inv_r2;
 
-                f_ij = rv * dVdr;
+                f_ij = excl_bit * rv * dVdr;
 
                 // accumulate j forces
                 fsj_buf -= f_ij;
@@ -258,15 +261,15 @@ __global__ void k_calc_nb_1(const gmx_nbs_ci_t *nbl_ci,
 
     Each thread calculates an i force-component taking one pair of i-j atoms.
  */
-__global__ void k_calc_nb_2(const gmx_nbs_ci_t *nbl_ci,
-                          const gmx_nbs_sj_t *nbl_sj,
-                          const int *nbl_si,
-                          const int *atom_types,
-                          int ntypes,
-                          const float4 *xq,
-                          const float *nbfp,
-                          const float3 *shiftvec,
-                          float4 *f)
+__global__ void k_calc_nb_2(const gmx_nbl_ci_t *nbl_ci,
+                            const gmx_nbl_sj_t *nbl_sj,
+                            const gmx_nbl_si_t *nbl_si,
+                            const int *atom_types,
+                            int ntypes,
+                            const float4 *xq,
+                            const float *nbfp,
+                            const float3 *shiftvec,
+                            float4 *f)
 {
     unsigned int tidxx  = threadIdx.y;
     unsigned int tidxy  = threadIdx.x;
@@ -287,7 +290,8 @@ __global__ void k_calc_nb_2(const gmx_nbs_ci_t *nbl_ci,
     float3 xi, xj, rv;
     float3 shift;
     float3 f_ij, fsj_buf;
-    gmx_nbs_ci_t nb_ci;
+    gmx_nbl_ci_t nb_ci;
+    unsigned int excl_bit;
 
     extern __shared__ float forcebuf[];  // force buffer
     float3 fsi_buf[NSUBCELL];
@@ -323,11 +327,13 @@ __global__ void k_calc_nb_2(const gmx_nbs_ci_t *nbl_ci,
 
         for (i = si_start; i < si_end; i++)
         {
-            si = nbl_si[i];
+            si = nbl_si[i].si;
             si_offset = si - ci * NSUBCELL;
             ai  = si * CELL_SIZE + tidxx;  /* i atom index */
 
-            if (aj > ai)
+            excl_bit = (nbl_si[i].excl >> tidx) & 1;
+
+            // if (aj > ai)
             {
                 // all threads load an atom from i cell into shmem!
                 f4tmp   = xq[ai];
@@ -347,7 +353,7 @@ __global__ void k_calc_nb_2(const gmx_nbs_ci_t *nbl_ci,
                 // qi_f * qj * (erfc(r2 * inv_r) * inv_r + exp(-r2)) * inv_r2;
                 dVdr        += inv_r6 * (12.0 * c12 * inv_r6 - 6.0 * c6) * inv_r2;
 
-                f_ij = rv * dVdr;
+                f_ij = excl_bit * rv * dVdr;
 
                 // accumulate j forces
                 fsj_buf -= f_ij;
