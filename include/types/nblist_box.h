@@ -63,13 +63,18 @@ typedef struct {
     int shift;         /* Shift vector index  */
     int sj_ind_start;  /* Start index into sj */
     int sj_ind_end;    /* End index into sj   */
-} gmx_nbs_ci_t;
+} gmx_nbl_ci_t;
 
 typedef struct {
     int sj;            /* The j innerloop sub cell                   */
     int si_ind;        /* Index into i innerloop sub cells,          *
                         * the index end is ii_ind of the next j cell */
-} gmx_nbs_sj_t;
+} gmx_nbl_sj_t;
+
+typedef struct {
+    int si;            /* The j innerloop sub cell                   */
+    unsigned long excl;/* Exclusion bits                             */
+} gmx_nbl_si_t;
 
 typedef struct {
     gmx_nbat_alloc_t *alloc;
@@ -80,13 +85,13 @@ typedef struct {
     real     rcut;         /* The cut-off distance                     */
     real     rlist;        /* The radius for constructing the list     */
     int      nci;          /* The number of i super cells in the list  */
-    gmx_nbs_ci_t *ci;      /* The i super cell list                    */
+    gmx_nbl_ci_t *ci;      /* The i super cell list                    */
     int      ci_nalloc;    /* The allocation size of ci                */
     int      nsj;          /* The total number of j sub cell           */
-    gmx_nbs_sj_t *sj;      /* The j super cell list (size nsj+1)       */
+    gmx_nbl_sj_t *sj;      /* The j super cell list (size nsj+1)       */
     int      sj_nalloc;    /* The allocation isze of sj                */
     int      nsi;          /* The total number of i sub cells          */
-    int      *si;          /* Array of i sub-cells (in pairs with j)   */
+    gmx_nbl_si_t *si;      /* Array of i sub-cells (in pairs with j)   */
     int      si_nalloc;    /* Allocation size of ii                    */
 } gmx_nblist_t;
 

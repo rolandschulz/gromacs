@@ -1075,7 +1075,7 @@ static void print_nblist_statistics(FILE *fp,const gmx_nblist_t *nbl,
 static void make_subcell_list(const gmx_nbsearch_t nbs,
                               gmx_nblist_t *nbl,
                               int ci,int cj,
-                              gmx_bool SkipHalf,
+                              gmx_bool ci_equals_cj,
                               int stride,const real *x,
                               real rl2,real rbb2)
 {
@@ -1089,7 +1089,7 @@ static void make_subcell_list(const gmx_nbsearch_t nbs,
     {
         csj = cj*NSUBCELL + sj;
 
-        if (SkipHalf)
+        if (!nbl->TwoWay && ci_equals_cj)
         {
             si1 = sj + 1;
         }
@@ -1117,7 +1117,26 @@ static void make_subcell_list(const gmx_nbsearch_t nbs,
 
             if (InRange)
             {
-                nbl->si[nbl->nsi++] = ci*NSUBCELL + si;
+                nbl->si[nbl->nsi].si = ci*NSUBCELL + si;
+                if (ci_equals_cj && si == sj)
+                {
+                    if (nbl->TwoWay)
+                    {
+                        /* Only minor != major bits set */
+                        nbl->si[nbl->nsi].excl = 0x7fbfdfeff7fbfdfeL;
+                    }
+                    else
+                    {
+                        /* Only minor > major bits set */
+                        nbl->si[nbl->nsi].excl = 0x80c0e0f0f8fcfe;
+                    }
+                }
+                else
+                {
+                    /* All 8x8 bits set */
+                    nbl->si[nbl->nsi].excl = 0xffffffffffffffffL;
+                }
+                nbl->nsi++;
                 npair++;
                 si += ISUBCELL_GROUP - 1;
             }
@@ -1642,7 +1661,7 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
                                     for(cj=cf; cj<=cl; cj++)
                                     {
                                         make_subcell_list(nbs,nbl,ci,cj,
-                                                          (!nbl->TwoWay && shift == CENTRAL && ci == cj),
+                                                          (shift == CENTRAL && ci == cj),
                                                           nbat->xstride,nbat->x,
                                                           rl2,rbb2);
                                     }

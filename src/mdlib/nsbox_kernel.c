@@ -55,7 +55,7 @@ nsbox_generic_kernel(const gmx_nblist_t         *nbl,
                      real *                     Vc,
                      real *                     Vvdw)
 {
-    const gmx_nbs_ci_t *nbln;
+    const gmx_nbl_ci_t *nbln;
     const real         *x;
     real          rcut2;
     int           ntype,table_nelements,icoul,ivdw;
@@ -140,7 +140,7 @@ nsbox_generic_kernel(const gmx_nblist_t         *nbl,
             
             for(siind=siind0; siind<siind1; siind++)
             {
-                si               = nbl->si[siind];
+                si               = nbl->si[siind].si;
 
                 for(ic=0; ic<nbl->naps; ic++)
                 {
@@ -161,8 +161,7 @@ nsbox_generic_kernel(const gmx_nblist_t         *nbl,
                     {
                         ja               = sj*nbl->naps + jc;
                         
-                        /* Currently only handles self exclusions */
-                        if (ja == ia || (!nbl->TwoWay && si == sj && ja < ia))
+                        if (!(nbl->si[siind].excl & 1UL<<(ic*nbl->naps+jc)))
                         {
                             continue;
                         }
