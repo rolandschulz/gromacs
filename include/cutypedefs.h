@@ -24,8 +24,6 @@ struct cudata
     int     ntypes; /* number of atom types */
     int     *atom_types; /* atom type indices, size natoms */
     
-    unsigned long * excl;
-    
     /* nonbonded paramters 
        TODO -> constant so some of them should be moved to constant memory */
     float   eps_r; 

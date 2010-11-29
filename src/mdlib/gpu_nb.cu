@@ -39,7 +39,7 @@ void cu_stream_nb(t_cudata d_data,
     dim3    dim_block(CELL_SIZE, CELL_SIZE, 1); 
     dim3    dim_grid(nb_blocks, 1, 1); 
     /* force buffers in shmem */
-    int     shmem =  (1 + NSUBCELL) * CELL_SIZE * CELL_SIZE * 3 * sizeof(float); // FIXME
+    int     shmem =  (1 + NSUBCELL) * CELL_SIZE * CELL_SIZE * 3 * sizeof(float);
     // cudaStream_t st = d_data->nb_stream;
     static gmx_bool  cache_conf_set = FALSE;
 
