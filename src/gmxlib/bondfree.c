@@ -2687,7 +2687,7 @@ void calc_bonds(FILE *fplog,const gmx_multisim_t *ms,
 #pragma omp parallel for private(ftype,v,dvdl,ind,nat1,ft,fshift,epot,grpp,dvdlt,nbonds,nb0,nbn) schedule(static)
     for(t=0; t<fr->nthreads; t++)
 */
-#pragma omp parallel private(ftype,v,dvdl,ind,nat1,ft,fshift,epot,grpp,dvdlt,nbonds,nb0,nbn,t)
+#pragma omp parallel num_threads(fr->nthreads) private(ftype,v,dvdl,ind,nat1,ft,fshift,epot,grpp,dvdlt,nbonds,nb0,nbn,t)
     {
         t = omp_get_thread_num();
         if (t == 0)
