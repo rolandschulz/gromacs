@@ -54,6 +54,7 @@ int download_cudata_alloc(void ** h_dest, void * d_src, size_t bytes)
     return download_cudata(*h_dest, d_src, bytes);
 }
 
+
 int _upload_cudata_generic(void * d_dest, void * h_src, size_t bytes, 
                                  gmx_bool async = FALSE, cudaStream_t stream = 0)
 {
@@ -78,7 +79,7 @@ int _upload_cudata_generic(void * d_dest, void * h_src, size_t bytes,
 
 int upload_cudata(void * d_dest, void * h_src, size_t bytes)
 {   
-    return _download_cudata_generic(d_dest, h_src, bytes, FALSE);
+    return _upload_cudata_generic(d_dest, h_src, bytes, FALSE);
 }
 
 int upload_cudata_async(void * d_dest, void * h_src, size_t bytes, cudaStream_t stream = 0)
