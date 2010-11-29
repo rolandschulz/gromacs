@@ -1774,13 +1774,34 @@ void gmx_nb_atomdata_set_charges(gmx_nb_atomdata_t *nbat,
     }
 }
 
+void gmx_nb_atomdata_copy_x_to_nbat_x(const gmx_nbsearch_t nbs,
+                                      rvec *x,
+                                      gmx_nb_atomdata_t *nbat)
+{
+    int cxy,na,ash;
+
+    for(cxy=0; cxy<nbs->ncx*nbs->ncy; cxy++)
+    {
+        na  = nbs->cxy_na[cxy];
+        ash = nbs->cxy_ind[cxy]*nbs->napc;
+
+        /* We fill only the real particle locations.
+         * We assume the filling entries at the end have been
+         * properly set before during ns.
+         */
+        copy_rvec_to_nbat_real(nbs->a+ash,na,na,x,
+                               nbat->XFormat,nbat->x+ash*nbat->xstride,
+                               0,0,0);
+    }
+}
+
 void gmx_nb_atomdata_add_nbat_f_to_f(const gmx_nbsearch_t nbs,
-                                     const gmx_nb_atomdata_t *nbat,
+                                     gmx_nb_atomdata_t *nbat,
                                      rvec *f)
 {
     int  cxy,na,ash,i;
     const int  *a;
-    const real *fnb;
+    real *fnb;
 
     /* Loop over all columns and copy and fill */
     for(cxy=0; cxy<nbs->ncx*nbs->ncy; cxy++)
@@ -1799,6 +1820,10 @@ void gmx_nb_atomdata_add_nbat_f_to_f(const gmx_nbsearch_t nbs,
                 f[a[i]][XX] += fnb[i*3];
                 f[a[i]][YY] += fnb[i*3+1];
                 f[a[i]][ZZ] += fnb[i*3+2];
+
+                fnb[i*3]   = 0;
+                fnb[i*3+1] = 0;
+                fnb[i*3+2] = 0;
             }
             break;
         case nbatXYZQ:
@@ -1807,6 +1832,10 @@ void gmx_nb_atomdata_add_nbat_f_to_f(const gmx_nbsearch_t nbs,
                 f[a[i]][XX] += fnb[i*4];
                 f[a[i]][YY] += fnb[i*4+1];
                 f[a[i]][ZZ] += fnb[i*4+2];
+
+                fnb[i*4]   = 0;
+                fnb[i*4+1] = 0;
+                fnb[i*4+2] = 0;
             }
             break;
         default:

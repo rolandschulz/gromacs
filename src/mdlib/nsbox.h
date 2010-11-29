@@ -85,9 +85,14 @@ void gmx_nb_atomdata_set_charges(gmx_nb_atomdata_t *nbat,
                                  const gmx_nbsearch_t nbs,
                                  const real *charge);
 
-/* Add the forces stored in nbat to f */
+/* Copy x to nbat->x */
+void gmx_nb_atomdata_copy_x_to_nbat_x(const gmx_nbsearch_t nbs,
+                                      rvec *x,
+                                      gmx_nb_atomdata_t *nbat);
+
+/* Add the forces stored in nbat to f, zeros the forces in nbat */
 void gmx_nb_atomdata_add_nbat_f_to_f(const gmx_nbsearch_t nbs,
-                                     const gmx_nb_atomdata_t *nbat,
+                                     gmx_nb_atomdata_t *nbat,
                                      rvec *f);
 #ifdef __cplusplus
 }

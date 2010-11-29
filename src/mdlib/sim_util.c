@@ -656,6 +656,11 @@ void do_force(FILE *fplog,t_commrec *cr,
         }
         wallcycle_stop(wcycle,ewcNS);
     }
+    else if (fr->useGPU || fr->emulateGPU)
+    {
+        /* We are not doing ns this setp, we need to copy x to nbat->x */
+        gmx_nb_atomdata_copy_x_to_nbat_x(fr->nbs,x,fr->nbat);
+    }
 
 #ifdef GMX_GPU
     if (fr->useGPU)
