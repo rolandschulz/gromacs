@@ -1177,10 +1177,11 @@ static void new_ci_entry(gmx_nblist_t *nbl,int ci,int shift)
     nbl->ci[nbl->nci].sj_ind_end   = nbl->ci[nbl->nci].sj_ind_start;
 }
 
-static void close_ci_entry(gmx_nblist_t *nbl,int max_jlist)
+static void close_ci_entry(gmx_nblist_t *nbl,int max_jlist_av,int nc_bal)
 {
     int jlen,tlen;
     int nb,b;
+    int max_jlist;
 
     /* All content of the new ci entry have already been filled correctly,
      * we only need to increase the count here (for non empty lists).
@@ -1190,7 +1191,12 @@ static void close_ci_entry(gmx_nblist_t *nbl,int max_jlist)
     {
         nbl->nci++;
 
-        if (jlen > max_jlist)
+        /* The first ci blocks should be larger, to avoid overhead.
+         * The last ci blocks should be smaller, to improve load balancing.
+         */
+        max_jlist = max_jlist_av*nc_bal*3/(2*(nbl->nci - 1 + nc_bal));
+
+        if (max_jlist_av > 0 && jlen > max_jlist)
         {
             /* Split ci in the minimum number of blocks <=jlen */
             nb = (jlen + max_jlist - 1)/max_jlist;
@@ -1298,12 +1304,16 @@ static int get_max_jlist(const gmx_nbsearch_t nbs,
     if (min_ci_balanced <= 0 || nbs->nc >= min_ci_balanced)
     {
         /* We don't need to worry */
-        max_jlist = SHIFTS*nbs->nc;
+        max_jlist = -1;
     }
     else
     {
+        /* Estimate the number of parts we need to cut each full list
+         * for one i super cell into.
+         */
         nparts = (min_ci_balanced + nbs->nc - 1)/nbs->nc;
-        max_jlist = (nj_est + nparts - 1)/nparts;
+        /* Thus the (average) maximum j-list size should be as follows */
+        max_jlist = max(1,(nj_est + nparts - 1)/nparts);
     }
 
     if (debug)
@@ -1641,7 +1651,7 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
                         }  
                     }
         
-                    close_ci_entry(nbl,max_jlist);
+                    close_ci_entry(nbl,max_jlist,min_ci_balanced);
                 }
             }
         }
