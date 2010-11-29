@@ -134,7 +134,7 @@ __global__ void k_calc_nb_1(const gmx_nbl_ci_t *nbl_ci,
                             int ntypes,
                             const float4 *xq,
                             const float *nbfp,
-                            const float3 *shiftvec,
+                            const float3 *shift_vec,
                             float4 *f)
 {
     unsigned int tidxx  = threadIdx.y;
@@ -166,7 +166,7 @@ __global__ void k_calc_nb_1(const gmx_nbl_ci_t *nbl_ci,
     cij_start   = nb_ci.sj_ind_start; /* first ...*/
     cij_end     = nb_ci.sj_ind_end;  /* and last index of j cells */
 
-    shift       = shiftvec[nb_ci.shift];
+    shift       = shift_vec[nb_ci.shift];
 
     for(si_offset = 0; si_offset < NSUBCELL; si_offset++)
     {
@@ -268,7 +268,7 @@ __global__ void k_calc_nb_2(const gmx_nbl_ci_t *nbl_ci,
                             int ntypes,
                             const float4 *xq,
                             const float *nbfp,
-                            const float3 *shiftvec,
+                            const float3 *shift_vec,
                             float4 *f)
 {
     unsigned int tidxx  = threadIdx.y;
@@ -301,7 +301,7 @@ __global__ void k_calc_nb_2(const gmx_nbl_ci_t *nbl_ci,
     cij_start   = nb_ci.sj_ind_start; /* first ...*/
     cij_end     = nb_ci.sj_ind_end;  /* and last index of j cells */
 
-    shift       = shiftvec[nb_ci.shift];
+    shift       = shift_vec[nb_ci.shift];
 
     for(si_offset = 0; si_offset < NSUBCELL; si_offset++)
     {

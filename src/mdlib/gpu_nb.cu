@@ -30,17 +30,17 @@ inline int calc_nb_blocknr(int nwork_units)
 }
 
 void cu_stream_nb(t_cudata d_data, 
-                  /*const gmx_nblist_t *nblist, */
                   const gmx_nb_atomdata_t *nbatom,
-                  rvec shiftvec[],
+                  rvec shift_vec[],
                   gmx_bool sync)
 {
-    int     nb_blocks = calc_nb_blocknr(d_data->nci)/d_data->cell_pair_group;
+    int     nb_blocks = calc_nb_blocknr(d_data->nci);
     dim3    dim_block(CELL_SIZE, CELL_SIZE, 1); 
     dim3    dim_grid(nb_blocks, 1, 1); 
     /* force buffers in shmem */
-    int     shmem =  (1 + NSUBCELL) * CELL_SIZE * CELL_SIZE * 3 * sizeof(float);
-    // cudaStream_t st = d_data->nb_stream;
+    int     shmem_1 =  (1 + NSUBCELL) * CELL_SIZE * CELL_SIZE * 3 * sizeof(float);
+    int     shmem_2 =  CELL_SIZE * CELL_SIZE * 3 * sizeof(float);
+    
     static gmx_bool  cache_conf_set = FALSE;
 
     /* XXX fix this cause it's ugly */
@@ -71,18 +71,18 @@ void cu_stream_nb(t_cudata d_data,
     upload_cudata_async(d_data->xq, nbatom->x, d_data->natoms*sizeof(*d_data->xq), 0);
 
     /* upload shift vec */
-    upload_cudata_async(d_data->shiftvec, shiftvec, SHIFTS*sizeof(*d_data->shiftvec), 0);   
+    upload_cudata_async(d_data->shift_vec, shift_vec, SHIFTS*sizeof(*d_data->shift_vec), 0);   
 
     /* async nonbonded calculations */        
-    k_calc_nb_1<<<dim_grid, dim_block, shmem, 0>>>(d_data->ci,             
-                                                  d_data->sj, 
-                                                  d_data->si,
-                                                  d_data->atom_types, 
-                                                  d_data->ntypes, 
-                                                  d_data->xq, 
-                                                  d_data->nbfp,
-                                                  d_data->shiftvec,
-                                                  d_data->f);    
+    k_calc_nb_1<<<dim_grid, dim_block, shmem_1, 0>>>(d_data->ci,             
+                                                     d_data->sj, 
+                                                     d_data->si,
+                                                     d_data->atom_types, 
+                                                     d_data->ntypes, 
+                                                     d_data->xq, 
+                                                     d_data->nbfp,
+                                                     d_data->shift_vec,
+                                                     d_data->f);
     if (sync)
     {
         CU_LAUNCH_ERR_SYNC("k_calc_nb");
@@ -144,10 +144,10 @@ void cu_blockwait_nb(t_cudata d_data, float *time)
 #endif
 }
 
-/* XXX: not called anyomore! */
-void cu_do_nb(t_cudata d_data, rvec shiftvec[]) 
+/* XXX:  remove, not used anyomore! */
+void cu_do_nb(t_cudata d_data, rvec shift_vec[]) 
 {
-    int     nb_blocks = calc_nb_blocknr(d_data->nci)/d_data->cell_pair_group;
+    int     nb_blocks = calc_nb_blocknr(d_data->nci);
     dim3    dim_block(CELL_SIZE, CELL_SIZE, 1); 
     dim3    dim_grid(nb_blocks, 1, 1); 
     int     shmem = (1 + NSUBCELL) * CELL_SIZE * CELL_SIZE * sizeof(float4); /* force buffer */
@@ -163,7 +163,7 @@ void cu_do_nb(t_cudata d_data, rvec shiftvec[])
     cudaMemset(d_data->f, 0, d_data->natoms*sizeof(*d_data->f));
 
     /* upload shift vec */
-    upload_cudata(d_data->shiftvec, shiftvec, SHIFTS*sizeof(*d_data->shiftvec));   
+    upload_cudata(d_data->shift_vec, shift_vec, SHIFTS*sizeof(*d_data->shift_vec));   
 
     /* sync nonbonded calculations */   
     k_calc_nb_1<<<dim_grid, dim_block, shmem>>>(d_data->ci,
@@ -173,7 +173,7 @@ void cu_do_nb(t_cudata d_data, rvec shiftvec[])
                                                   d_data->ntypes, 
                                                   d_data->xq, 
                                                   d_data->nbfp,
-                                                  d_data->shiftvec,
+                                                  d_data->shift_vec,
                                                   d_data->f);
     CU_LAUNCH_ERR_SYNC("k_calc_nb");
 }

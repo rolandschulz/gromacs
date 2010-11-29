@@ -27,8 +27,6 @@ void init_cudata_ff(FILE *fplog,
     cudaError_t         stat;
     gmx_nb_atomdata_t   *nbat = fr->nbat;
     int                 ntypes = nbat->ntype;
-    char                *env_var;
-    int                 itmp;
 
     int eventflags = ( USE_CUDA_EVENT_BLOCKING_SYNC ? cudaEventBlockingSync: cudaEventDefault );
 
@@ -48,10 +46,11 @@ void init_cudata_ff(FILE *fplog,
     CU_RET_ERR(stat, "cudaEventCreate on start_nb failed");
     stat = cudaEventCreateWithFlags(&(d_data->stop_nb), eventflags);
     CU_RET_ERR(stat, "cudaEventCreate on stop_nb failed");
-    stat = cudaEventCreateWithFlags(&(d_data->start_atomdata), eventflags);
-    CU_RET_ERR(stat, "cudaEventCreate on start_atomdata failed");
-    stat = cudaEventCreateWithFlags(&(d_data->stop_atomdata), eventflags);
-    CU_RET_ERR(stat, "cudaEventCreate on stop_atomdata failed");       
+    stat = cudaEventCreateWithFlags(&(d_data->start_atdat), eventflags);
+    CU_RET_ERR(stat, "cudaEventCreate on start_atdat failed");
+    stat = cudaEventCreateWithFlags(&(d_data->stop_atdat), eventflags);
+    CU_RET_ERR(stat, "cudaEventCreate on stop_atdat failed");
+
 #if 0 // WC malloc stuff
     stat = cudaEventCreateWithFlags(&(d_data->start_x_trans), eventflags);
     stat = cudaEventCreateWithFlags(&(d_data->stop_x_trans), eventflags);
@@ -62,8 +61,8 @@ void init_cudata_ff(FILE *fplog,
     CU_RET_ERR(stat, "cudaMalloc failed on d_data->nbfp"); 
     upload_cudata(d_data->nbfp, nbat->nbfp, 2*ntypes*ntypes*sizeof(*(d_data->nbfp)));
 
-    stat = cudaMalloc((void**)&d_data->shiftvec, SHIFTS*sizeof(*d_data->shiftvec));
-    CU_RET_ERR(stat, "cudaMalloc failed on d_data->shiftvec");
+    stat = cudaMalloc((void**)&d_data->shift_vec, SHIFTS*sizeof(*d_data->shift_vec));
+    CU_RET_ERR(stat, "cudaMalloc failed on d_data->shift_vec");
 
     if (fplog != NULL)
     {
@@ -96,24 +95,6 @@ void init_cudata_ff(FILE *fplog,
     d_data->si_nalloc       = -1;
     d_data->naps            = -1;
 
-    if ((env_var = getenv("GMX_CELL_PAIR_GROUP")) != NULL)
-    {
-        sscanf(env_var, "%d", &itmp);
-        if (itmp < 1)
-        {
-            gmx_fatal(FARGS, "Invalid GMX_CELL_PAIR_GROUP value (%d)!", itmp);
-        }
-        else
-        {
-            printf("CELL_PAIR_GROUP=%d\n", itmp);
-            d_data->cell_pair_group = itmp;
-        }
-    }
-    else 
-    {
-        d_data->cell_pair_group = GPU_CELL_PAIR_GROUP;
-    }
-
     *dp_data = d_data;
 }
 
@@ -130,8 +111,8 @@ void init_cudata_atoms(t_cudata d_data,
     int         nsj_1   = nblist->nsj + 1;
     int         nsi     = nblist->nsi;
    
-    /* asynch copy all data */
-    cudaEventRecord(d_data->start_atomdata, 0);
+    /* time async copy */
+    cudaEventRecord(d_data->start_atdat, 0);
 
     if (d_data->naps < 0)
     {
@@ -233,19 +214,19 @@ void init_cudata_atoms(t_cudata d_data,
 
     if(doStream)
     {
-        upload_cudata_async(d_data->atom_types, atomdata->type, natoms*sizeof(*(d_data->atom_types)), 0);
-        upload_cudata_async(d_data->ci, nblist->ci, nci*sizeof(*(d_data->ci)), 0);
-        upload_cudata_async(d_data->sj, nblist->sj, nsj_1*sizeof(*(d_data->sj)), 0);
-        upload_cudata_async(d_data->si, nblist->si, nsi*sizeof(*(d_data->si)), 0);       
+        upload_cudata_async(d_data->atom_types, atomdata->type, natoms * sizeof(*d_data->atom_types), 0);
+        upload_cudata_async(d_data->ci, nblist->ci, nci * sizeof(*d_data->ci), 0);
+        upload_cudata_async(d_data->sj, nblist->sj, nsj_1 * sizeof(*d_data->sj), 0);
+        upload_cudata_async(d_data->si, nblist->si, nsi * sizeof(*d_data->si), 0);       
     }
     else 
     {
-        upload_cudata(d_data->atom_types, atomdata->type, natoms*sizeof(*(d_data->atom_types)));
-        upload_cudata(d_data->ci, nblist->ci, nci*sizeof(*(d_data->ci)));
-        upload_cudata(d_data->sj, nblist->sj, nsj_1*sizeof(*(d_data->sj)));
-        upload_cudata(d_data->si, nblist->si, nsi*sizeof(*(d_data->si)));    
+        upload_cudata(d_data->atom_types, atomdata->type, natoms * sizeof(*(d_data->atom_types)));
+        upload_cudata(d_data->ci, nblist->ci, nci * sizeof(*d_data->ci));
+        upload_cudata(d_data->sj, nblist->sj, nsj_1 * sizeof(*d_data->sj));
+        upload_cudata(d_data->si, nblist->si, nsi * sizeof(*d_data->si));    
     }
-    cudaEventRecord(d_data->stop_atomdata, 0);
+    cudaEventRecord(d_data->stop_atdat, 0);
  
 }
 
@@ -253,10 +234,10 @@ void cu_blockwait_atomdata(t_cudata d_data, float *time)
 {    
     cudaError_t stat;     
 
-    stat = cudaEventSynchronize(d_data->stop_atomdata);
+    stat = cudaEventSynchronize(d_data->stop_atdat);
     CU_RET_ERR(stat, "the async trasfer of atomdata has failed");   
 
-    cudaEventElapsedTime(time, d_data->start_atomdata, d_data->stop_atomdata);
+    cudaEventElapsedTime(time, d_data->start_atdat, d_data->stop_atdat);
 }
 
 void destroy_cudata(FILE *fplog, t_cudata d_data)
@@ -270,10 +251,10 @@ void destroy_cudata(FILE *fplog, t_cudata d_data)
     CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->start_nb");
     stat = cudaEventDestroy(d_data->stop_nb);
     CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->stop_nb");
-    stat = cudaEventDestroy(d_data->start_atomdata);
-    CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->start_atomdata");
-    stat = cudaEventDestroy(d_data->stop_atomdata);
-    CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->stop_atomdata");
+    stat = cudaEventDestroy(d_data->start_atdat);
+    CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->start_atdat");
+    stat = cudaEventDestroy(d_data->stop_atdat);
+    CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->stop_atdat");
 
     stat = cudaFree(d_data->nbfp);
     CU_RET_ERR(stat, "cudaFree failed on d_data->nbfp");
