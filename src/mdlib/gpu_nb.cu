@@ -82,6 +82,7 @@ void cu_stream_nb(t_cudata d_data,
                                                      d_data->xq, 
                                                      d_data->nbfp,
                                                      d_data->shift_vec,
+                                                     d_data->ewald_beta,
                                                      d_data->f);
     if (sync)
     {
@@ -147,6 +148,7 @@ void cu_blockwait_nb(t_cudata d_data, float *time)
 /* XXX:  remove, not used anyomore! */
 void cu_do_nb(t_cudata d_data, rvec shift_vec[]) 
 {
+#if 0
     int     nb_blocks = calc_nb_blocknr(d_data->nci);
     dim3    dim_block(CELL_SIZE, CELL_SIZE, 1); 
     dim3    dim_grid(nb_blocks, 1, 1); 
@@ -165,7 +167,7 @@ void cu_do_nb(t_cudata d_data, rvec shift_vec[])
     /* upload shift vec */
     upload_cudata(d_data->shift_vec, shift_vec, SHIFTS*sizeof(*d_data->shift_vec));   
 
-    /* sync nonbonded calculations */   
+    /* sync nonbonded calculations */      
     k_calc_nb_1<<<dim_grid, dim_block, shmem>>>(d_data->ci,
                                                   d_data->sj, 
                                                   d_data->si,
@@ -174,8 +176,10 @@ void cu_do_nb(t_cudata d_data, rvec shift_vec[])
                                                   d_data->xq, 
                                                   d_data->nbfp,
                                                   d_data->shift_vec,
+                                                  d_data->ewald_beta,
                                                   d_data->f);
     CU_LAUNCH_ERR_SYNC("k_calc_nb");
+#endif 
 }
 
 

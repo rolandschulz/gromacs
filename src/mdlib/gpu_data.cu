@@ -37,8 +37,9 @@ void init_cudata_ff(FILE *fplog,
     d_data->ntypes  = ntypes;
     d_data->nalloc  = 0;
     
-    d_data->eps_r = fr->epsilon_r;
-    d_data->eps_rf = fr->epsilon_rf;   
+    d_data->ewald_beta  = fr->ewaldcoeff;
+    d_data->eps_r       = fr->epsilon_r;
+    d_data->eps_rf      = fr->epsilon_rf;   
 
     /* events for NB async ops */
     d_data->streamGPU = fr->streamGPU;    

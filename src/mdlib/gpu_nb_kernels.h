@@ -118,12 +118,33 @@ inline __device__ void reduce_force_j_generic_strided(float *fbuf, float4 *fout,
     }
 }
 
+#define     C0  0.0991938
+#define     C1  -0.485259
+#define     C2  0.897674
+#define     C3  0.046636
+
+inline __device__ float coulomb(float q1, 
+                                float q2,
+                                float r2, 
+                                float inv_r, 
+                                float inv_r2, 
+                                float beta)
+{
+    float x      = r2 * inv_r * beta;
+    float x2     = r2 * beta * beta;
+    float inv_x2 = inv_r2 / (beta * beta); 
+    float res    =
+        // q1 * q2 * inv_r2 * inv_r;
+        q1 * q2 * (erfc(x) * inv_r2 + exp(-x2) * inv_r) * inv_r;
+        // q1 * q2 * exp(-C0 - C1*x - C2*x2 - C3*x2*x) * inv_x2;
+    return res;
+}
 
 /*  Launch parameterts:
     - #blocks   = #neighbor lists, blockId = neigbor_listId
     - #threads  = CELL_SIZE^2
-    - shmem     = (1 + NSUBCELL) * CELL_SIZE^2 * sizeof(float4)
-    - registers = 40/44
+    - shmem     = (1 + NSUBCELL) * CELL_SIZE^2 * 3 * sizeof(float)
+    - registers = 43
 
     Each thread calculates an i force-component taking one pair of i-j atoms.
  */
@@ -135,6 +156,7 @@ __global__ void k_calc_nb_1(const gmx_nbl_ci_t *nbl_ci,
                             const float4 *xq,
                             const float *nbfp,
                             const float3 *shift_vec,
+                            float beta,
                             float4 *f)
 {
     unsigned int tidxx  = threadIdx.y;
@@ -216,8 +238,15 @@ __global__ void k_calc_nb_1(const gmx_nbl_ci_t *nbl_ci,
                 inv_r2      = inv_r * inv_r;
                 inv_r6      = inv_r2 * inv_r2 * inv_r2;
 
-                dVdr        = qi * qj_f * inv_r2 * inv_r;
-                // qi_f * qj * (erfc(r2 * inv_r) * inv_r + exp(-r2)) * inv_r2;
+                float x      = r2 * inv_r * beta;
+                float x2     = r2 * beta * beta;
+
+                dVdr        = 
+                    // coulomb(qi, qj_f, r2, inv_r, inv_r2, beta);
+                    // qi * qj_f * inv_r2 * inv_r;
+                    // qi * qj_f * (erfc(r2 * inv_r) * inv_r + exp(-r2)) * inv_r2;
+                       qi * qj_f   * (erfc(x) * inv_r2 + exp(-x2) * inv_r) * inv_r;
+
                 dVdr        += inv_r6 * (12.0 * c12 * inv_r6 - 6.0 * c6) * inv_r2;
 
                 f_ij = excl_bit * rv * dVdr;
@@ -256,8 +285,9 @@ __global__ void k_calc_nb_1(const gmx_nbl_ci_t *nbl_ci,
 /*  Launch parameterts:
     - #blocks   = #neighbor lists, blockId = neigbor_listId
     - #threads  = CELL_SIZE^2
-    - shmem     = (1 + NSUBCELL) * CELL_SIZE^2 * sizeof(float4)
-    - registers = 40/44
+    - shmem     = CELL_SIZE^2 * 3 * sizeof(float)
+    - registers = 45
+    - local mem = 4 bytes !!! 
 
     Each thread calculates an i force-component taking one pair of i-j atoms.
  */
