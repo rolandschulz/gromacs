@@ -3,6 +3,8 @@
 #define CELL_SIZE_2     (CELL_SIZE * CELL_SIZE)
 #define STRIDE_DIM      (CELL_SIZE_2)
 #define STRIDE_SI       (3*STRIDE_DIM)
+#define MY_PI           (3.1415926535897932384626433832795f)
+#define TWO_OVER_SQRT_PI (2.0f/sqrt(MY_PI))
 
 /* 8x8 */
 __device__ void reduce_force8_strided(float *fbuf, float4 *fout,
@@ -131,11 +133,11 @@ inline __device__ float coulomb(float q1,
                                 float beta)
 {
     float x      = r2 * inv_r * beta;
-    float x2     = r2 * beta * beta;
-    float inv_x2 = inv_r2 / (beta * beta); 
+    float x2     = x * x; 
+    // float inv_x2 = inv_r2 / (beta * beta); 
     float res    =
         // q1 * q2 * inv_r2 * inv_r;
-        q1 * q2 * (erfc(x) * inv_r2 + exp(-x2) * inv_r) * inv_r;
+        q1 * q2 * (erfc(x) * inv_r + beta * exp(-x2)) * inv_r2;
         // q1 * q2 * exp(-C0 - C1*x - C2*x2 - C3*x2*x) * inv_x2;
     return res;
 }
@@ -144,7 +146,7 @@ inline __device__ float coulomb(float q1,
     - #blocks   = #neighbor lists, blockId = neigbor_listId
     - #threads  = CELL_SIZE^2
     - shmem     = (1 + NSUBCELL) * CELL_SIZE^2 * 3 * sizeof(float)
-    - registers = 43
+    - registers = 45
 
     Each thread calculates an i force-component taking one pair of i-j atoms.
  */
@@ -157,8 +159,9 @@ __global__ void k_calc_nb_1(const gmx_nbl_ci_t *nbl_ci,
                             const float *nbfp,
                             const float3 *shift_vec,
                             float beta,
+                            float cutoff_sq,
                             float4 *f)
-{
+{    
     unsigned int tidxx  = threadIdx.y;
     unsigned int tidxy  = threadIdx.x;
     unsigned int tidx   = tidxx * blockDim.y + tidxy;
@@ -169,7 +172,7 @@ __global__ void k_calc_nb_1(const gmx_nbl_ci_t *nbl_ci,
         cij_start, cij_end,
         si_start, si_end,
         typei, typej,
-        i, j; //, ntypes;
+        i, j; 
     float qi, qj_f,
           r2, inv_r, inv_r2, inv_r6,
           c6, c12,
@@ -222,47 +225,43 @@ __global__ void k_calc_nb_1(const gmx_nbl_ci_t *nbl_ci,
 
             excl_bit = (nbl_si[i].excl >> tidx) & 1;
 
-            // if (aj != ai)
-            {
-                // all threads load an atom from i cell into shmem!
-                f4tmp   = xq[ai];
-                xi      = make_float3(f4tmp.x, f4tmp.y, f4tmp.z);
-                qi      = f4tmp.w;
-                typei   = atom_types[ai];
+            // all threads load an atom from i cell into shmem!
+            f4tmp   = xq[ai];
+            xi      = make_float3(f4tmp.x, f4tmp.y, f4tmp.z);
+            qi      = f4tmp.w;
+            typei   = atom_types[ai];
 
-                c6          = nbfp[2 * (ntypes * typei + typej)]; // LJ C6
-                c12         = nbfp[2 * (ntypes * typei + typej) + 1]; // LJ C12
-                rv          = xi - xj;
-                r2          = norm2(rv);
+            c6          = nbfp[2 * (ntypes * typei + typej)]; // LJ C6
+                          // 1e-3;
+                          // x[ai * 2] * x[aj * 2];
+            c12         = nbfp[2 * (ntypes * typei + typej) + 1]; // LJ C12
+                          // 1e-3;
+                          // x[ai * 2 + 1] * x[aj * 2 + 1];
+
+            rv          = xi - xj;
+            r2          = norm2(rv);
+
+            if (r2 < cutoff_sq * excl_bit)
+            {
                 inv_r       = 1.0f / sqrt(r2);
                 inv_r2      = inv_r * inv_r;
                 inv_r6      = inv_r2 * inv_r2 * inv_r2;
 
-                float x      = r2 * inv_r * beta;
-                float x2     = r2 * beta * beta;
-
-                dVdr        = 
-                    // coulomb(qi, qj_f, r2, inv_r, inv_r2, beta);
-                    // qi * qj_f * inv_r2 * inv_r;
-                    // qi * qj_f * (erfc(r2 * inv_r) * inv_r + exp(-r2)) * inv_r2;
-                       qi * qj_f   * (erfc(x) * inv_r2 + exp(-x2) * inv_r) * inv_r;
-
+                dVdr        = coulomb(qi, qj_f, r2, inv_r, inv_r2, beta);
                 dVdr        += inv_r6 * (12.0 * c12 * inv_r6 - 6.0 * c6) * inv_r2;
 
-                f_ij = excl_bit * rv * dVdr;
+                f_ij = rv * dVdr;
 
                 // accumulate j forces
                 fsj_buf -= f_ij;
 
                 // accumulate i forces
-                // forcebuf[tidx + (1 + si_offset) * CELL_SIZE * CELL_SIZE] += f_ij;
                 forcebuf[                 (1 + si_offset) * STRIDE_SI + tidx] += f_ij.x;
                 forcebuf[    STRIDE_DIM + (1 + si_offset) * STRIDE_SI + tidx] += f_ij.y;
                 forcebuf[2 * STRIDE_DIM + (1 + si_offset) * STRIDE_SI + tidx] += f_ij.z;
-            }
+            }        
         }
         /* store j forces in shmem */
-        // forcebuf[tidx] = fsj_buf;
         forcebuf[                 tidx] = fsj_buf.x;
         forcebuf[    STRIDE_DIM + tidx] = fsj_buf.y;
         forcebuf[2 * STRIDE_DIM + tidx] = fsj_buf.z;
@@ -286,7 +285,7 @@ __global__ void k_calc_nb_1(const gmx_nbl_ci_t *nbl_ci,
     - #blocks   = #neighbor lists, blockId = neigbor_listId
     - #threads  = CELL_SIZE^2
     - shmem     = CELL_SIZE^2 * 3 * sizeof(float)
-    - registers = 45
+    - registers = 46
     - local mem = 4 bytes !!! 
 
     Each thread calculates an i force-component taking one pair of i-j atoms.
@@ -299,7 +298,10 @@ __global__ void k_calc_nb_2(const gmx_nbl_ci_t *nbl_ci,
                             const float4 *xq,
                             const float *nbfp,
                             const float3 *shift_vec,
+                            float beta,
+                            float cutoff_sq,       
                             float4 *f)
+
 {
     unsigned int tidxx  = threadIdx.y;
     unsigned int tidxy  = threadIdx.x;
@@ -311,7 +313,7 @@ __global__ void k_calc_nb_2(const gmx_nbl_ci_t *nbl_ci,
         cij_start, cij_end,
         si_start, si_end,
         typei, typej,
-        i, j; //, ntypes;
+        i, j; 
     float qi, qj_f,
           r2, inv_r, inv_r2, inv_r6,
           c6, c12,
@@ -371,25 +373,32 @@ __global__ void k_calc_nb_2(const gmx_nbl_ci_t *nbl_ci,
                 qi      = f4tmp.w;
                 typei   = atom_types[ai];
 
-                c6          = nbfp[2 * (ntypes * typei + typej)]; // LJ C6
-                c12         = nbfp[2 * (ntypes * typei + typej) + 1]; // LJ C12
+                c6  = nbfp[2 * (ntypes * typei + typej)]; // LJ C6
+                      // 1e-3;
+                c12 = nbfp[2 * (ntypes * typei + typej) + 1]; // LJ C12
+                      // 1e-3;
+
                 rv          = xi - xj;
                 r2          = norm2(rv);
-                inv_r       = 1.0f / sqrt(r2);
-                inv_r2      = inv_r * inv_r;
-                inv_r6      = inv_r2 * inv_r2 * inv_r2;
 
-                dVdr        = qi * qj_f * inv_r2 * inv_r;
-                // qi_f * qj * (erfc(r2 * inv_r) * inv_r + exp(-r2)) * inv_r2;
-                dVdr        += inv_r6 * (12.0 * c12 * inv_r6 - 6.0 * c6) * inv_r2;
+                if (r2 < cutoff_sq * excl_bit)
+                {
 
-                f_ij = excl_bit * rv * dVdr;
+                    inv_r       = 1.0f / sqrt(r2);
+                    inv_r2      = inv_r * inv_r;
+                    inv_r6      = inv_r2 * inv_r2 * inv_r2;
 
-                // accumulate j forces
-                fsj_buf -= f_ij;
+                    dVdr        = coulomb(qi, qj_f, r2, inv_r, inv_r2, beta);
+                    dVdr        += inv_r6 * (12.0 * c12 * inv_r6 - 6.0 * c6) * inv_r2;
 
-                // accumulate i forces
-                fsi_buf[si_offset] += f_ij;
+                    f_ij = rv * dVdr;
+
+                    // accumulate j forces
+                    fsj_buf -= f_ij;
+
+                    // accumulate i forces
+                    fsi_buf[si_offset] += f_ij;
+                }
             }
         }
         /* store j forces in shmem */

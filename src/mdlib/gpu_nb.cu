@@ -38,9 +38,13 @@ void cu_stream_nb(t_cudata d_data,
     dim3    dim_block(CELL_SIZE, CELL_SIZE, 1); 
     dim3    dim_grid(nb_blocks, 1, 1); 
     /* force buffers in shmem */
+#define KERNEL_1
+#ifdef KERNEL_1
     int     shmem_1 =  (1 + NSUBCELL) * CELL_SIZE * CELL_SIZE * 3 * sizeof(float);
+#else
     int     shmem_2 =  CELL_SIZE * CELL_SIZE * 3 * sizeof(float);
-    
+#endif
+
     static gmx_bool  cache_conf_set = FALSE;
 
     /* XXX fix this cause it's ugly */
@@ -74,8 +78,9 @@ void cu_stream_nb(t_cudata d_data,
     upload_cudata_async(d_data->shift_vec, shift_vec, SHIFTS*sizeof(*d_data->shift_vec), 0);   
 
     /* async nonbonded calculations */        
-    k_calc_nb_1<<<dim_grid, dim_block, shmem_1, 0>>>(d_data->ci,             
-                                                     d_data->sj, 
+#ifdef KERNEL_1
+    k_calc_nb_1<<<dim_grid, dim_block, shmem_1, 0>>>(d_data->ci,
+                                                     d_data->sj,
                                                      d_data->si,
                                                      d_data->atom_types, 
                                                      d_data->ntypes, 
@@ -83,7 +88,22 @@ void cu_stream_nb(t_cudata d_data,
                                                      d_data->nbfp,
                                                      d_data->shift_vec,
                                                      d_data->ewald_beta,
+                                                     d_data->cutoff_sq,
                                                      d_data->f);
+#else    
+     k_calc_nb_2<<<dim_grid, dim_block, shmem_2, 0>>>(d_data->ci,
+                                                     d_data->sj,
+                                                     d_data->si,
+                                                     d_data->atom_types,
+                                                     d_data->ntypes,
+                                                     d_data->xq,
+                                                     d_data->nbfp,
+                                                     d_data->shift_vec,
+                                                     d_data->ewald_beta,
+                                                     d_data->cutoff_sq,
+                                                     d_data->f);
+#endif
+   
     if (sync)
     {
         CU_LAUNCH_ERR_SYNC("k_calc_nb");

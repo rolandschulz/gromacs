@@ -40,6 +40,7 @@ void init_cudata_ff(FILE *fplog,
     d_data->ewald_beta  = fr->ewaldcoeff;
     d_data->eps_r       = fr->epsilon_r;
     d_data->eps_rf      = fr->epsilon_rf;   
+    d_data->cutoff_sq   = (fr->rlist + 0.15)*(fr->rlist + 0.15);
 
     /* events for NB async ops */
     d_data->streamGPU = fr->streamGPU;    

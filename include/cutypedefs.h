@@ -28,7 +28,7 @@ struct cudata
     float   eps_r; 
     float   eps_rf;
     float   ewald_beta;
-    float   cutoff;
+    float   cutoff_sq;
     float   *nbfp;      /* nonbonded parameters C12, C6 */    
 
     /* async execution stuff */
