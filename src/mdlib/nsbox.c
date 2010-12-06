@@ -825,6 +825,8 @@ static void gmx_nb_atomdata_realloc(gmx_nb_atomdata_t *nbat,int n)
     nb_realloc_real(&nbat->x,n*nbat->xstride,nbat->alloc,nbat->free);
     nb_realloc_real(&nbat->f,n*nbat->xstride,nbat->alloc,nbat->free);
     nbat->nalloc = n;
+    /* Zero f, since we always expect it to be zero (unless during use) */
+    memset(nbat->f,0,nbat->nalloc*nbat->xstride*sizeof(*nbat->f));
 }
 
 void gmx_nbsearch_put_on_grid(gmx_nbsearch_t nbs,
