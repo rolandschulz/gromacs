@@ -441,10 +441,9 @@ void do_force(FILE *fplog,t_commrec *cr,
     t_pbc  pbc;
     float  cycles_ppdpme,cycles_pme,cycles_seppme,cycles_force;
     t_cudata d_data = fr->gpu_data;
-    float gpu_nb_time = 0; 
-    float gpu_atomdata_time = 0;
-    static float gpu_nb_total = 0;
-    static int stepcount = 0;
+    
+    float time = 0; 
+    static t_gpu_times gputime = { 0.0, 0, 0.0, 0 };
     
     start  = mdatoms->start;
     homenr = mdatoms->homenr;
@@ -654,6 +653,7 @@ void do_force(FILE *fplog,t_commrec *cr,
             if (fr->useGPU)
             {
                 init_cudata_atoms(fr->gpu_data, fr->nbat, &(fr->nbl), fr->streamGPU);
+                gputime.atomdt_count++;
             }
 #endif
         }
@@ -671,10 +671,13 @@ void do_force(FILE *fplog,t_commrec *cr,
         /* wait for the atomdata trasfer to be finished */
         if (bNS)
         {
-            cu_blockwait_atomdata(d_data, &gpu_atomdata_time);
-            if (stepcount % 1000 == 0)
+            cu_blockwait_atomdata(d_data, &time);
+            gputime.atomdt_trans_total_time += time;
+            
+            if (gputime.nb_count % 1000 == 0)
             {
-                printf("NS trasfer [%4d]:\t%5.3f ms\n", stepcount, gpu_atomdata_time);
+                printf("NS trasfer [%4d]:\t%5.3f ms\n", gputime.nb_count, 
+                        gputime.atomdt_trans_total_time/gputime.atomdt_count);
             }
        }
 
@@ -683,7 +686,8 @@ void do_force(FILE *fplog,t_commrec *cr,
         wallcycle_start(wcycle,ewcSEND_X_GPU);
            
         cu_stream_nb(fr->gpu_data, fr->nbat, fr->shift_vec, !fr->streamGPU);
-        
+        gputime.nb_count++;
+
         wallcycle_stop(wcycle,ewcSEND_X_GPU);
     }
 #endif /* GMX_GPU */
@@ -828,12 +832,12 @@ void do_force(FILE *fplog,t_commrec *cr,
 #ifdef GMX_GPU
             wallcycle_start(wcycle,ewcRECV_F_GPU);\
 
-            stepcount++;
-            cu_blockwait_nb(fr->gpu_data, &gpu_nb_time);
-            gpu_nb_total += gpu_nb_time;
-            if (!(stepcount % 100) || stepcount == 5001)
+            cu_blockwait_nb(fr->gpu_data, &time);
+            gputime.nb_total_time += time;
+            if (!(gputime.nb_count % 100) || gputime.nb_count == 5001)
             {
-                printf("NB time [%4d]:\t %5.3f ms\n", stepcount, gpu_nb_total/stepcount);
+                printf("NB time [%4d]:\t %5.3f ms\n", gputime.nb_count, 
+                        gputime.nb_total_time/gputime.nb_count);
             }
 
             wallcycle_stop(wcycle,ewcRECV_F_GPU);

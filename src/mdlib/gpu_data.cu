@@ -10,14 +10,59 @@
 #include "cupmalloc.h"
 
 #define USE_CUDA_EVENT_BLOCKING_SYNC FALSE /* makes the CPU thread busy-wait! */
+#define ERFC_TABLE_SIZE 2048
 
 /*** CUDA MD Data operations ***/
 
 /* forward declaration*/
-void destroy_cudata_atoms(t_cudata /*d_data*/);
-void destroy_cudata_ci(t_cudata /*d_data*/);
-void destroy_cudata_sj(t_cudata /*d_data*/);
-void destroy_cudata_si(t_cudata /*d_data*/);
+static void destroy_cudata_atoms(t_cudata /*d_data*/);
+static void destroy_cudata_ci(t_cudata /*d_data*/);
+static void destroy_cudata_sj(t_cudata /*d_data*/);
+static void destroy_cudata_si(t_cudata /*d_data*/);
+
+static void destroy_cudata_array(void * /*d_ptr*/, int * /*n*/, int * /*nalloc*/);
+
+/* source: OpenMM */
+static void tabulate_erfc(t_cudata d_data)
+{
+    float       *ftmp;
+    float       beta, cutoff_sq, r2, inv_r, x;
+    int         i, tabsize;
+    cudaError_t stat;
+    
+    cudaChannelFormatDesc   cd;
+    const textureReference  *tex_erfc_tab;
+
+    beta        = d_data->ewald_beta;
+    cutoff_sq   = d_data->cutoff_sq;
+    tabsize     = ERFC_TABLE_SIZE;
+
+    d_data->erfc_tab_size   = tabsize;
+    d_data->erfc_tab_scale  = tabsize / (beta * sqrt(cutoff_sq));
+
+    smalloc(ftmp, tabsize * sizeof(*ftmp));
+
+    for (i = 0; i < tabsize; i++)
+    {
+        r2      = i * i * d_data->cutoff_sq / (tabsize * tabsize);
+        inv_r   = 1 / sqrt(r2); 
+        x       = r2 * inv_r * beta; 
+
+        ftmp[i] = ((float) erfc(x) * inv_r + beta * exp(-x * x)) * inv_r * inv_r;
+    }
+
+    stat = cudaMalloc((void **)&d_data->erfc_tab, tabsize * sizeof(*d_data->erfc_tab));
+    CU_RET_ERR(stat, "cudaMalloc failed on d_data->erfc_tab"); 
+    upload_cudata(d_data->erfc_tab, ftmp, tabsize * sizeof(*d_data->erfc_tab));
+
+    stat = cudaGetTextureReference(&tex_erfc_tab, "tex_erfc_tab");
+    CU_RET_ERR(stat, "cudaGetTextureReference on tex_erfc_tab failed");
+    cd = cudaCreateChannelDesc<float>();
+    stat = cudaBindTexture(NULL, tex_erfc_tab, d_data->erfc_tab, &cd, tabsize);
+    CU_RET_ERR(stat, "cudaBindTexture on tex_erfc_tab failed");
+
+    sfree(ftmp);
+}
 
 void init_cudata_ff(FILE *fplog, 
                     t_cudata *dp_data,
@@ -41,6 +86,8 @@ void init_cudata_ff(FILE *fplog,
     d_data->eps_r       = fr->epsilon_r;
     d_data->eps_rf      = fr->epsilon_rf;   
     d_data->cutoff_sq   = (fr->rlist + 0.15)*(fr->rlist + 0.15);
+
+    tabulate_erfc(d_data);
 
     /* events for NB async ops */
     d_data->streamGPU = fr->streamGPU;    
@@ -98,6 +145,13 @@ void init_cudata_ff(FILE *fplog,
     d_data->naps            = -1;
 
     *dp_data = d_data;
+
+    /* 
+       kernel-1 48/16 kB Shared/L1 
+       kernel-2 16/48 kB Shared/L1
+     */
+    cudaFuncSetCacheConfig("_Z11k_calc_nb_1PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_1", cudaFuncCachePreferShared);
+    cudaFuncSetCacheConfig("_Z11k_calc_nb_2PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_", cudaFuncCachePreferL1);   
 }
 
 /* TODO: move initilizations into a function! */
@@ -245,6 +299,7 @@ void cu_blockwait_atomdata(t_cudata d_data, float *time)
 void destroy_cudata(FILE *fplog, t_cudata d_data)
 {
     cudaError_t stat;
+    const textureReference  *tex_erfc_tab;
 
     if (d_data == NULL) return;
 
@@ -261,6 +316,14 @@ void destroy_cudata(FILE *fplog, t_cudata d_data)
     stat = cudaFree(d_data->nbfp);
     CU_RET_ERR(stat, "cudaFree failed on d_data->nbfp");
 
+    stat = cudaGetTextureReference(&tex_erfc_tab, "tex_erfc_tab");
+    CU_RET_ERR(stat, "cudaGetTextureReference on tex_erfc_tab failed");
+    stat = cudaUnbindTexture(tex_erfc_tab);
+    CU_RET_ERR(stat, "cudaUnbindTexture failed on tex_erfc_tab");
+
+    stat = cudaFree(d_data->erfc_tab);
+    CU_RET_ERR(stat, "cudaFree failed on d_data->erfc_tab");
+
     destroy_cudata_atoms(d_data);
 
     destroy_cudata_ci(d_data);
@@ -273,7 +336,7 @@ void destroy_cudata(FILE *fplog, t_cudata d_data)
     fprintf(fplog, "Cleaned up CUDA data structures.\n");
 }
 
-void destroy_cudata_atoms(t_cudata d_data)
+static void destroy_cudata_atoms(t_cudata d_data)
 {
     cudaError_t stat;
 
@@ -287,7 +350,7 @@ void destroy_cudata_atoms(t_cudata d_data)
     d_data->nalloc = -1;
 }
 
-void destroy_cudata_ci(t_cudata d_data)
+static void destroy_cudata_ci(t_cudata d_data)
 {
     cudaError_t stat;
 
@@ -297,7 +360,7 @@ void destroy_cudata_ci(t_cudata d_data)
     d_data->ci_nalloc = -1;
 }
 
-void destroy_cudata_sj(t_cudata d_data)
+static void destroy_cudata_sj(t_cudata d_data)
 {
     cudaError_t stat;
 
@@ -307,7 +370,7 @@ void destroy_cudata_sj(t_cudata d_data)
     d_data->sj_nalloc = -1;
 }
 
-void destroy_cudata_si(t_cudata d_data)
+static void destroy_cudata_si(t_cudata d_data)
 {
     cudaError_t stat;
 
@@ -315,6 +378,16 @@ void destroy_cudata_si(t_cudata d_data)
     CU_RET_ERR(stat, "cudaFree failed on d_data->si");
     d_data->nsi = -1;
     d_data->si_nalloc = -1;
+}
+
+static void destroy_cudata_array(void *d_ptr, int *n, int *nalloc)
+{
+    cudaError_t stat;
+
+    stat = cudaFree(d_ptr);
+    CU_RET_ERR(stat, "cudaFree failed");
+    *n = -1;
+    *nalloc = -1;
 }
 
 int cu_upload_X(t_cudata d_data, real *h_x) 

@@ -14,9 +14,22 @@
 #define NB_DEFAULT_THREADS  (CELL_SIZE * CELL_SIZE)
 #define GPU_FACEL           (138.935485)
 
-#include "gpu_nb_kernels.h"
+/* texture reference bound to the cudata.erfc_tab array */
+texture<float, 1, cudaReadModeElementType> tex_erfc_tab;
 
-__global__ void __empty_kernel() {}
+/* source: OpenMM */
+static __device__ float fast_erfc(float r, float scale)
+{
+    float   normalized = scale * r;
+    int     index = (int) normalized;
+    float   fract2 = normalized - index;
+    float   fract1 = 1.0f - fract2;
+
+    return  fract1 * tex1Dfetch(tex_erfc_tab, index) 
+            + fract2 * tex1Dfetch(tex_erfc_tab, index + 1);
+}
+
+#include "gpu_nb_kernels.h"
 
 inline int calc_nb_blocknr(int nwork_units)
 {
@@ -37,6 +50,7 @@ void cu_stream_nb(t_cudata d_data,
     int     nb_blocks = calc_nb_blocknr(d_data->nci);
     dim3    dim_block(CELL_SIZE, CELL_SIZE, 1); 
     dim3    dim_grid(nb_blocks, 1, 1); 
+
     /* force buffers in shmem */
 #define KERNEL_1
 #ifdef KERNEL_1
@@ -45,25 +59,17 @@ void cu_stream_nb(t_cudata d_data,
     int     shmem_2 =  CELL_SIZE * CELL_SIZE * 3 * sizeof(float);
 #endif
 
-    static gmx_bool  cache_conf_set = FALSE;
-
-    /* XXX fix this cause it's ugly */
-    if (!cache_conf_set)
+    if (debug)
     {
-        printf("~> Thread block: %dx%dx%d\n~> Grid: %dx%d\n~> #Cells/Subcells: %d/%d (%d)\n",         
+        fprintf(debug, "GPU launch configuration:\n\tThread block: %dx%dx%d\n\tGrid: %dx%d\n\t#Cells/Subcells: %d/%d (%d)\n",         
         dim_block.x, dim_block.y, dim_block.z, dim_grid.x, dim_grid.y, d_data->nsi, 
         NSUBCELL, d_data->naps);
-
-        // printf("cell_pair_group=%d\n", d_data->cell_pair_group);
-        cudaFuncSetCacheConfig(&k_calc_nb_1, cudaFuncCachePreferShared);        
-        cudaFuncSetCacheConfig(&k_calc_nb_2, cudaFuncCachePreferL1); 
-        cache_conf_set = TRUE;
     }
 
     cudaEventRecord(d_data->start_nb, 0);
     
     /* set the forces to 0 */
-    cudaMemsetAsync(d_data->f, 0, d_data->natoms*sizeof(*d_data->f), 0);
+    cudaMemsetAsync(d_data->f, 0, d_data->natoms * sizeof(*d_data->f), 0);
 
 #if 0 // WC malloc stuff
     //**/ cudaEventRecord(d_data->start_x_trans, 0); 
@@ -72,10 +78,10 @@ void cu_stream_nb(t_cudata d_data,
 #endif
 
     /* upload x, Q */    
-    upload_cudata_async(d_data->xq, nbatom->x, d_data->natoms*sizeof(*d_data->xq), 0);
+    upload_cudata_async(d_data->xq, nbatom->x, d_data->natoms * sizeof(*d_data->xq), 0);
 
     /* upload shift vec */
-    upload_cudata_async(d_data->shift_vec, shift_vec, SHIFTS*sizeof(*d_data->shift_vec), 0);   
+    upload_cudata_async(d_data->shift_vec, shift_vec, SHIFTS * sizeof(*d_data->shift_vec), 0);   
 
     /* async nonbonded calculations */        
 #ifdef KERNEL_1
@@ -89,19 +95,21 @@ void cu_stream_nb(t_cudata d_data,
                                                      d_data->shift_vec,
                                                      d_data->ewald_beta,
                                                      d_data->cutoff_sq,
+                                                     d_data->erfc_tab_scale,
                                                      d_data->f);
 #else    
      k_calc_nb_2<<<dim_grid, dim_block, shmem_2, 0>>>(d_data->ci,
-                                                     d_data->sj,
-                                                     d_data->si,
-                                                     d_data->atom_types,
-                                                     d_data->ntypes,
-                                                     d_data->xq,
-                                                     d_data->nbfp,
-                                                     d_data->shift_vec,
-                                                     d_data->ewald_beta,
-                                                     d_data->cutoff_sq,
-                                                     d_data->f);
+                                                      d_data->sj,
+                                                      d_data->si,
+                                                      d_data->atom_types,
+                                                      d_data->ntypes,
+                                                      d_data->xq,
+                                                      d_data->nbfp,
+                                                      d_data->shift_vec,
+                                                      d_data->ewald_beta,
+                                                      d_data->cutoff_sq,
+                                                      d_data->erfc_tab_scale,
+                                                      d_data->f);
 #endif
    
     if (sync)
@@ -152,16 +160,8 @@ void cu_blockwait_nb(t_cudata d_data, float *time)
     cudaEventElapsedTime(time, d_data->start_nb, d_data->stop_nb);
  
 #if 0 // WC malloc stuff  
-    float t;
-    int static step = 0;
     stat = cudaEventSynchronize(d_data->stop_x_trans);
     cudaEventElapsedTime(&t, d_data->start_x_trans, d_data->stop_x_trans);
-    d_data->x_trans_time += t;
-    step++;
-    if (step % 1000 == 0)
-    {
-        printf("xq transfer time (step %d): %5.3f ms\n", step, d_data->x_trans_time/step);
-    }
 #endif
 }
 

@@ -31,6 +31,11 @@ struct cudata
     float   cutoff_sq;
     float   *nbfp;      /* nonbonded parameters C12, C6 */    
 
+    /* tabulated erfc */
+    int     erfc_tab_size;
+    float   erfc_tab_scale;
+    float   *erfc_tab;
+
     /* async execution stuff */
     gmx_bool        streamGPU;                  /* are we streaming of not (debugging)              */
     cudaStream_t    nb_stream;                  /* XXX nonbonded calculation stream - not in use    */
@@ -38,7 +43,7 @@ struct cudata
                                                    data transfers                                   */
     cudaEvent_t     start_atdat, stop_atdat;    /* event for timing atom data (every NS step)       */
 
-#if 1 // WC malloc stuff
+#if 0 // WC malloc stuff
     cudaEvent_t     start_x_trans, stop_x_trans;
     float   x_trans_time;
     float4  *h_xq;

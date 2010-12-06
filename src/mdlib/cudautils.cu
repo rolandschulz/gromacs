@@ -8,7 +8,6 @@
 
 /*** General CUDA data operations ***/
 /* TODO: create a cusmalloc module that implements similar things as smalloc */
-/* TODO merge sync and async functions */
 
 
 int _download_cudata_generic(void * h_dest, void * d_src, size_t bytes, 

@@ -120,25 +120,19 @@ inline __device__ void reduce_force_j_generic_strided(float *fbuf, float4 *fout,
     }
 }
 
-#define     C0  0.0991938
-#define     C1  -0.485259
-#define     C2  0.897674
-#define     C3  0.046636
-
 inline __device__ float coulomb(float q1, 
                                 float q2,
                                 float r2, 
                                 float inv_r, 
                                 float inv_r2, 
-                                float beta)
+                                float beta,
+                                float erfc_tab_scale)
 {
     float x      = r2 * inv_r * beta;
     float x2     = x * x; 
     // float inv_x2 = inv_r2 / (beta * beta); 
     float res    =
-        // q1 * q2 * inv_r2 * inv_r;
         q1 * q2 * (erfc(x) * inv_r + beta * exp(-x2)) * inv_r2;
-        // q1 * q2 * exp(-C0 - C1*x - C2*x2 - C3*x2*x) * inv_x2;
     return res;
 }
 
@@ -146,7 +140,7 @@ inline __device__ float coulomb(float q1,
     - #blocks   = #neighbor lists, blockId = neigbor_listId
     - #threads  = CELL_SIZE^2
     - shmem     = (1 + NSUBCELL) * CELL_SIZE^2 * 3 * sizeof(float)
-    - registers = 45
+    - registers = 44
 
     Each thread calculates an i force-component taking one pair of i-j atoms.
  */
@@ -160,6 +154,7 @@ __global__ void k_calc_nb_1(const gmx_nbl_ci_t *nbl_ci,
                             const float3 *shift_vec,
                             float beta,
                             float cutoff_sq,
+                            float erfc_tab_scale,
                             float4 *f)
 {    
     unsigned int tidxx  = threadIdx.y;
@@ -247,7 +242,8 @@ __global__ void k_calc_nb_1(const gmx_nbl_ci_t *nbl_ci,
                 inv_r2      = inv_r * inv_r;
                 inv_r6      = inv_r2 * inv_r2 * inv_r2;
 
-                dVdr        = coulomb(qi, qj_f, r2, inv_r, inv_r2, beta);
+                dVdr        = // coulomb(qi, qj_f, r2, inv_r, inv_r2, beta, erfc_tab_scale);
+                              qi * qj_f * fast_erfc(r2 * inv_r, erfc_tab_scale);
                 dVdr        += inv_r6 * (12.0 * c12 * inv_r6 - 6.0 * c6) * inv_r2;
 
                 f_ij = rv * dVdr;
@@ -285,7 +281,7 @@ __global__ void k_calc_nb_1(const gmx_nbl_ci_t *nbl_ci,
     - #blocks   = #neighbor lists, blockId = neigbor_listId
     - #threads  = CELL_SIZE^2
     - shmem     = CELL_SIZE^2 * 3 * sizeof(float)
-    - registers = 46
+    - registers = 45
     - local mem = 4 bytes !!! 
 
     Each thread calculates an i force-component taking one pair of i-j atoms.
@@ -300,6 +296,7 @@ __global__ void k_calc_nb_2(const gmx_nbl_ci_t *nbl_ci,
                             const float3 *shift_vec,
                             float beta,
                             float cutoff_sq,       
+                            float erfc_tab_scale,
                             float4 *f)
 
 {
@@ -388,7 +385,8 @@ __global__ void k_calc_nb_2(const gmx_nbl_ci_t *nbl_ci,
                     inv_r2      = inv_r * inv_r;
                     inv_r6      = inv_r2 * inv_r2 * inv_r2;
 
-                    dVdr        = coulomb(qi, qj_f, r2, inv_r, inv_r2, beta);
+                    dVdr        = // coulomb(qi, qj_f, r2, inv_r, inv_r2, beta, erfc_tab_scale);
+                                  qi * qj_f * fast_erfc(r2 * inv_r, erfc_tab_scale);
                     dVdr        += inv_r6 * (12.0 * c12 * inv_r6 - 6.0 * c6) * inv_r2;
 
                     f_ij = rv * dVdr;
