@@ -1889,7 +1889,6 @@ void init_forcerec(FILE *fp,
         {
             gmx_nblist_init(&fr->nbl,NULL,NULL);
         }
-        gmx_nblist_init(&fr->nbl, NULL, NULL);
         snew(fr->nbat,1);
 #ifdef GMX_GPU
         if (!fr->emulateGPU)
