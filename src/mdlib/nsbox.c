@@ -1965,7 +1965,8 @@ void gmx_nb_atomdata_init(gmx_nb_atomdata_t *nbat,int nbatXFormat,
         fprintf(debug,"There are %d atom types in the system, adding one for gmx_nb_atomdata_t\n",ntype);
     }
     nbat->ntype = ntype + 1;
-    snew(nbat->nbfp,nbat->ntype*nbat->ntype*2);
+    nbat->alloc((void **)&nbat->nbfp,
+                nbat->ntype*nbat->ntype*2*sizeof(*nbat->nbfp));
     for(i=0; i<nbat->ntype; i++)
     {
         for(j=0; j<nbat->ntype; j++)
