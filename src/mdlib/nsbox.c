@@ -363,7 +363,7 @@ static void sort_atoms(int dim,gmx_bool Backwards,
     }
 }
 
-static void calc_bounding_box(int na,int stride,real *x,real *bb)
+static void calc_bounding_box(int na,int stride,const real *x,real *bb)
 {
     int  i,j;
     real xl,xh,yl,yh,zl,zh;
@@ -2043,6 +2043,7 @@ void gmx_nb_atomdata_copy_x_to_nbat_x(const gmx_nbsearch_t nbs,
 {
     int cxy,na,ash;
 
+#pragma omp parallel for schedule(static) private(na,ash)
     for(cxy=0; cxy<nbs->ncx*nbs->ncy; cxy++)
     {
         na  = nbs->cxy_na[cxy];
@@ -2058,16 +2059,17 @@ void gmx_nb_atomdata_copy_x_to_nbat_x(const gmx_nbsearch_t nbs,
     }
 }
 
-void gmx_nb_atomdata_add_nbat_f_to_f(const gmx_nbsearch_t nbs,
-                                     gmx_nb_atomdata_t *nbat,
-                                     rvec *f)
+static void gmx_nb_atomdata_add_nbat_f_to_f_part(const gmx_nbsearch_t nbs,
+                                                 gmx_nb_atomdata_t *nbat,
+                                                 int cxy0,int cxy1,
+                                                 rvec *f)
 {
     int  cxy,na,ash,i;
     const int  *a;
     real *fnb;
 
     /* Loop over all columns and copy and fill */
-    for(cxy=0; cxy<nbs->ncx*nbs->ncy; cxy++)
+    for(cxy=cxy0; cxy<cxy1; cxy++)
     {
         na  = nbs->cxy_na[cxy];
         ash = nbs->cxy_ind[cxy]*nbs->napc;
@@ -2104,5 +2106,22 @@ void gmx_nb_atomdata_add_nbat_f_to_f(const gmx_nbsearch_t nbs,
         default:
             gmx_incons("Unsupported stride");
         }
+    }
+}
+
+void gmx_nb_atomdata_add_nbat_f_to_f(const gmx_nbsearch_t nbs,
+                                     gmx_nb_atomdata_t *nbat,
+                                     rvec *f)
+{
+    int nth,th;
+
+    nth = omp_get_max_threads();
+#pragma omp parallel for schedule(static)
+    for(th=0; th<nth; th++)
+    {
+        gmx_nb_atomdata_add_nbat_f_to_f_part(nbs,nbat,
+                                             ((th+0)*nbs->ncx*nbs->ncy)/nth,
+                                             ((th+1)*nbs->ncx*nbs->ncy)/nth,
+                                             f);
     }
 }
