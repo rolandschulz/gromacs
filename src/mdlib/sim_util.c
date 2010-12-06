@@ -632,7 +632,10 @@ void do_force(FILE *fplog,t_commrec *cr,
         }
         else
         {
-            put_atoms_in_box(box,mdatoms->homenr,x);
+            if (top->cgs.index[top->cgs.nr] > top->cgs.nr)
+            {
+                put_atoms_in_box(box,mdatoms->homenr,x);
+            }
 
             gmx_nbsearch_put_on_grid(fr->nbs,fr->ePBC,box,mdatoms->homenr,x,
                                      fr->nbat);
