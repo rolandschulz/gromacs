@@ -642,7 +642,7 @@ void do_force(FILE *fplog,t_commrec *cr,
             gmx_nbsearch_make_nblist(fr->nbs,fr->nbat,
                                      fr->rlist,fr->rlist+0.15,
                                      800,
-                                     &fr->nbl);
+                                     fr->nnbl,fr->nbl,TRUE);
 
             gmx_nb_atomdata_set_atomtypes(fr->nbat,fr->nbs,mdatoms->typeA);
             
@@ -846,7 +846,7 @@ void do_force(FILE *fplog,t_commrec *cr,
         else
         {
             /* Emulate */
-            nsbox_generic_kernel(&fr->nbl,fr->nbat,fr,
+            nsbox_generic_kernel(&fr->nbl[0],fr->nbat,fr,
                                  0,NULL,
                                  fr->nbat->f,fr->fshift[0],
                                  enerd->grpp.ener[egCOULSR],

@@ -245,7 +245,8 @@ typedef struct {
 
   /* The bounding box type neighbor searching data */
   gmx_nbsearch_t nbs;
-  gmx_nblist_t   nbl;
+  int            nnbl;
+  gmx_nblist_t   *nbl;
   gmx_nb_atomdata_t *nbat;
 
   /* The wall tables (if used) */

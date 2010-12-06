@@ -68,7 +68,10 @@
 #define NSBOX_SHIFT_BACKWARD
 
 
-#define GMX_THREAD_MEM_SEP 1024
+/* This define is a lazy way to avoid interdependence of the grid
+ * and searching data structures.
+ */
+#define NBL_NAPC_MAX (NSUBCELL*16)
 
 
 typedef gmx_bool
@@ -85,9 +88,6 @@ typedef struct {
 
     int  *sort_work;
     int  sort_work_nalloc;
-
-    real *bb_si;
-    real *x_si;
 } gmx_nbs_work_t;
 
 typedef struct gmx_nbsearch {
@@ -126,8 +126,12 @@ typedef struct gmx_nbsearch {
 
     int  nthread_max;
     gmx_nbs_work_t *work;
-    gmx_nblist_t *nbl_thread;
 } gmx_nbsearch_t_t;
+
+typedef struct gmx_nbl_work {
+    real *bb_si;
+    real *x_si;
+} gmx_nbl_work_t;
 
 void gmx_nbsearch_init(gmx_nbsearch_t * nbs_ptr,int natoms_subcell)
 {
@@ -139,6 +143,13 @@ void gmx_nbsearch_init(gmx_nbsearch_t * nbs_ptr,int natoms_subcell)
     
     nbs->naps = natoms_subcell;
     nbs->napc = natoms_subcell*NSUBCELL;
+
+    if (nbs->napc > NBL_NAPC_MAX)
+    {
+        gmx_fatal(FARGS,
+                  "napc (%d) is larger than the maximum allowed value (%d)",
+                  nbs->napc,NBL_NAPC_MAX);
+    }
 
     nbs->cxy_na      = NULL;
     nbs->cxy_ind     = NULL;
@@ -182,18 +193,6 @@ void gmx_nbsearch_init(gmx_nbsearch_t * nbs_ptr,int natoms_subcell)
     {
         nbs->work[t].sort_work   = NULL;
         nbs->work[t].sort_work_nalloc = 0;
-
-        snew_aligned(nbs->work[t].bb_si,NSUBCELL*NNBSBB,16);
-        snew_aligned(nbs->work[t].x_si,nbs->napc*DIM,16);
-    }
-
-    if (nbs->nthread_max > 1)
-    {
-        snew(nbs->nbl_thread,nbs->nthread_max - 1);
-        for(t=0; t<nbs->nthread_max - 1; t++)
-        {
-            gmx_nblist_init(&nbs->nbl_thread[t],NULL,NULL);
-        }
     }
 }
 
@@ -367,7 +366,6 @@ static void calc_bounding_box(int na,int stride,const real *x,real *bb)
 {
     int  i,j;
     real xl,xh,yl,yh,zl,zh;
-
 
     i = 0;
     xl = x[i+XX];
@@ -1143,6 +1141,10 @@ void gmx_nblist_init(gmx_nblist_t *nbl,
     nbl->nsi         = 0;
     nbl->si          = NULL;
     nbl->si_nalloc   = 0;
+
+    snew(nbl->work,1);
+    snew_aligned(nbl->work->bb_si,NSUBCELL*NNBSBB,16);
+    snew_aligned(nbl->work->x_si,NBL_NAPC_MAX*DIM,16);
 }
 
 static void print_nblist_statistics(FILE *fp,const gmx_nblist_t *nbl,
@@ -1165,7 +1167,6 @@ static void print_nblist_statistics(FILE *fp,const gmx_nblist_t *nbl,
 }
 
 static void make_subcell_list(const gmx_nbsearch_t nbs,
-                              gmx_nbs_work_t *work,
                               gmx_nblist_t *nbl,
                               int ci,int cj,
                               gmx_bool ci_equals_cj,
@@ -1174,9 +1175,13 @@ static void make_subcell_list(const gmx_nbsearch_t nbs,
 {
     int  npair;
     int  sj,si1,si,csj;
+    const real *bb_si,*x_si;
     real d2;
     gmx_bool InRange;
 #define ISUBCELL_GROUP 1
+
+    bb_si = nbl->work->bb_si;
+    x_si  = nbl->work->x_si;
 
     for(sj=0; sj<nbs->nsubc[cj]; sj++)
     {
@@ -1194,7 +1199,7 @@ static void make_subcell_list(const gmx_nbsearch_t nbs,
         npair = 0;
         for(si=0; si<si1; si++)
         {
-            d2 = subc_bb_dist2(nbs->naps,si,work->bb_si,csj,nbs->bb);
+            d2 = subc_bb_dist2(nbs->naps,si,bb_si,csj,nbs->bb);
 
             if (nbs->subc_dc == NULL)
             {
@@ -1204,7 +1209,7 @@ static void make_subcell_list(const gmx_nbsearch_t nbs,
             {
                 InRange = (d2 < rbb2 ||
                            (d2 < rl2 &&
-                            nbs->subc_dc(nbs->naps,si,work->x_si,
+                            nbs->subc_dc(nbs->naps,si,x_si,
                                          csj,stride,x,rl2)));
             }
 
@@ -1456,6 +1461,17 @@ static void print_nblist_ci_sj(FILE *fp,const gmx_nblist_t *nbl)
         {
             fprintf(fp,"  sj %5d  nsi %3d\n",
                     nbl->sj[j].sj,nbl->sj[j+1].si_ind - nbl->sj[j].si_ind);
+#if 0
+            {
+                int k;
+                fprintf(fp,"    si");
+                for(k=nbl->sj[j].si_ind; k<nbl->sj[j+1].si_ind; k++)
+                {
+                    fprintf(fp," %5d",nbl->si[k].si);
+                }
+                fprintf(fp,"\n");
+            }
+#endif
         }
     }
 }
@@ -1723,12 +1739,12 @@ static void gmx_nbsearch_make_nblist_part(const gmx_nbsearch_t nbs,
                         cxf = ci_x;
                     }
 
-                    set_subcell_i_bb(nbs->bb,ci,shx,shy,shz,work->bb_si);
+                    set_subcell_i_bb(nbs->bb,ci,shx,shy,shz,nbl->work->bb_si);
 
                     if (nbs->subc_dc != NULL)
                     {
                         set_subcell_i_x(nbs,ci,shx,shy,shz,
-                                        nbat->xstride,nbat->x,work->x_si);
+                                        nbat->xstride,nbat->x,nbl->work->x_si);
                     }
 
                     for(cx=cxf; cx<=cxl; cx++)
@@ -1854,7 +1870,7 @@ static void gmx_nbsearch_make_nblist_part(const gmx_nbsearch_t nbs,
 
                                     for(cj=cf; cj<=cl; cj++)
                                     {
-                                        make_subcell_list(nbs,work,nbl,ci,cj,
+                                        make_subcell_list(nbs,nbl,ci,cj,
                                                           (shift == CENTRAL && ci == cj),
                                                           nbat->xstride,nbat->x,
                                                           rl2,rbb2);
@@ -1885,33 +1901,34 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
                               const gmx_nb_atomdata_t *nbat,
                               real rcut,real rlist,
                               int min_ci_balanced,
-                              gmx_nblist_t *nbl)
+                              int nnbl,gmx_nblist_t *nbl,
+                              gmx_bool CombineNBLists)
 {
-    int nthread,t;
+    int nth,th;
 
-    nthread = omp_get_max_threads();
     if (debug)
     {
-        fprintf(debug,"ns making nblist on %d threads\n",nthread);
+        fprintf(debug,"ns making %d nblists\n",nnbl);
     }
 #pragma omp parallel for schedule(static)
-    for(t=0; t<nthread; t++)
+    for(th=0; th<nnbl; th++)
     {
-        gmx_nbsearch_make_nblist_part(nbs,&nbs->work[t],nbat,
+        /* Divide the i super cell equally over the nblists */
+        gmx_nbsearch_make_nblist_part(nbs,&nbs->work[th],nbat,
                                       rcut,rlist,min_ci_balanced,
-                                      ((t+0)*nbs->nc)/nthread,
-                                      ((t+1)*nbs->nc)/nthread,
-                                      t == 0 ? nbl : &nbs->nbl_thread[t-1]);
+                                      ((th+0)*nbs->nc)/nnbl,
+                                      ((th+1)*nbs->nc)/nnbl,
+                                      &nbl[th]);
     }
 
-    if (nthread > 1)
+    if (CombineNBLists && nnbl > 1)
     {
-        combine_nblists(nthread-1,nbs->nbl_thread,nbl);
+        combine_nblists(nnbl-1,nbl+1,nbl);
     }
 
     if (debug)
     {
-        print_nblist_statistics(debug,nbl,nbs,rlist);
+        print_nblist_statistics(debug,&nbl[0],nbs,rlist);
     }
     if (gmx_debug_at)
     {

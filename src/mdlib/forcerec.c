@@ -1879,29 +1879,33 @@ void init_forcerec(FILE *fp,
     if (fr->useGPU || fr->emulateGPU)
     {
         gmx_nbsearch_init(&fr->nbs,napc);
-#ifdef GMX_GPU
-        if (!fr->emulateGPU)
-        {
-            gmx_nblist_init(&fr->nbl,&pmalloc, &pfree);
-        }
-        else
+
+        fr->nnbl = 1;
+#ifdef GMX_OPENMP
+        fr->nnbl = omp_get_max_threads();
 #endif
+        snew(fr->nbl,fr->nnbl);
+        for(i=0; i<fr->nnbl; i++)
         {
-            gmx_nblist_init(&fr->nbl,NULL,NULL);
+            gmx_nblist_init(&fr->nbl[i],
+#ifdef GMX_GPU
+                            fr->emulateGPU ? NULL : &pmalloc,
+                            fr->emulateGPU ? NULL : &pfree);
+#else
+                            NULL,NULL);
+#endif
         }
+
         snew(fr->nbat,1);
+
+        gmx_nb_atomdata_init(fr->nbat,nbatXYZQ,fr->ntype,fr->nbfp,
 #ifdef GMX_GPU
-        if (!fr->emulateGPU)
-        {
-            gmx_nb_atomdata_init(fr->nbat,nbatXYZQ,fr->ntype,fr->nbfp,
-                                 &pmalloc, &pfree);
-        }
-        else
+                             fr->emulateGPU ? NULL : &pmalloc,
+                             fr->emulateGPU ? NULL : &pfree);
+#else
+                             NULL,NULL);
 #endif
-        {
-            gmx_nb_atomdata_init(fr->nbat,nbatXYZQ,fr->ntype,fr->nbfp,
-                                 NULL,NULL);
-        }
+
         if (fr->useGPU)
         {
 

@@ -93,6 +93,8 @@ typedef struct {
     int      nsi;          /* The total number of i sub cells          */
     gmx_nbl_si_t *si;      /* Array of i sub-cells (in pairs with j)   */
     int      si_nalloc;    /* Allocation size of ii                    */
+
+    struct gmx_nbl_work *work;
 } gmx_nblist_t;
 
 enum { nbatXYZ, nbatXYZQ };

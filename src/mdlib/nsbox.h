@@ -63,7 +63,8 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
                               const gmx_nb_atomdata_t *nbat,
                               real rcut,real rlist,
                               int min_ci_balanced,
-                              gmx_nblist_t *nbl);
+                              int nnbl,gmx_nblist_t *nbl,
+                              gmx_bool CombineNBLists);
 
 /* Initialize the non-bonded atom data structure.
  * The enum for nbatXFormat is in the file defining gmx_nb_atomdata_t.
