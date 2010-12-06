@@ -266,8 +266,8 @@ static int set_grid_size_xy(gmx_nbsearch_t nbs,int n,matrix box)
 #define SGSF (SORT_GRID_OVERSIZE + 1)
 
 static void sort_atoms(int dim,gmx_bool Backwards,
-                        int *a,int n,rvec *x,
-                        real invh,int nsort,int *sort)
+                       int *a,int n,rvec *x,
+                       real h0,real invh,int nsort,int *sort)
 {
     int i,c;
     int zi,zim;
@@ -293,7 +293,7 @@ static void sort_atoms(int dim,gmx_bool Backwards,
          * This code assumes particles are less than 1/SORT_GRID_OVERSIZE
          * times the box height out of the box.
          */
-        zi = (int)(x[a[i]][dim]*invh);
+        zi = (int)((x[a[i]][dim] - h0)*invh);
 
         /* Ideally this particle should go in sort cell zi,
          * but that might already be in use,
@@ -544,6 +544,7 @@ static void sort_columns(gmx_nbsearch_t nbs,
         /* Sort the atoms within each x,y column on z coordinate */
         sort_atoms(ZZ,FALSE,
                    nbs->a+ash,na,x,
+                   0,
                    ncz*nbs->napc*SORT_GRID_OVERSIZE/nbs->box[ZZ][ZZ],
                    ncz*nbs->napc*SGSF,sort_work);
 
@@ -573,7 +574,7 @@ static void sort_columns(gmx_nbsearch_t nbs,
 #if NSUBCELL_Y > 1
             sort_atoms(YY,(sub_z & 1),
                        nbs->a+ash_z,na_z,x,
-                       nbs->inv_sy,subdiv_z*SGSF,sort_work);
+                       cy*nbs->sy,nbs->inv_sy,subdiv_y*SGSF,sort_work);
 #endif
 
             for(sub_y=0; sub_y<NSUBCELL_Y; sub_y++)
@@ -584,7 +585,7 @@ static void sort_columns(gmx_nbsearch_t nbs,
 #if NSUBCELL_X > 1
                 sort_atoms(XX,((cz*NSUBCELL_Y + sub_y) & 1),
                            nbs->a+ash_y,na_y,x,
-                           nbs->inv_sy,subdiv_y*SGSF,sort_work);
+                           cx*nbs->sx,nbs->inv_sx,subdiv_x*SGSF,sort_work);
 #endif
 
                 for(sub_x=0; sub_x<NSUBCELL_X; sub_x++)
