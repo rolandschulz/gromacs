@@ -78,7 +78,7 @@ typedef struct gmx_constr {
   int              warncount_settle;
   gmx_edsam_t      ed;           /* The essential dynamics data        */
 
-    tensor           *rmdr_t;      /* Thread local working data          */
+    tensor           *rmdr_th;   /* Thread local working data          */
     int              *settle_error; /* Thread local working data          */
 
   gmx_mtop_t       *warn_mtop;   /* Only used for printing warnings    */
@@ -304,7 +304,7 @@ gmx_bool constrain(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
     t_pbc   pbc;
     char    buf[22];
     t_vetavars *vetavar;
-    int     nt,tss;
+    int     nth,th,th_ss;
 
     if (econq == econqForceDispl && !EI_ENERGY_MINIMIZATION(ir->eI))
     {
@@ -351,47 +351,39 @@ gmx_bool constrain(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
 #ifdef GMX_OPENMP    
     if (nsettle > 0)
     {
-        nt = omp_get_max_threads();
+        nth = omp_get_max_threads();
     }
     else
     {
-        nt = 1;
-        omp_set_num_threads(nt);
+        nth = 1;
     }
 #else
-    nt = 1;
+    nth = 1;
 #endif
 
-    if (nt > 1 && constr->rmdr_t == NULL)
+    if (nth > 1 && constr->rmdr_th == NULL)
     {
-        snew(constr->rmdr_t,nt);
-        snew(constr->settle_error,nt);
+        snew(constr->rmdr_th,nth);
+        snew(constr->settle_error,nth);
     }
     
-    if (nt > 1 && (constr->lincsd != NULL || constr->nblocks > 0))
+    if (nth > 1 && (constr->lincsd != NULL || constr->nblocks > 0))
     {
         /* First thread does LINCS or SHAKE and no SETTLE */
-        tss = 1;
+        th_ss = 1;
     }
     else
     {
         /* All threads do SETTLE */
-        tss = 0;
+        th_ss = 0;
     }
 
     settle_error = -1;
 
-#pragma omp parallel
+#pragma omp parallel for schedule(static)
+    for(th=0; th<nth; th++)
     {
-        int t;
-        
-#ifdef GMX_OPENMP    
-        t = omp_get_thread_num();
-#else
-        t = 0;
-#endif
-
-        if (constr->lincsd != NULL && t == 0)
+        if (constr->lincsd != NULL && th == 0)
         {
             bOK = constrain_lincs(fplog,bLog,bEner,ir,step,constr->lincsd,md,cr,
                                   x,xprime,min_proj,box,lambda,dvdlambda,
@@ -409,7 +401,7 @@ gmx_bool constrain(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
             }
         }	
         
-        if (constr->nblocks > 0 && t == 0)
+        if (constr->nblocks > 0 && th == 0)
         {
             switch (econq) {
             case (econqCoord):
@@ -444,29 +436,29 @@ gmx_bool constrain(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
         
         if (nsettle > 0)
         {
-            int start_t,end_t;
+            int start_th,end_th;
 
-            if (t > 0)
+            if (th > 0)
             {
-                clear_mat(constr->rmdr_t[t]);
+                clear_mat(constr->rmdr_th[th]);
             }
-            start_t = (nsettle*(t-tss  ))/(nt-tss);
-            end_t   = (nsettle*(t-tss+1))/(nt-tss);
+            start_th = (nsettle*(th-th_ss  ))/(nth-th_ss);
+            end_th   = (nsettle*(th-th_ss+1))/(nth-th_ss);
 
             switch (econq)
             {
             case econqCoord:
-                if (start_t >= 0 && end_t - start_t > 0)
+                if (start_th >= 0 && end_th - start_th > 0)
                 {
                     csettle(constr->settled,
-                            end_t-start_t,settle->iatoms+start_t*2,
+                            end_th-start_th,settle->iatoms+start_th*2,
                             x[0],xprime[0],
                             invdt,v[0],vir!=NULL,
-                            t == 0 ? rmdr : constr->rmdr_t[t],
-                            t == 0 ? &settle_error : &constr->settle_error[t],
+                            th == 0 ? rmdr : constr->rmdr_th[th],
+                            th == 0 ? &settle_error : &constr->settle_error[th],
                             vetavar);
                 }
-                if (t == 0)
+                if (th == 0)
                 {
                     inc_nrnb(nrnb,eNR_SETTLE,nsettle);
                     if (v != NULL)
@@ -483,12 +475,12 @@ gmx_bool constrain(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
             case econqDeriv:
             case econqForce:
             case econqForceDispl:
-                if (start_t >= 0 && end_t - start_t > 0)
+                if (start_th >= 0 && end_th - start_th > 0)
                 {
                     settle_proj(fplog,constr->settled,econq,
-                                end_t-start_t,settle->iatoms+start_t*2,x,
+                                end_th-start_th,settle->iatoms+start_th*2,x,
                                 xprime,min_proj,vir!=NULL,
-                                t == 0 ? rmdr : constr->rmdr_t[t],
+                                th == 0 ? rmdr : constr->rmdr_th[th],
                                 vetavar);
                 }
                 /* This is an overestimate */
@@ -506,9 +498,9 @@ gmx_bool constrain(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
     if (settle->nr > 0)
     {
         /* Combine virial and error info of the other threads */
-        for(i=1; i<nt; i++)
+        for(i=1; i<nth; i++)
         {
-            m_add(rmdr,constr->rmdr_t[i],rmdr);
+            m_add(rmdr,constr->rmdr_th[i],rmdr);
             settle_error = constr->settle_error[i];
         } 
 

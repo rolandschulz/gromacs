@@ -1572,7 +1572,7 @@ void update_coords(FILE         *fplog,
     int              *icom = NULL;
     tensor           vir_con;
     rvec             *vcom,*xcom,*vall,*xall,*xin,*vin,*forcein,*fall,*xpall,*xprimein,*xprime;
-    int              nt;
+    int              nth,th;
     
 
     /* Running the velocity half does nothing except for velocity verlet */
@@ -1633,34 +1633,29 @@ void update_coords(FILE         *fplog,
         /* We still need to take care of generating random seeds properly
          * when multi-threading.
          */
-        nt = 1;
-        omp_set_num_threads(nt);
+        nth = 1;
     }
     else
     {
-        nt = omp_get_max_threads();
+        nth = omp_get_max_threads();
     }
 #else
-    nt = 1;
+    nth = 1;
 #endif
 
-# pragma omp parallel
+# pragma omp parallel for schedule(static)
+    for(th=0; th<nth; th++)
     {
-        int t,start_t,end_t;
+        int start_th,end_th;
 
-#ifdef GMX_OPENMP
-        t = omp_get_thread_num();
-#else
-        t = 1;
-#endif
-        start_t = start + ((nrend-start)* t   )/nt;
-        end_t   = start + ((nrend-start)*(t+1))/nt;
+        start_th = start + ((nrend-start)* th   )/nth;
+        end_th   = start + ((nrend-start)*(th+1))/nth;
 
         switch (inputrec->eI) {
         case (eiMD):
             if (ekind->cosacc.cos_accel == 0)
             {
-                do_update_md(start_t,end_t,dt,
+                do_update_md(start_th,end_th,dt,
                              ekind->tcstat,ekind->grpstat,state->nosehoover_vxi,
                              inputrec->opts.acc,inputrec->opts.nFreeze,md->invmass,md->ptype,
                              md->cFREEZE,md->cACC,md->cTC,
@@ -1669,7 +1664,7 @@ void update_coords(FILE         *fplog,
             } 
             else 
             {
-                do_update_visc(start_t,end_t,dt,
+                do_update_visc(start_th,end_th,dt,
                                ekind->tcstat,md->invmass,state->nosehoover_vxi,
                                md->ptype,md->cTC,state->x,xprime,state->v,force,M,
                            state->box,ekind->cosacc.cos_accel,ekind->cosacc.vcos,bNH,bPR);
@@ -1710,7 +1705,7 @@ void update_coords(FILE         *fplog,
             switch (UpdatePart) {
             case etrtVELOCITY1:
             case etrtVELOCITY2:
-                do_update_vv_vel(start_t,end_t,dt,
+                do_update_vv_vel(start_th,end_th,dt,
                                  ekind->tcstat,ekind->grpstat,
                                  inputrec->opts.acc,inputrec->opts.nFreeze,
                                  md->invmass,md->ptype,
@@ -1719,7 +1714,7 @@ void update_coords(FILE         *fplog,
                                  bExtended,state->veta,alpha);  
                 break;
             case etrtPOSITION:
-                do_update_vv_pos(start_t,end_t,dt,
+                do_update_vv_pos(start_th,end_th,dt,
                                  ekind->tcstat,ekind->grpstat,
                                  inputrec->opts.acc,inputrec->opts.nFreeze,
                                  md->invmass,md->ptype,md->cFREEZE,
