@@ -150,8 +150,14 @@ void init_cudata_ff(FILE *fplog,
        kernel-1 48/16 kB Shared/L1 
        kernel-2 16/48 kB Shared/L1
      */
-    cudaFuncSetCacheConfig("_Z11k_calc_nb_1PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_1", cudaFuncCachePreferShared);
-    cudaFuncSetCacheConfig("_Z11k_calc_nb_2PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_", cudaFuncCachePreferL1);   
+    stat = cudaFuncSetCacheConfig(
+            "_Z11k_calc_nb_1PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_",
+            cudaFuncCachePreferShared);
+    CU_RET_ERR(stat, "cudaFuncSetCacheConfig failed");
+    stat = cudaFuncSetCacheConfig(
+            "_Z11k_calc_nb_2PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_", 
+            cudaFuncCachePreferL1);   
+    CU_RET_ERR(stat, "cudaFuncSetCacheConfig failed");
 }
 
 /* TODO: move initilizations into a function! */
@@ -168,7 +174,8 @@ void init_cudata_atoms(t_cudata d_data,
     int         nsi     = nblist->nsi;
    
     /* time async copy */
-    cudaEventRecord(d_data->start_atdat, 0);
+    stat = cudaEventRecord(d_data->start_atdat, 0);
+    CU_RET_ERR(stat, "cudaEventRecord failed on d_data->start_atdat");
 
     if (d_data->naps < 0)
     {
@@ -282,8 +289,9 @@ void init_cudata_atoms(t_cudata d_data,
         upload_cudata(d_data->sj, nblist->sj, nsj_1 * sizeof(*d_data->sj));
         upload_cudata(d_data->si, nblist->si, nsi * sizeof(*d_data->si));    
     }
-    cudaEventRecord(d_data->stop_atdat, 0);
- 
+    stat = cudaEventRecord(d_data->stop_atdat, 0);
+    CU_RET_ERR(stat, "cudaEventRecord failed on d_data->stop_atdat");
+
 }
 
 void cu_blockwait_atomdata(t_cudata d_data, float *time)
