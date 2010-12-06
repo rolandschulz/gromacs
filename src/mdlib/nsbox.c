@@ -1504,7 +1504,7 @@ static void combine_nblists(int nnbl,const gmx_nblist_t *nbl,
         nb_realloc_void((void **)&nblc->sj,
                         (nblc->nsj+1)*sizeof(*nblc->sj),
                         nblc->sj_nalloc*sizeof(*nblc->sj),
-                        nblc->alloc,nbl->free);
+                        nblc->alloc,nblc->free);
     }
     if (nsi > nblc->si_nalloc)
     {
@@ -1512,7 +1512,7 @@ static void combine_nblists(int nnbl,const gmx_nblist_t *nbl,
         nb_realloc_void((void **)&nblc->si,
                         nblc->nsi*sizeof(*nblc->si),
                         nblc->si_nalloc*sizeof(*nblc->si),
-                        nblc->alloc,nbl->free);
+                        nblc->alloc,nblc->free);
     }
 
     for(i=0; i<nnbl; i++)
