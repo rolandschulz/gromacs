@@ -1889,8 +1889,9 @@ void init_forcerec(FILE *fp,
         {
             gmx_nblist_init(&fr->nbl[i],
 #ifdef GMX_GPU
-                            fr->emulateGPU ? NULL : &pmalloc,
-                            fr->emulateGPU ? NULL : &pfree);
+                            /* Only list 0 is used on the GPU */
+                            (fr->useGPU && i==0) ? &pmalloc : NULL,
+                            (fr->useGPU && i==0) ? &pfree   : NULL);
 #else
                             NULL,NULL);
 #endif
@@ -1900,8 +1901,8 @@ void init_forcerec(FILE *fp,
 
         gmx_nb_atomdata_init(fr->nbat,nbatXYZQ,fr->ntype,fr->nbfp,
 #ifdef GMX_GPU
-                             fr->emulateGPU ? NULL : &pmalloc,
-                             fr->emulateGPU ? NULL : &pfree);
+                             fr->useGPU ? &pmalloc : NULL,
+                             fr->useGPU ? &pfree   : NULL);
 #else
                              NULL,NULL);
 #endif
