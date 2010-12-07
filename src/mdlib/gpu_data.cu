@@ -26,7 +26,7 @@ static void destroy_cudata_array(void * /*d_ptr*/, int * /*n*/, int * /*nalloc*/
 static void tabulate_erfc(t_cudata d_data)
 {
     float       *ftmp;
-    float       beta, cutoff_sq, r2, inv_r, x;
+    float       beta, r, x;
     int         i, tabsize;
     cudaError_t stat;
     
@@ -34,21 +34,18 @@ static void tabulate_erfc(t_cudata d_data)
     const textureReference  *tex_erfc_tab;
 
     beta        = d_data->ewald_beta;
-    cutoff_sq   = d_data->cutoff_sq;
     tabsize     = ERFC_TABLE_SIZE;
 
     d_data->erfc_tab_size   = tabsize;
-    d_data->erfc_tab_scale  = tabsize / (beta * sqrt(cutoff_sq));
+    d_data->erfc_tab_scale  = (tabsize - 1) / (beta * sqrt(d_data->cutoff_sq));
 
     smalloc(ftmp, tabsize * sizeof(*ftmp));
 
     for (i = 0; i < tabsize; i++)
     {
-        r2      = i * i * d_data->cutoff_sq / (tabsize * tabsize);
-        inv_r   = 1 / sqrt(r2); 
-        x       = r2 * inv_r * beta; 
-
-        ftmp[i] = ((float) erfc(x) * inv_r + beta * exp(-x * x)) * inv_r * inv_r;
+        r       = i / d_data->erfc_tab_scale;
+        x       = r * beta;
+        ftmp[i] = ((float) erfc(x) / r + beta * exp(-x * x)) / (r * r);
     }
 
     stat = cudaMalloc((void **)&d_data->erfc_tab, tabsize * sizeof(*d_data->erfc_tab));
