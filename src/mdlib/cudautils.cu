@@ -99,4 +99,15 @@ int upload_cudata_alloc(void ** d_dest, void * h_src, size_t bytes)
     return upload_cudata(*d_dest, h_src, bytes);
 }
 
+int cu_blockwait_event(cudaEvent_t stop, cudaEvent_t start, float *time)
+{
+    cudaError_t s;
 
+    s = cudaEventSynchronize(stop);
+    CU_RET_ERR(s, "cudaEventSynchronize failed in cu_blockwait_event");
+
+    s = cudaEventElapsedTime(time, start, stop);
+    CU_RET_ERR(s, "cudaEventElapsedTime failed in cu_blockwait_event");
+
+    return 0;
+}

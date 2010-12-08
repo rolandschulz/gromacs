@@ -1,86 +1,11 @@
 #include "cudatype_utils.h"
 
-#define CELL_SIZE_2     (CELL_SIZE * CELL_SIZE)
-#define STRIDE_DIM      (CELL_SIZE_2)
-#define STRIDE_SI       (3*STRIDE_DIM)
-#define MY_PI           (3.1415926535897932384626433832795f)
-#define TWO_OVER_SQRT_PI (2.0f/sqrt(MY_PI))
-
-/* 8x8 */
-__device__ void reduce_force8_strided(float *fbuf, float4 *fout,
-        int tidxx, int tidxy, int ai)
-{
-    /* 64 -> 32: 8x4 threads */
-    if (tidxy < CELL_SIZE/2)
-    {
-        fbuf[                 tidxx * CELL_SIZE + tidxy] += fbuf[                 tidxx * CELL_SIZE + tidxy + CELL_SIZE/2];
-        fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy] += fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy + CELL_SIZE/2];
-        fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy] += fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy + CELL_SIZE/2];
-    }
-    /* 32 -> 16: 8x2 threads */
-    if (tidxy < CELL_SIZE/4)
-    {
-        fbuf[                 tidxx * CELL_SIZE + tidxy] += fbuf[                 tidxx * CELL_SIZE + tidxy + CELL_SIZE/4];
-        fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy] += fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy + CELL_SIZE/4];
-        fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy] += fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy + CELL_SIZE/4];
-    }
-    /* 16 ->  8: 8 threads */
-    if (tidxy < CELL_SIZE/8)
-    {
-        atomicAdd(&fout[ai].x, fbuf[                 tidxx * CELL_SIZE + tidxy] + fbuf[                 tidxx * CELL_SIZE + tidxy + CELL_SIZE/8]);
-        atomicAdd(&fout[ai].y, fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy] + fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy + CELL_SIZE/8]);
-        atomicAdd(&fout[ai].z, fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy] + fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy + CELL_SIZE/8]);
-    }
-}
-
-inline __device__ void reduce_force_pow2_strided(float *fbuf, float4 *fout,
-        int tidxx, int tidxy, int aidx)
-{
-    int i = CELL_SIZE/2;
-
-    /* Reduce the initial CELL_SIZE values for each i atom to half
-       every step by using CELL_SIZE * i threads. */
-    # pragma unroll 5
-    while (i > 1)
-    {
-        if (tidxy < i)
-        {
-
-            fbuf[                 tidxx * CELL_SIZE + tidxy] += fbuf[                 tidxx * CELL_SIZE + tidxy + i];
-            fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy] += fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy + i];
-            fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy] += fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy + i];
-        }
-        i >>= 1;
-    }
-
-    /* i == 1, last reduction step, writing to global mem */
-    if (tidxy == 0)
-    {
-        atomicAdd(&fout[aidx].x,
-            fbuf[                 tidxx * CELL_SIZE + tidxy] + fbuf[                 tidxx * CELL_SIZE + tidxy + i]);
-        atomicAdd(&fout[aidx].y,
-            fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy] + fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy + i]);
-        atomicAdd(&fout[aidx].z,
-            fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy] + fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy + i]);
-    }
-}
-
-inline __device__ void reduce_force_strided(float *forcebuf, float4 *f,
-        int tidxx, int tidxy, int ai)
-{
-    if ((CELL_SIZE & (CELL_SIZE - 1)))
-    {
-        // reduce_force_generic_strided(forcebuf, f, tidxx, tidxy, ai);
-    }
-
-    else
-    {
-        // reduce_force8_strided(forcebuf, f, tidxx, tidxy, ai);
-        // reduce_force_pow2_strided(forcebuf, f, tidxx, tidxy, ai);
-    }
-}
-
-
+#define CELL_SIZE_2         (CELL_SIZE * CELL_SIZE)
+#define STRIDE_DIM          (CELL_SIZE_2)
+#define STRIDE_SI           (3*STRIDE_DIM)
+#define MY_PI               (3.1415926535897932384626433832795f)
+#define TWO_OVER_SQRT_PI    (2.0f/sqrt(MY_PI))
+#define GPU_FACEL           (138.935485)
 
 inline __device__ void reduce_force_i_generic_strided(float *fbuf, float4 *fout,
         int tidxx, int tidxy, int aidx)
@@ -228,10 +153,8 @@ __global__ void k_calc_nb_1(const gmx_nbl_ci_t *nbl_ci,
 
             c6          = nbfp[2 * (ntypes * typei + typej)]; // LJ C6
                           // 1e-3;
-                          // x[ai * 2] * x[aj * 2];
             c12         = nbfp[2 * (ntypes * typei + typej) + 1]; // LJ C12
                           // 1e-3;
-                          // x[ai * 2 + 1] * x[aj * 2 + 1];
 
             rv          = xi - xj;
             r2          = norm2(rv);
@@ -274,6 +197,7 @@ __global__ void k_calc_nb_1(const gmx_nbl_ci_t *nbl_ci,
         ai  = (ci * NSUBCELL + si_offset) * CELL_SIZE + tidxx;  /* i atom index */
         reduce_force_i_generic_strided(forcebuf + (1 + si_offset) * STRIDE_SI, f, tidxx, tidxy, ai);
     }
+    __syncthreads();
 }
 
 
@@ -298,7 +222,6 @@ __global__ void k_calc_nb_2(const gmx_nbl_ci_t *nbl_ci,
                             float cutoff_sq,       
                             float erfc_tab_scale,
                             float4 *f)
-
 {
     unsigned int tidxx  = threadIdx.y;
     unsigned int tidxy  = threadIdx.x;
@@ -362,41 +285,37 @@ __global__ void k_calc_nb_2(const gmx_nbl_ci_t *nbl_ci,
 
             excl_bit = (nbl_si[i].excl >> tidx) & 1;
 
-            // if (aj > ai)
+            // all threads load an atom from i cell into shmem!
+            f4tmp   = xq[ai];
+            xi      = make_float3(f4tmp.x, f4tmp.y, f4tmp.z);
+            qi      = f4tmp.w;
+            typei   = atom_types[ai];
+
+            c6  = nbfp[2 * (ntypes * typei + typej)]; // LJ C6
+                    // 1e-3;
+            c12 = nbfp[2 * (ntypes * typei + typej) + 1]; // LJ C12
+                    // 1e-3;
+
+            rv          = xi - xj;
+            r2          = norm2(rv);
+
+            if (r2 < cutoff_sq * excl_bit)
             {
-                // all threads load an atom from i cell into shmem!
-                f4tmp   = xq[ai];
-                xi      = make_float3(f4tmp.x, f4tmp.y, f4tmp.z);
-                qi      = f4tmp.w;
-                typei   = atom_types[ai];
+                inv_r       = 1.0f / sqrt(r2);
+                inv_r2      = inv_r * inv_r;
+                inv_r6      = inv_r2 * inv_r2 * inv_r2;
 
-                c6  = nbfp[2 * (ntypes * typei + typej)]; // LJ C6
-                      // 1e-3;
-                c12 = nbfp[2 * (ntypes * typei + typej) + 1]; // LJ C12
-                      // 1e-3;
+                dVdr        = // coulomb(qi, qj_f, r2, inv_r, inv_r2, beta, erfc_tab_scale);
+                              qi * qj_f * fast_erfc(r2 * inv_r, erfc_tab_scale);
+                dVdr        += inv_r6 * (12.0 * c12 * inv_r6 - 6.0 * c6) * inv_r2;
 
-                rv          = xi - xj;
-                r2          = norm2(rv);
+                f_ij = rv * dVdr;
 
-                if (r2 < cutoff_sq * excl_bit)
-                {
+                // accumulate j forces
+                fsj_buf -= f_ij;
 
-                    inv_r       = 1.0f / sqrt(r2);
-                    inv_r2      = inv_r * inv_r;
-                    inv_r6      = inv_r2 * inv_r2 * inv_r2;
-
-                    dVdr        = // coulomb(qi, qj_f, r2, inv_r, inv_r2, beta, erfc_tab_scale);
-                                  qi * qj_f * fast_erfc(r2 * inv_r, erfc_tab_scale);
-                    dVdr        += inv_r6 * (12.0 * c12 * inv_r6 - 6.0 * c6) * inv_r2;
-
-                    f_ij = rv * dVdr;
-
-                    // accumulate j forces
-                    fsj_buf -= f_ij;
-
-                    // accumulate i forces
-                    fsi_buf[si_offset] += f_ij;
-                }
+                // accumulate i forces
+                fsi_buf[si_offset] += f_ij;
             }
         }
         /* store j forces in shmem */
@@ -421,4 +340,82 @@ __global__ void k_calc_nb_2(const gmx_nbl_ci_t *nbl_ci,
 
         __syncthreads();
     }
+    __syncthreads();
 }
+
+/*********************************************************************************/
+/* Old stuff  */
+/* 8x8 */
+__device__ void reduce_force8_strided(float *fbuf, float4 *fout,
+        int tidxx, int tidxy, int ai)
+{
+    /* 64 -> 32: 8x4 threads */
+    if (tidxy < CELL_SIZE/2)
+    {
+        fbuf[                 tidxx * CELL_SIZE + tidxy] += fbuf[                 tidxx * CELL_SIZE + tidxy + CELL_SIZE/2];
+        fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy] += fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy + CELL_SIZE/2];
+        fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy] += fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy + CELL_SIZE/2];
+    }
+    /* 32 -> 16: 8x2 threads */
+    if (tidxy < CELL_SIZE/4)
+    {
+        fbuf[                 tidxx * CELL_SIZE + tidxy] += fbuf[                 tidxx * CELL_SIZE + tidxy + CELL_SIZE/4];
+        fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy] += fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy + CELL_SIZE/4];
+        fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy] += fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy + CELL_SIZE/4];
+    }
+    /* 16 ->  8: 8 threads */
+    if (tidxy < CELL_SIZE/8)
+    {
+        atomicAdd(&fout[ai].x, fbuf[                 tidxx * CELL_SIZE + tidxy] + fbuf[                 tidxx * CELL_SIZE + tidxy + CELL_SIZE/8]);
+        atomicAdd(&fout[ai].y, fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy] + fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy + CELL_SIZE/8]);
+        atomicAdd(&fout[ai].z, fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy] + fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy + CELL_SIZE/8]);
+    }
+}
+
+inline __device__ void reduce_force_pow2_strided(float *fbuf, float4 *fout,
+        int tidxx, int tidxy, int aidx)
+{
+    int i = CELL_SIZE/2;
+
+    /* Reduce the initial CELL_SIZE values for each i atom to half
+       every step by using CELL_SIZE * i threads. */
+    # pragma unroll 5
+    while (i > 1)
+    {
+        if (tidxy < i)
+        {
+
+            fbuf[                 tidxx * CELL_SIZE + tidxy] += fbuf[                 tidxx * CELL_SIZE + tidxy + i];
+            fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy] += fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy + i];
+            fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy] += fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy + i];
+        }
+        i >>= 1;
+    }
+
+    /* i == 1, last reduction step, writing to global mem */
+    if (tidxy == 0)
+    {
+        atomicAdd(&fout[aidx].x,
+            fbuf[                 tidxx * CELL_SIZE + tidxy] + fbuf[                 tidxx * CELL_SIZE + tidxy + i]);
+        atomicAdd(&fout[aidx].y,
+            fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy] + fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy + i]);
+        atomicAdd(&fout[aidx].z,
+            fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy] + fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy + i]);
+    }
+}
+
+inline __device__ void reduce_force_strided(float *forcebuf, float4 *f,
+        int tidxx, int tidxy, int ai)
+{
+    if ((CELL_SIZE & (CELL_SIZE - 1)))
+    {
+        // reduce_force_generic_strided(forcebuf, f, tidxx, tidxy, ai);
+    }
+
+    else
+    {
+        // reduce_force8_strided(forcebuf, f, tidxx, tidxy, ai);
+        // reduce_force_pow2_strided(forcebuf, f, tidxx, tidxy, ai);
+    }
+}
+

@@ -12,16 +12,16 @@ extern "C" {
 
 struct cudata 
 {
-    int         natoms; /* number of atoms for all 8 neighbouring domains 
+    int     natoms;     /* number of atoms for all 8 neighbouring domains 
                            !!! ATM only one value, with MPI it'll be 8                      */
-    int         nalloc; /* allocation size for the atom data (xq, f), 
+    int     nalloc;     /* allocation size for the atom data (xq, f), 
                            when needed it's reallocated to natoms * 20% + 100 buffer zone   */ 
     
-    float4  *f;             /* forces, size natoms                      */
-    float4  *xq;            /* atom coordinates + charges, size natoms  */
+    float4  *f;         /* forces, size natoms                      */
+    float4  *xq;        /* atom coordinates + charges, size natoms  */
 
-    int     ntypes;         /* number of atom types             */
-    int     *atom_types;    /* atom type indices, size natoms   */
+    int     ntypes;     /* number of atom types             */
+    int     *atom_types;/* atom type indices, size natoms   */
     
     /* nonbonded paramters 
        TODO -> constant so some of them should be moved to constant memory */
@@ -42,12 +42,6 @@ struct cudata
     cudaEvent_t     start_nb, stop_nb;          /* events for timing nonbonded calculation + related 
                                                    data transfers                                   */
     cudaEvent_t     start_atdat, stop_atdat;    /* event for timing atom data (every NS step)       */
-
-#if 0 // WC malloc stuff
-    cudaEvent_t     start_x_trans, stop_x_trans;
-    float   x_trans_time;
-    float4  *h_xq;
-#endif 
 
     /* neighbor list data */
     int             naps;       /* number of atoms per subcell                  */

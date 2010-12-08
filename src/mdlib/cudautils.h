@@ -79,6 +79,8 @@ int upload_cudata(void * /*d_dest*/, void * /*h_src*/, size_t /*bytes*/);
 int upload_cudata_async(void * /*d_dest*/, void * /*h_src*/, size_t /*bytes*/, cudaStream_t /*stream = 0*/);
 int upload_cudata_alloc(void ** /*d_dest*/, void * /*h_src*/, size_t /*bytes*/);
 
+int cu_blockwait_event(cudaEvent_t /*stop*/, cudaEvent_t /*start*/, float * /*time*/);
+
 #ifdef __cplusplus
 }
 #endif
