@@ -111,7 +111,7 @@ nsbox_generic_kernel(const gmx_nblist_t         *nbl,
     //charge              = mdatoms->chargeA;
     type                = nbat->type;
     facel               = fr->epsfac;
-    shiftvec            = fr->shift_vec[0];
+    shiftvec            = nbat->shift_vec[0];
     vdwparam            = nbat->nbfp;
     ntype               = nbat->ntype;
 

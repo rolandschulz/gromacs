@@ -9,7 +9,6 @@ extern "C" {
 
 void cu_stream_nb(t_cudata /*d_data*/, 
                   const gmx_nb_atomdata_t * /*nbdata*/,
-                  rvec /*shift_vec*/[], 
                   gmx_bool /*sync*/);
 
 void cu_do_nb(t_cudata /*d_data*/, rvec /*shiftvec*/[]);

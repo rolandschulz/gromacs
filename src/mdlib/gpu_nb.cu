@@ -56,7 +56,6 @@ inline int calc_nb_blocknr(int nwork_units)
  */
 void cu_stream_nb(t_cudata d_data, 
                   const gmx_nb_atomdata_t *nbatom,
-                  rvec shift_vec[],
                   gmx_bool sync)
 {
     int     shmem; 
@@ -92,7 +91,7 @@ void cu_stream_nb(t_cudata d_data,
     upload_cudata_async(d_data->xq, nbatom->x, d_data->natoms * sizeof(*d_data->xq), 0);
 
     /* upload shift vec */
-    upload_cudata_async(d_data->shift_vec, shift_vec, SHIFTS * sizeof(*d_data->shift_vec), 0);   
+    upload_cudata_async(d_data->shift_vec, nbatom->shift_vec, SHIFTS * sizeof(*d_data->shift_vec), 0);   
 
     /* async nonbonded calculations */        
     if (!doKernel2)

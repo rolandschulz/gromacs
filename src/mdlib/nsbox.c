@@ -1989,6 +1989,7 @@ void gmx_nb_atomdata_init(gmx_nb_atomdata_t *nbat,int nbatXFormat,
     nbat->type    = NULL;
     nbat->XFormat = nbatXFormat;
     nbat->q       = NULL;
+    nbat->alloc((void **)&nbat->shift_vec,SHIFTS*sizeof(*nbat->shift_vec));
     nbat->xstride = (nbatXFormat == nbatXYZQ ? 4 : 3);
     nbat->x       = NULL;
     nbat->nalloc  = 0;
@@ -2055,6 +2056,17 @@ void gmx_nb_atomdata_set_charges(gmx_nb_atomdata_t *nbat,
                 q++;
             }
         }
+    }
+}
+
+void gmx_nb_atomdata_copy_shiftvec(rvec *shift_vec,
+                                   gmx_nb_atomdata_t *nbat)
+{
+    int i;
+
+    for(i=0; i<SHIFTS; i++)
+    {
+        copy_rvec(shift_vec[i],nbat->shift_vec[i]);
     }
 }
 

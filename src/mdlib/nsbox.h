@@ -86,6 +86,10 @@ void gmx_nb_atomdata_set_charges(gmx_nb_atomdata_t *nbat,
                                  const gmx_nbsearch_t nbs,
                                  const real *charge);
 
+/* Copy the shift vectors to nbat */
+void gmx_nb_atomdata_copy_shiftvec(rvec *shift_vec,
+                                   gmx_nb_atomdata_t *nbat);
+
 /* Copy x to nbat->x */
 void gmx_nb_atomdata_copy_x_to_nbat_x(const gmx_nbsearch_t nbs,
                                       rvec *x,

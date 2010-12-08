@@ -659,10 +659,15 @@ void do_force(FILE *fplog,t_commrec *cr,
         }
         wallcycle_stop(wcycle,ewcNS);
     }
-    else if (fr->useGPU || fr->emulateGPU)
+
+    if (fr->useGPU || fr->emulateGPU)
     {
-        /* We are not doing ns this setp, we need to copy x to nbat->x */
-        gmx_nb_atomdata_copy_x_to_nbat_x(fr->nbs,x,fr->nbat);
+        gmx_nb_atomdata_copy_shiftvec(fr->shift_vec,fr->nbat);
+        if (!bNS)
+        {
+            /* We are not doing ns this step, we need to copy x to nbat->x */
+            gmx_nb_atomdata_copy_x_to_nbat_x(fr->nbs,x,fr->nbat);
+        }
     }
 
 #ifdef GMX_GPU
@@ -685,7 +690,7 @@ void do_force(FILE *fplog,t_commrec *cr,
            Both tocopying /from device and kernel execution is asynchronous */
         wallcycle_start(wcycle,ewcSEND_X_GPU);
            
-        cu_stream_nb(fr->gpu_data, fr->nbat, fr->shift_vec, !fr->streamGPU);
+        cu_stream_nb(fr->gpu_data, fr->nbat, !fr->streamGPU);
         gputime.nb_count++;
 
         wallcycle_stop(wcycle,ewcSEND_X_GPU);
