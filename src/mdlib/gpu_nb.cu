@@ -13,19 +13,20 @@
 #define CELL_SIZE           (GPU_NS_CELL_SIZE)
 #define NB_DEFAULT_THREADS  (CELL_SIZE * CELL_SIZE)
 
-/* texture reference bound to the cudata.erfc_tab array */
-texture<float, 1, cudaReadModeElementType> tex_erfc_tab;
+
+/* texture reference bound to the cudata.coulomb_tab array */
+texture<float, 1, cudaReadModeElementType> tex_coulomb_tab;
 
 /* source: OpenMM */
-static __device__ float fast_erfc(float r, float scale)
-{
+static __device__ float interpolate_coulomb_force_r(float r, float scale)
+{  
     float   normalized = scale * r;
     int     index = (int) normalized;
     float   fract2 = normalized - index;
     float   fract1 = 1.0f - fract2;
 
-    return  fract1 * tex1Dfetch(tex_erfc_tab, index) 
-            + fract2 * tex1Dfetch(tex_erfc_tab, index + 1);
+    return  fract1 * tex1Dfetch(tex_coulomb_tab, index) 
+            + fract2 * tex1Dfetch(tex_coulomb_tab, index + 1);
 }
 
 #include "gpu_nb_kernels.h"
@@ -106,7 +107,7 @@ void cu_stream_nb(t_cudata d_data,
                                                         d_data->shift_vec,
                                                         d_data->ewald_beta,
                                                         d_data->cutoff_sq,
-                                                        d_data->erfc_tab_scale,
+                                                        d_data->coulomb_tab_scale,
                                                         d_data->f);
     }
     else
@@ -121,7 +122,7 @@ void cu_stream_nb(t_cudata d_data,
                                                         d_data->shift_vec,
                                                         d_data->ewald_beta,
                                                         d_data->cutoff_sq,
-                                                        d_data->erfc_tab_scale,
+                                                        d_data->coulomb_tab_scale,
                                                         d_data->f);
     }
    

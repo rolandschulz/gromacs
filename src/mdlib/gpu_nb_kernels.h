@@ -3,8 +3,6 @@
 #define CELL_SIZE_2         (CELL_SIZE * CELL_SIZE)
 #define STRIDE_DIM          (CELL_SIZE_2)
 #define STRIDE_SI           (3*STRIDE_DIM)
-#define MY_PI               (3.1415926535897932384626433832795f)
-#define TWO_OVER_SQRT_PI    (2.0f/sqrt(MY_PI))
 #define GPU_FACEL           (138.935485)
 
 inline __device__ void reduce_force_i_generic_strided(float *fbuf, float4 *fout,
@@ -166,7 +164,8 @@ __global__ void k_calc_nb_1(const gmx_nbl_ci_t *nbl_ci,
                 inv_r6      = inv_r2 * inv_r2 * inv_r2;
 
                 dVdr        = // coulomb(qi, qj_f, r2, inv_r, inv_r2, beta, erfc_tab_scale);
-                              qi * qj_f * fast_erfc(r2 * inv_r, erfc_tab_scale);
+                              // qi * qj_f * inv_r2 * inv_r;  
+                              qi * qj_f * interpolate_coulomb_force_r(r2 * inv_r, erfc_tab_scale);
                 dVdr        += inv_r6 * (12.0 * c12 * inv_r6 - 6.0 * c6) * inv_r2;
 
                 f_ij = rv * dVdr;
@@ -305,8 +304,9 @@ __global__ void k_calc_nb_2(const gmx_nbl_ci_t *nbl_ci,
                 inv_r2      = inv_r * inv_r;
                 inv_r6      = inv_r2 * inv_r2 * inv_r2;
 
-                dVdr        = // coulomb(qi, qj_f, r2, inv_r, inv_r2, beta, erfc_tab_scale);
-                              qi * qj_f * fast_erfc(r2 * inv_r, erfc_tab_scale);
+                dVdr        = // coulomb(qi, qj_f, r2, inv_r, inv_r2, beta, erfc_tab_scale);                
+                              // qi * qj_f * inv_r2 * inv_r;  
+                              qi * qj_f * interpolate_coulomb_force_r(r2 * inv_r, erfc_tab_scale);
                 dVdr        += inv_r6 * (12.0 * c12 * inv_r6 - 6.0 * c6) * inv_r2;
 
                 f_ij = rv * dVdr;

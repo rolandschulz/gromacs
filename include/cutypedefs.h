@@ -31,10 +31,10 @@ struct cudata
     float   cutoff_sq;
     float   *nbfp;      /* nonbonded parameters C12, C6 */    
 
-    /* tabulated erfc */
-    int     erfc_tab_size;
-    float   erfc_tab_scale;
-    float   *erfc_tab;
+    /* Ewald Coulomb tabulated force */
+    int     coulomb_tab_size;
+    float   coulomb_tab_scale;
+    float   *coulomb_tab;
 
     /* async execution stuff */
     gmx_bool        streamGPU;                  /* are we streaming of not (debugging)              */

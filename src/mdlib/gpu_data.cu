@@ -12,6 +12,9 @@
 #define USE_CUDA_EVENT_BLOCKING_SYNC FALSE /* makes the CPU thread busy-wait! */
 #define ERFC_TABLE_SIZE 2048
 
+#define MY_PI               (3.1415926535897932384626433832795f)
+#define TWO_OVER_SQRT_PI    (2.0f/sqrt(MY_PI))
+
 /*** CUDA MD Data operations ***/
 
 /*** forward declaration ***/
@@ -21,10 +24,10 @@ static void realloc_cudata_array(void **d_dest, void *h_src, size_t type_size,
                                  int *curr_size, int *curr_alloc_size, 
                                  int req_size, gmx_bool doStream);
 /* 
-  Tabulates the coulomb froce.
+  Tabulates the Ewald Coulomb force.
   Original idea: OpenMM 
  */
-static void tabulate_erfc(t_cudata d_data)
+static void tabulate_ewald_coulomb_force_r(t_cudata d_data)
 {
     float       *ftmp;
     float       beta, r, x;
@@ -32,32 +35,34 @@ static void tabulate_erfc(t_cudata d_data)
     cudaError_t stat;
     
     cudaChannelFormatDesc   cd;
-    const textureReference  *tex_erfc_tab;
+    const textureReference  *tex_coulomb_tab;
 
     beta        = d_data->ewald_beta;
     tabsize     = ERFC_TABLE_SIZE;
 
-    d_data->erfc_tab_size   = tabsize;
-    d_data->erfc_tab_scale  = (tabsize - 1) / (beta * sqrt(d_data->cutoff_sq));
+    d_data->coulomb_tab_size   = tabsize;
+    d_data->coulomb_tab_scale = (tabsize - 1) / (beta * sqrt(d_data->cutoff_sq));
 
     smalloc(ftmp, tabsize * sizeof(*ftmp));
 
-    for (i = 0; i < tabsize; i++)
+    for (i = 1; i < tabsize; i++)
     {
-        r       = i / d_data->erfc_tab_scale;
+        r       = i / d_data->coulomb_tab_scale;
         x       = r * beta;
-        ftmp[i] = ((float) erfc(x) / r + beta * exp(-x * x)) / (r * r);
+        ftmp[i] = ((float) erfc(x) / r + beta * TWO_OVER_SQRT_PI * exp(-x * x)) / (r * r);
     }
 
-    stat = cudaMalloc((void **)&d_data->erfc_tab, tabsize * sizeof(*d_data->erfc_tab));
-    CU_RET_ERR(stat, "cudaMalloc failed on d_data->erfc_tab"); 
-    upload_cudata(d_data->erfc_tab, ftmp, tabsize * sizeof(*d_data->erfc_tab));
+    ftmp[0] = ftmp[1];
 
-    stat = cudaGetTextureReference(&tex_erfc_tab, "tex_erfc_tab");
-    CU_RET_ERR(stat, "cudaGetTextureReference on tex_erfc_tab failed");
+    stat = cudaMalloc((void **)&d_data->coulomb_tab, tabsize * sizeof(*d_data->coulomb_tab));
+    CU_RET_ERR(stat, "cudaMalloc failed on d_data->coulomb_tab"); 
+    upload_cudata(d_data->coulomb_tab, ftmp, tabsize * sizeof(*d_data->coulomb_tab));
+
+    stat = cudaGetTextureReference(&tex_coulomb_tab, "tex_coulomb_tab");
+    CU_RET_ERR(stat, "cudaGetTextureReference on tex_coulomb_tab failed");
     cd = cudaCreateChannelDesc<float>();
-    stat = cudaBindTexture(NULL, tex_erfc_tab, d_data->erfc_tab, &cd, tabsize);
-    CU_RET_ERR(stat, "cudaBindTexture on tex_erfc_tab failed");
+    stat = cudaBindTexture(NULL, tex_coulomb_tab, d_data->coulomb_tab, &cd, tabsize);
+    CU_RET_ERR(stat, "cudaBindTexture on tex_coulomb_tab failed");
 
     sfree(ftmp);
 }
@@ -79,15 +84,13 @@ void init_cudata_ff(FILE *fplog,
     if (dp_data == NULL) return;
     
     snew(d_data, 1);
-
-    // FIXME ??? d_data->ntypes  = ntypes;
-    
+ 
     d_data->ewald_beta  = fr->ewaldcoeff;
     d_data->eps_r       = fr->epsilon_r;
     d_data->eps_rf      = fr->epsilon_rf;   
     d_data->cutoff_sq   = (fr->rlist + 0.15)*(fr->rlist + 0.15);
 
-    tabulate_erfc(d_data);
+    tabulate_ewald_coulomb_force_r(d_data);
 
     /* events for NB async ops */
     d_data->streamGPU = fr->streamGPU;    
@@ -101,6 +104,7 @@ void init_cudata_ff(FILE *fplog,
     CU_RET_ERR(stat, "cudaEventCreate on stop_atdat failed");
 
     /* NB params */
+    d_data->ntypes  = ntypes;
     stat = cudaMalloc((void **)&d_data->nbfp, 2*ntypes*ntypes*sizeof(*(d_data->nbfp)));
     CU_RET_ERR(stat, "cudaMalloc failed on d_data->nbfp"); 
     upload_cudata(d_data->nbfp, nbat->nbfp, 2*ntypes*ntypes*sizeof(*(d_data->nbfp)));
@@ -127,7 +131,6 @@ void init_cudata_ff(FILE *fplog,
     /* size -1 just means that it has not been initialized yet */
     d_data->natoms      = -1;
     d_data->nalloc      = -1;
-    d_data->ntypes      = -1;
     d_data->nci         = -1;
     d_data->ci_nalloc   = -1;
     d_data->nsj_1       = -1;
@@ -182,8 +185,6 @@ void init_cudata_atoms(t_cudata d_data,
             gmx_incons(sbuf);
         }
     }
-
-    d_data->ntypes = nbat->ntype; /* FIXME ??? */
 
     /* need to reallocate if we have to copy more atoms than the amount of space
        available and only allocate if we haven't initilzed yet, i.e d_data->natoms == -1 */
@@ -244,7 +245,7 @@ void init_cudata_atoms(t_cudata d_data,
 void destroy_cudata(FILE *fplog, t_cudata d_data)
 {
     cudaError_t stat;
-    const textureReference  *tex_erfc_tab;
+    const textureReference  *tex_coulomb_tab;
 
     if (d_data == NULL) return;
 
@@ -259,12 +260,12 @@ void destroy_cudata(FILE *fplog, t_cudata d_data)
 
     destroy_cudata_array(d_data->nbfp);
 
-    stat = cudaGetTextureReference(&tex_erfc_tab, "tex_erfc_tab");
-    CU_RET_ERR(stat, "cudaGetTextureReference on tex_erfc_tab failed");
-    stat = cudaUnbindTexture(tex_erfc_tab);
-    CU_RET_ERR(stat, "cudaUnbindTexture failed on tex_erfc_tab");
+    stat = cudaGetTextureReference(&tex_coulomb_tab, "tex_coulomb_tab");
+    CU_RET_ERR(stat, "cudaGetTextureReference on tex_coulomb_tab failed");
+    stat = cudaUnbindTexture(tex_coulomb_tab);
+    CU_RET_ERR(stat, "cudaUnbindTexture failed on tex_coulomb_tab");
 
-    destroy_cudata_array(d_data->erfc_tab, &d_data->erfc_tab_size);            
+    destroy_cudata_array(d_data->coulomb_tab, &d_data->coulomb_tab_size);            
 
     destroy_cudata_array(d_data->f, &d_data->natoms, &d_data->nalloc);
     destroy_cudata_array(d_data->xq);
