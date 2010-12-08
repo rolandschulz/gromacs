@@ -852,7 +852,8 @@ void do_force(FILE *fplog,t_commrec *cr,
         {
             /* Emulate */
             nsbox_generic_kernel(&fr->nbl[0],fr->nbat,fr,
-                                 0,NULL,
+                                 fr->nblists[0].tab.scale,
+                                 fr->nblists[0].tab.tab,
                                  fr->nbat->f,fr->fshift[0],
                                  enerd->grpp.ener[egCOULSR],
                                  fr->bBHAM ?

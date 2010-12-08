@@ -112,9 +112,12 @@ nsbox_generic_kernel(const gmx_nblist_t         *nbl,
 	
     /* 3 VdW parameters for buckingham, otherwise 2 */
     nvdwparam           = (ivdw==2) ? 3 : 2;
+    /* We currently pass the full Coulomb+LJ tables
     table_nelements     = (icoul==3) ? 4 : 0;
     table_nelements    += (ivdw==3) ? 8 : 0;
-	  
+    */
+    table_nelements     = 12;
+
     //charge              = mdatoms->chargeA;
     type                = nbat->type;
     facel               = fr->epsfac;
