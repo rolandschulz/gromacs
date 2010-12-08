@@ -91,8 +91,15 @@ nsbox_generic_kernel(const gmx_nblist_t         *nbl,
 
     int           npair;
 	
-    /* Coulomb is temporary hard-coded to RF */
-    icoul               = 2;
+    if (fr->bcoultab && fr->eeltype != eelRF_ZERO)
+    {
+        icoul           = 3;
+    }
+    else
+    {
+        /* Coulomb is temporary hard-coded to RF */
+        icoul           = 2;
+    }
     ivdw                = 1;
 
     /* avoid compiler warnings for cases that cannot happen */
