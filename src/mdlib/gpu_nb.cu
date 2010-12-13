@@ -13,23 +13,23 @@
 #define CELL_SIZE           (GPU_NS_CELL_SIZE)
 #define NB_DEFAULT_THREADS  (CELL_SIZE * CELL_SIZE)
 
+#include "gpu_nb_kernel_utils.h"
 
-/* texture reference bound to the cudata.coulomb_tab array */
-texture<float, 1, cudaReadModeElementType> tex_coulomb_tab;
-
-/* source: OpenMM */
-static __device__ float interpolate_coulomb_force_r(float r, float scale)
-{  
-    float   normalized = scale * r;
-    int     index = (int) normalized;
-    float   fract2 = normalized - index;
-    float   fract1 = 1.0f - fract2;
-
-    return  fract1 * tex1Dfetch(tex_coulomb_tab, index) 
-            + fract2 * tex1Dfetch(tex_coulomb_tab, index + 1);
-}
-
+#define EL_CUTOFF
+#define FUNCTION_NAME(x, y) x##_cutoff_##y
 #include "gpu_nb_kernels.h"
+#undef FUNCTION_NAME
+
+#define EL_RF
+#define FUNCTION_NAME(x, y) x##_RF_##y
+#include "gpu_nb_kernels.h"
+#undef FUNCTION_NAME
+
+#define EL_EWALD
+#define FUNCTION_NAME(x, y) x##_ewald_##y
+#include "gpu_nb_kernels.h"
+#undef FUNCTION_NAME
+
 
 /* based on the number of work units, return the number of blocks to be used 
    for the nonbonded GPU kernel */
@@ -63,7 +63,22 @@ void cu_stream_nb(t_cudata d_data,
     int     nb_blocks = calc_nb_blocknr(d_data->nci);
     dim3    dim_block(CELL_SIZE, CELL_SIZE, 1); 
     dim3    dim_grid(nb_blocks, 1, 1); 
-    
+
+    /* fn pointer to the kernel */
+    void    (*p_k_calc_nb)(
+                const gmx_nbl_ci_t * /*nbl_ci*/,
+                const gmx_nbl_sj_t * /*nbl_sj*/,
+                const gmx_nbl_si_t * /*nbl_si*/,
+                const int * /*atom_types*/,
+                int /*ntypes*/,
+                const float4 * /*xq*/,
+                const float * /*nbfp*/,
+                const float3 * /*shift_vec*/,
+                float /*two_krf*/,
+                float /*cutoff_sq*/,
+                float /*erfc_tab_scale*/,
+                float4 * /*f*/) = NULL;
+
     static gmx_bool doKernel2 = (getenv("GMX_NB_K2") != NULL);        
 
     /* size of force buffers in shmem */
@@ -95,37 +110,57 @@ void cu_stream_nb(t_cudata d_data,
     upload_cudata_async(d_data->shift_vec, nbatom->shift_vec, SHIFTS * sizeof(*d_data->shift_vec), 0);   
 
     /* async nonbonded calculations */        
-    if (!doKernel2)
+    switch (d_data->eeltype)
     {
-        k_calc_nb_1 <<<dim_grid, dim_block, shmem, 0>>>(d_data->ci,
-                                                        d_data->sj,
-                                                        d_data->si,
-                                                        d_data->atom_types, 
-                                                        d_data->ntypes, 
-                                                        d_data->xq, 
-                                                        d_data->nbfp,
-                                                        d_data->shift_vec,
-                                                        d_data->ewald_beta,
-                                                        d_data->cutoff_sq,
-                                                        d_data->coulomb_tab_scale,
-                                                        d_data->f);
+        case cu_eelCUT:
+            if (!doKernel2)
+            {
+                p_k_calc_nb = k_calc_nb_cutoff_forces_1;
+            }
+            else 
+            {
+                p_k_calc_nb = k_calc_nb_cutoff_forces_2;
+            }
+            break;
+        case cu_eelRF:
+            if (!doKernel2)
+            {
+                p_k_calc_nb = k_calc_nb_RF_forces_1;
+            }
+            else 
+            {
+                p_k_calc_nb = k_calc_nb_RF_forces_2;
+            }
+            break;
+        case cu_eelEWALD:
+            if (!doKernel2)
+            {
+                p_k_calc_nb = k_calc_nb_ewald_forces_1;
+            }
+            else 
+            {
+                p_k_calc_nb = k_calc_nb_ewald_forces_2;
+            }
+            break;
+        default: 
+        {
+            gmx_incons("The provided electrostatics type does not exist in the  CUDA implementation!");
+        }
     }
-    else
-    {
-        k_calc_nb_2 <<<dim_grid, dim_block, shmem, 0>>>(d_data->ci,
-                                                        d_data->sj,
-                                                        d_data->si,
-                                                        d_data->atom_types,
-                                                        d_data->ntypes,
-                                                        d_data->xq,
-                                                        d_data->nbfp,
-                                                        d_data->shift_vec,
-                                                        d_data->ewald_beta,
-                                                        d_data->cutoff_sq,
-                                                        d_data->coulomb_tab_scale,
-                                                        d_data->f);
-    }
-   
+
+    p_k_calc_nb<<<dim_grid, dim_block, shmem, 0>>>(d_data->ci,
+                                                    d_data->sj,
+                                                    d_data->si,
+                                                    d_data->atom_types,
+                                                    d_data->ntypes,
+                                                    d_data->xq,
+                                                    d_data->nbfp,
+                                                    d_data->shift_vec,
+                                                    d_data->two_krf,
+                                                    d_data->cutoff_sq,
+                                                    d_data->coulomb_tab_scale,
+                                                    d_data->f);
+
     if (sync)
     {
         CU_LAUNCH_ERR_SYNC("k_calc_nb");

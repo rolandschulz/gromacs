@@ -15,14 +15,17 @@
 #define MY_PI               (3.1415926535897932384626433832795f)
 #define TWO_OVER_SQRT_PI    (2.0f/sqrt(MY_PI))
 
-/*** CUDA MD Data operations ***/
+__device__ __global__ void k_empty(){}
 
-/*** forward declaration ***/
+/*** CUDA Data operations ***/
+
 static void destroy_cudata_array(void * d_ptr, 
                                  int * n = NULL, int * nalloc = NULL);
 static void realloc_cudata_array(void **d_dest, void *h_src, size_t type_size, 
                                  int *curr_size, int *curr_alloc_size, 
-                                 int req_size, gmx_bool doStream);
+                                 int req_size, gmx_bool doStream);                                
+static void tabulate_ewald_coulomb_force_r(t_cudata d_data);
+
 /* 
   Tabulates the Ewald Coulomb force.
   Original idea: OpenMM 
@@ -87,10 +90,33 @@ void init_cudata_ff(FILE *fplog,
  
     d_data->ewald_beta  = fr->ewaldcoeff;
     d_data->eps_r       = fr->epsilon_r;
-    d_data->eps_rf      = fr->epsilon_rf;   
+    d_data->two_krf     = 2.0 * fr->k_rf;   
     d_data->cutoff_sq   = (fr->rlist + 0.15)*(fr->rlist + 0.15);
+    
+    if (fr->eeltype == eelCUT)
+    {
+        d_data->eeltype = cu_eelCUT;
+        printf(">> CU Cutoff\n");
+    }
+    else if (EEL_RF(fr->eeltype))
+    {                
+        d_data->eeltype = cu_eelRF;
+        printf(">> CU RF\n");        
+    }
+    else if ((EEL_PME(fr->eeltype) || fr->eeltype==eelEWALD))
+    {
+        d_data->eeltype = cu_eelEWALD;
+        printf(">> CU Ewald\n");
+    }
+   else 
+    {
+        gmx_fatal(FARGS, "The requested electrostatics type is not implemented in the CUDA GPU accelerated kernels!");
+    }
 
-    tabulate_ewald_coulomb_force_r(d_data);
+    if (d_data->eeltype == cu_eelEWALD)
+    {
+        tabulate_ewald_coulomb_force_r(d_data);
+    }
 
     /* events for NB async ops */
     d_data->streamGPU = fr->streamGPU;    
@@ -142,17 +168,36 @@ void init_cudata_ff(FILE *fplog,
     *dp_data = d_data;
 
     /* 
-       kernel-1 48/16 kB Shared/L1 
-       kernel-2 16/48 kB Shared/L1
+       k_calc_nb_*_1 48/16 kB Shared/L1 
      */
     stat = cudaFuncSetCacheConfig(
-            "_Z11k_calc_nb_1PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_",
+            "_Z25k_calc_nb_cutoff_forces_1PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_",
             cudaFuncCachePreferShared);
     CU_RET_ERR(stat, "cudaFuncSetCacheConfig failed");
     stat = cudaFuncSetCacheConfig(
-            "_Z11k_calc_nb_2PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_", 
+            "_Z21k_calc_nb_RF_forces_1PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_",
+            cudaFuncCachePreferShared);
+    CU_RET_ERR(stat, "cudaFuncSetCacheConfig failed");
+    stat = cudaFuncSetCacheConfig(
+            "_Z24k_calc_nb_ewald_forces_1PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_",
+            cudaFuncCachePreferShared);
+    CU_RET_ERR(stat, "cudaFuncSetCacheConfig failed");
+    /* 
+      k_calc_nb_*_2 16/48 kB Shared/L1
+     */
+    stat = cudaFuncSetCacheConfig(
+            "_Z25k_calc_nb_cutoff_forces_2PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_", 
+            cudaFuncCachePreferL1);
+    CU_RET_ERR(stat, "cudaFuncSetCacheConfig failed");
+    stat = cudaFuncSetCacheConfig(
+            "_Z21k_calc_nb_RF_forces_2PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_", 
+            cudaFuncCachePreferL1);
+     stat = cudaFuncSetCacheConfig(
+            "_Z24k_calc_nb_ewald_forces_2PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_", 
             cudaFuncCachePreferL1);   
     CU_RET_ERR(stat, "cudaFuncSetCacheConfig failed");
+
+    k_empty<<<1, 512>>>();
 }
 
 /*

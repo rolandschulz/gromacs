@@ -9,6 +9,10 @@
 extern "C" {
 #endif
 
+/* Types of electrostatics available in the CUDA GPU imlementation. */
+enum {
+    cu_eelEWALD, cu_eelRF, cu_eelCUT
+};
 
 struct cudata 
 {
@@ -26,10 +30,12 @@ struct cudata
     /* nonbonded paramters 
        TODO -> constant so some of them should be moved to constant memory */
     float   eps_r; 
-    float   eps_rf;
+    float   two_krf;
     float   ewald_beta;
     float   cutoff_sq;
     float   *nbfp;      /* nonbonded parameters C12, C6 */    
+
+    int  eeltype;       /* type of electrostatics */ 
 
     /* Ewald Coulomb tabulated force */
     int     coulomb_tab_size;

@@ -9,7 +9,6 @@
 /*** General CUDA data operations ***/
 /* TODO: create a cusmalloc module that implements similar things as smalloc */
 
-
 int _download_cudata_generic(void * h_dest, void * d_src, size_t bytes, 
                              gmx_bool async = FALSE, cudaStream_t stream = 0)
 {
