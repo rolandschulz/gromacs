@@ -704,7 +704,7 @@ void do_force(FILE *fplog,t_commrec *cr,
             
             if (gputime.nb_count % 1000 == 0)
             {
-                printf("NS trasfer [%4d]:\t%5.3f ms\n", gputime.nb_count, 
+                printf("NS transfer [%4d]:\t%5.3f ms\n", gputime.nb_count, 
                         gputime.atomdt_trans_total_time/gputime.atomdt_count);
             }
        }

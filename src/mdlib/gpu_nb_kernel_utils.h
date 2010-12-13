@@ -5,6 +5,12 @@
 #define STRIDE_SI           (3*STRIDE_DIM)
 #define GPU_FACEL           (138.935485)
 
+/* texture reference bound to the cudata.nbfp array */
+texture<float, 1, cudaReadModeElementType> tex_nbfp;
+
+/* texture reference bound to the cudata.coulomb_tab array */
+texture<float, 1, cudaReadModeElementType> tex_coulomb_tab;
+
 inline __device__ void reduce_force_i_generic_strided(float *fbuf, float4 *fout,
         int tidxx, int tidxy, int aidx)
 {
@@ -58,9 +64,6 @@ inline __device__ float coulomb(float q1,
         q1 * q2 * (erfc(x) * inv_r + beta * exp(-x2)) * inv_r2;
     return res;
 }
-
-/* texture reference bound to the cudata.coulomb_tab array */
-texture<float, 1, cudaReadModeElementType> tex_coulomb_tab;
 
 /* source: OpenMM */
 static __device__ float interpolate_coulomb_force_r(float r, float scale)

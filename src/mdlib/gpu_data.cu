@@ -82,6 +82,9 @@ void init_cudata_ff(FILE *fplog,
     gmx_nb_atomdata_t   *nbat = fr->nbat;
     int                 ntypes = nbat->ntype;
 
+    cudaChannelFormatDesc   cd;
+    const textureReference  *tex_nbfp;
+
     int eventflags = ( USE_CUDA_EVENT_BLOCKING_SYNC ? cudaEventBlockingSync: cudaEventDefault );
 
     if (dp_data == NULL) return;
@@ -96,17 +99,14 @@ void init_cudata_ff(FILE *fplog,
     if (fr->eeltype == eelCUT)
     {
         d_data->eeltype = cu_eelCUT;
-        printf(">> CU Cutoff\n");
     }
     else if (EEL_RF(fr->eeltype))
     {                
         d_data->eeltype = cu_eelRF;
-        printf(">> CU RF\n");        
     }
     else if ((EEL_PME(fr->eeltype) || fr->eeltype==eelEWALD))
     {
         d_data->eeltype = cu_eelEWALD;
-        printf(">> CU Ewald\n");
     }
    else 
     {
@@ -134,6 +134,12 @@ void init_cudata_ff(FILE *fplog,
     stat = cudaMalloc((void **)&d_data->nbfp, 2*ntypes*ntypes*sizeof(*(d_data->nbfp)));
     CU_RET_ERR(stat, "cudaMalloc failed on d_data->nbfp"); 
     upload_cudata(d_data->nbfp, nbat->nbfp, 2*ntypes*ntypes*sizeof(*(d_data->nbfp)));
+
+    stat = cudaGetTextureReference(&tex_nbfp, "tex_nbfp");
+    CU_RET_ERR(stat, "cudaGetTextureReference on tex_nbfp failed");
+    cd = cudaCreateChannelDesc<float>();
+    stat = cudaBindTexture(NULL, tex_nbfp, d_data->nbfp, &cd, 2*ntypes*ntypes*sizeof(*(d_data->nbfp)));
+    CU_RET_ERR(stat, "cudaBindTexture on tex_nbfp failed");
 
     stat = cudaMalloc((void**)&d_data->shift_vec, SHIFTS*sizeof(*d_data->shift_vec));
     CU_RET_ERR(stat, "cudaMalloc failed on d_data->shift_vec");
@@ -290,7 +296,7 @@ void init_cudata_atoms(t_cudata d_data,
 void destroy_cudata(FILE *fplog, t_cudata d_data)
 {
     cudaError_t stat;
-    const textureReference  *tex_coulomb_tab;
+    const textureReference  *tex;
 
     if (d_data == NULL) return;
 
@@ -303,14 +309,20 @@ void destroy_cudata(FILE *fplog, t_cudata d_data)
     stat = cudaEventDestroy(d_data->stop_atdat);
     CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->stop_atdat");
 
+    stat = cudaGetTextureReference(&tex, "tex_nbfp");
+    CU_RET_ERR(stat, "cudaGetTextureReference on tex_nbfp failed");
+    stat = cudaUnbindTexture(tex);
+    CU_RET_ERR(stat, "cudaUnbindTexture failed on tex");
     destroy_cudata_array(d_data->nbfp);
 
-    stat = cudaGetTextureReference(&tex_coulomb_tab, "tex_coulomb_tab");
-    CU_RET_ERR(stat, "cudaGetTextureReference on tex_coulomb_tab failed");
-    stat = cudaUnbindTexture(tex_coulomb_tab);
-    CU_RET_ERR(stat, "cudaUnbindTexture failed on tex_coulomb_tab");
-
-    destroy_cudata_array(d_data->coulomb_tab, &d_data->coulomb_tab_size);            
+    if (d_data->eeltype == cu_eelEWALD)
+    {
+        stat = cudaGetTextureReference(&tex, "tex_coulomb_tab");
+        CU_RET_ERR(stat, "cudaGetTextureReference on tex_coulomb_tab failed");
+        stat = cudaUnbindTexture(tex);
+        CU_RET_ERR(stat, "cudaUnbindTexture failed on tex");
+        destroy_cudata_array(d_data->coulomb_tab, &d_data->coulomb_tab_size);            
+    }
 
     destroy_cudata_array(d_data->f, &d_data->natoms, &d_data->nalloc);
     destroy_cudata_array(d_data->xq);

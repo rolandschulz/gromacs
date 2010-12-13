@@ -89,10 +89,9 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)(
             qi      = f4tmp.w;
             typei   = atom_types[ai];
 
-            c6          = nbfp[2 * (ntypes * typei + typej)]; // LJ C6
-                          // 1e-3;
-            c12         = nbfp[2 * (ntypes * typei + typej) + 1]; // LJ C12
-                          // 1e-3;
+            // LJ C6 and C12
+            c6      = tex1Dfetch(tex_nbfp, 2 * (ntypes * typei + typej));
+            c12     = tex1Dfetch(tex_nbfp, 2 * (ntypes * typei + typej) + 1);
 
             rv          = xi - xj;
             r2          = norm2(rv);
@@ -238,10 +237,9 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)(
             qi      = f4tmp.w;
             typei   = atom_types[ai];
 
-            c6  = nbfp[2 * (ntypes * typei + typej)]; // LJ C6
-                    // 1e-3;
-            c12 = nbfp[2 * (ntypes * typei + typej) + 1]; // LJ C12
-                    // 1e-3;
+            // LJ C6 and C12            
+            c6  = tex1Dfetch(tex_nbfp, 2 * (ntypes * typei + typej));
+            c12 = tex1Dfetch(tex_nbfp, 2 * (ntypes * typei + typej) + 1);
 
             rv          = xi - xj;
             r2          = norm2(rv);
@@ -263,7 +261,6 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)(
 #ifdef EL_EWALD
                 dVdr        += qi * qj_f * interpolate_coulomb_force_r(r2 * inv_r, erfc_tab_scale);
 #endif
-
                 f_ij = rv * dVdr;
 
                 // accumulate j forces
