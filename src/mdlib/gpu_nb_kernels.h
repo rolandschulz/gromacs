@@ -103,17 +103,17 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)(
                 inv_r2      = inv_r * inv_r;
                 inv_r6      = inv_r2 * inv_r2 * inv_r2;
 
+                dVdr        = inv_r6 * (12.0 * c12 * inv_r6 - 6.0 * c6) * inv_r2;
+
 #ifdef EL_CUTOFF
-                dVdr        = qi * qj_f * inv_r2 * inv_r;  
+                dVdr        += qi * qj_f * inv_r2 * inv_r;  
 #endif
 #ifdef EL_RF
-                dVdr        = qi * qj_f * (inv_r2 * inv_r - two_krf); 
+                dVdr        += qi * qj_f * (inv_r2 * inv_r - two_krf); 
 #endif
 #ifdef EL_EWALD
-                dVdr        = qi * qj_f * interpolate_coulomb_force_r(r2 * inv_r, erfc_tab_scale);
+                dVdr        += qi * qj_f * interpolate_coulomb_force_r(r2 * inv_r, erfc_tab_scale);
 #endif
-
-                dVdr        += inv_r6 * (12.0 * c12 * inv_r6 - 6.0 * c6) * inv_r2;
 
                 f_ij = rv * dVdr;
 
@@ -251,17 +251,18 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)(
                 inv_r       = 1.0f / sqrt(r2);
                 inv_r2      = inv_r * inv_r;
                 inv_r6      = inv_r2 * inv_r2 * inv_r2;
+
+                dVdr        = inv_r6 * (12.0 * c12 * inv_r6 - 6.0 * c6) * inv_r2;
+
 #ifdef EL_CUTOFF
-                dVdr        = qi * qj_f * inv_r2 * inv_r;  
+                dVdr        += qi * qj_f * inv_r2 * inv_r;  
 #endif
 #ifdef EL_RF
-                dVdr        = qi * qj_f * (inv_r2 * inv_r - two_krf); 
+                dVdr        += qi * qj_f * (inv_r2 * inv_r - two_krf); 
 #endif
 #ifdef EL_EWALD
-                dVdr        = qi * qj_f * interpolate_coulomb_force_r(r2 * inv_r, erfc_tab_scale);
+                dVdr        += qi * qj_f * interpolate_coulomb_force_r(r2 * inv_r, erfc_tab_scale);
 #endif
-
-                dVdr        += inv_r6 * (12.0 * c12 * inv_r6 - 6.0 * c6) * inv_r2;
 
                 f_ij = rv * dVdr;
 
