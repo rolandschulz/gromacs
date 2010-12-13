@@ -391,11 +391,11 @@ static void realloc_cudata_array(void **d_dest, void *h_src, size_t type_size,
     {
         if(doStream)
         {
-            upload_cudata_async(*d_dest, h_src, *curr_alloc_size * type_size, 0);
+            upload_cudata_async(*d_dest, h_src, *curr_size * type_size, 0);
         }
         else 
         {
-            upload_cudata(*d_dest, h_src,  *curr_alloc_size * type_size);
+            upload_cudata(*d_dest, h_src,  *curr_size * type_size);
         }
     }
 }
