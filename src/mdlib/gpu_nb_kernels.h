@@ -53,9 +53,9 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)(
 
     for(si_offset = 0; si_offset < NSUBCELL; si_offset++)
     {
-        forcebuf[                 (1 + si_offset) * STRIDE_SI + tidx] = 0.0;
-        forcebuf[    STRIDE_DIM + (1 + si_offset) * STRIDE_SI + tidx] = 0.0;
-        forcebuf[2 * STRIDE_DIM + (1 + si_offset) * STRIDE_SI + tidx] = 0.0;
+        forcebuf[                 (1 + si_offset) * STRIDE_SI + tidx] = 0.0f;
+        forcebuf[    STRIDE_DIM + (1 + si_offset) * STRIDE_SI + tidx] = 0.0f;
+        forcebuf[2 * STRIDE_DIM + (1 + si_offset) * STRIDE_SI + tidx] = 0.0f;
     }
 
     // loop over i-s neighboring cells
@@ -73,7 +73,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)(
         typej   = atom_types[aj];
         xj      -= shift;
 
-        fsj_buf = make_float3(0.0);
+        fsj_buf = make_float3(0.0f);
 
         for (i = si_start; i < si_end; i++)
         {
@@ -102,7 +102,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)(
                 inv_r2      = inv_r * inv_r;
                 inv_r6      = inv_r2 * inv_r2 * inv_r2;
 
-                dVdr        = inv_r6 * (12.0 * c12 * inv_r6 - 6.0 * c6) * inv_r2;
+                dVdr        = inv_r6 * (12.0f * c12 * inv_r6 - 6.0f * c6) * inv_r2;
 
 #ifdef EL_CUTOFF
                 dVdr        += qi * qj_f * inv_r2 * inv_r;  
@@ -203,7 +203,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)(
 
     for(si_offset = 0; si_offset < NSUBCELL; si_offset++)
     {
-        fsi_buf[si_offset] = make_float3(0.0);
+        fsi_buf[si_offset] = make_float3(0.0f);
     }
 
     // loop over i-s neighboring cells
@@ -221,7 +221,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)(
         typej   = atom_types[aj];
         xj      -= shift;
 
-        fsj_buf = make_float3(0.0);
+        fsj_buf = make_float3(0.0f);
 
         for (i = si_start; i < si_end; i++)
         {
@@ -250,7 +250,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)(
                 inv_r2      = inv_r * inv_r;
                 inv_r6      = inv_r2 * inv_r2 * inv_r2;
 
-                dVdr        = inv_r6 * (12.0 * c12 * inv_r6 - 6.0 * c6) * inv_r2;
+                dVdr        = inv_r6 * (12.0f * c12 * inv_r6 - 6.0f * c6) * inv_r2;
 
 #ifdef EL_CUTOFF
                 dVdr        += qi * qj_f * inv_r2 * inv_r;  
