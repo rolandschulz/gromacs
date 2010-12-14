@@ -2687,6 +2687,9 @@ int gmx_pme_init(gmx_pme_t *         pmedata,
         pme->ndecompdim = 0;
         pme->nodeid_major = 0;
         pme->nodeid_minor = 0;
+#ifdef GMX_MPI
+        pme->mpi_comm_d[0] = pme->mpi_comm_d[1] = MPI_COMM_NULL;
+#endif
     }
     else
     {
@@ -2694,7 +2697,7 @@ int gmx_pme_init(gmx_pme_t *         pmedata,
         {
 #ifdef GMX_MPI
             pme->mpi_comm_d[0] = pme->mpi_comm;
-            pme->mpi_comm_d[1] = NULL;
+            pme->mpi_comm_d[1] = MPI_COMM_NULL;
 #endif
             pme->ndecompdim = 1;
             pme->nodeid_major = pme->nodeid;
@@ -2704,7 +2707,7 @@ int gmx_pme_init(gmx_pme_t *         pmedata,
         else if (nnodes_major == 1)
         {
 #ifdef GMX_MPI
-            pme->mpi_comm_d[0] = NULL;
+            pme->mpi_comm_d[0] = MPI_COMM_NULL;
             pme->mpi_comm_d[1] = pme->mpi_comm;
 #endif
             pme->ndecompdim = 1;
@@ -2971,7 +2974,8 @@ static void copy_local_grid(gmx_pme_t pme,
     for(d=0; d<DIM; d++)
     {
         nf[d] = min(pmegrids->nbt[d],
-                    pmegrids->grid.n[d]-pmegrid->offset[d]);
+                    pmegrids->grid.n[d]-(pmegrids->grid.order-1)
+                    -pmegrid->offset[d]);
     }
 
     offx = pmegrid->offset[XX];
@@ -3086,7 +3090,7 @@ reduce_threadgrid_overlap(gmx_pme_t pme,
     for(d=0; d<DIM; d++)
     {
         ne[d] = min(pmegrid->offset[d]+pmegrids->nbt[d],
-                    pmegrids->grid.n[d]);
+                    pmegrids->grid.n[d]-(pmegrids->grid.order-1));
     }
 
     offx = pmegrid->offset[XX];
@@ -3114,33 +3118,39 @@ reduce_threadgrid_overlap(gmx_pme_t pme,
     for(sx=0; sx>=-ns[XX]; sx--)
     {
         fx = pmegrid->ci[XX] + sx;
-        ox = fx*pmegrids->nbt[XX];
+        ox = 0;
         bCommX = (fx < 0);
         if (bCommX) {
             fx += pmegrids->nc[XX];
+            ox -= pmegrids->grid.n[XX] - (pmegrids->grid.order - 1);
             bCommX = (pme->nnodes_major > 1);
         }
+        ox += fx*pmegrids->nbt[XX];
         tx1 = min(ox + pmegrids->nst[XX],ne[XX]);
 
         for(sy=0; sy>=-ns[YY]; sy--)
         {
             fy = pmegrid->ci[YY] + sy;
-            oy = fy*pmegrids->nbt[YY];
+            oy = 0;
             bCommY = (fy < 0);
             if (bCommY) {
                 fy += pmegrids->nc[YY];
+                oy -= pmegrids->grid.n[YY] - (pmegrids->grid.order - 1);
                 bCommY = (pme->nnodes_minor > 1);
             }
+            oy += fy*pmegrids->nbt[YY];
             ty1 = min(oy + pmegrids->nst[YY],ne[YY]);
 
             for(sz=0; sz>=-ns[ZZ]; sz--)
             {
                 fz = pmegrid->ci[ZZ] + sz;
-                oz = fz*pmegrids->nbt[ZZ];
+                oz = 0;
                 if (fz < 0)
                 {
                     fz += pmegrids->nc[ZZ];
+                    oz -= pmegrids->grid.n[ZZ] - (pmegrids->grid.order - 1);
                 }
+                oz += fz*pmegrids->nbt[ZZ];
                 tz1 = min(oz + pmegrids->nst[ZZ],ne[ZZ]);
 
                 if (sx == 0 && sy == 0 && sz == 0)
