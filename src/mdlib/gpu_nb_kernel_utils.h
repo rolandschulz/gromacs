@@ -12,12 +12,12 @@ texture<float, 1, cudaReadModeElementType> tex_nbfp;
 texture<float, 1, cudaReadModeElementType> tex_coulomb_tab;
 
 inline __device__ void reduce_force_i_generic_strided(float *fbuf, float4 *fout,
-        int tidxx, int tidxy, int aidx)
+        int tidxi, int tidxj, int aidx)
 {
-    if (tidxy == 0)
+    if (tidxj == 0)
     {
         float4 f = make_float4(0.0f);
-        for (int j = tidxx * CELL_SIZE; j < (tidxx + 1) * CELL_SIZE; j++)
+        for (int j = tidxi * CELL_SIZE; j < (tidxi + 1) * CELL_SIZE; j++)
         {
             f.x += fbuf[                 j];
             f.y += fbuf[    STRIDE_DIM + j];
@@ -31,12 +31,12 @@ inline __device__ void reduce_force_i_generic_strided(float *fbuf, float4 *fout,
 }
 
 inline __device__ void reduce_force_j_generic_strided(float *fbuf, float4 *fout,
-        int tidxx, int tidxy, int aidx)
+        int tidxi, int tidxj, int aidx)
 {
-    if (tidxx == 0)
+    if (tidxi == 0)
     {
         float4 f = make_float4(0.0f);
-        for (int j = tidxy; j < CELL_SIZE_2; j += CELL_SIZE)
+        for (int j = tidxj; j < CELL_SIZE_2; j += CELL_SIZE)
         {
             f.x += fbuf[                 j];
             f.y += fbuf[    STRIDE_DIM + j];
@@ -82,33 +82,33 @@ static __device__ float interpolate_coulomb_force_r(float r, float scale)
 #if 0
 /* 8x8 */
 __device__ void reduce_force8_strided(float *fbuf, float4 *fout,
-        int tidxx, int tidxy, int ai)
+        int tidxi, int tidxj, int ai)
 {
     /* 64 -> 32: 8x4 threads */
-    if (tidxy < CELL_SIZE/2)
+    if (tidxj < CELL_SIZE/2)
     {
-        fbuf[                 tidxx * CELL_SIZE + tidxy] += fbuf[                 tidxx * CELL_SIZE + tidxy + CELL_SIZE/2];
-        fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy] += fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy + CELL_SIZE/2];
-        fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy] += fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy + CELL_SIZE/2];
+        fbuf[                 tidxi * CELL_SIZE + tidxj] += fbuf[                 tidxi * CELL_SIZE + tidxj + CELL_SIZE/2];
+        fbuf[    STRIDE_DIM + tidxi * CELL_SIZE + tidxj] += fbuf[    STRIDE_DIM + tidxi * CELL_SIZE + tidxj + CELL_SIZE/2];
+        fbuf[2 * STRIDE_DIM + tidxi * CELL_SIZE + tidxj] += fbuf[2 * STRIDE_DIM + tidxi * CELL_SIZE + tidxj + CELL_SIZE/2];
     }
     /* 32 -> 16: 8x2 threads */
-    if (tidxy < CELL_SIZE/4)
+    if (tidxj < CELL_SIZE/4)
     {
-        fbuf[                 tidxx * CELL_SIZE + tidxy] += fbuf[                 tidxx * CELL_SIZE + tidxy + CELL_SIZE/4];
-        fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy] += fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy + CELL_SIZE/4];
-        fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy] += fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy + CELL_SIZE/4];
+        fbuf[                 tidxi * CELL_SIZE + tidxj] += fbuf[                 tidxi * CELL_SIZE + tidxj + CELL_SIZE/4];
+        fbuf[    STRIDE_DIM + tidxi * CELL_SIZE + tidxj] += fbuf[    STRIDE_DIM + tidxi * CELL_SIZE + tidxj + CELL_SIZE/4];
+        fbuf[2 * STRIDE_DIM + tidxi * CELL_SIZE + tidxj] += fbuf[2 * STRIDE_DIM + tidxi * CELL_SIZE + tidxj + CELL_SIZE/4];
     }
     /* 16 ->  8: 8 threads */
-    if (tidxy < CELL_SIZE/8)
+    if (tidxj < CELL_SIZE/8)
     {
-        atomicAdd(&fout[ai].x, fbuf[                 tidxx * CELL_SIZE + tidxy] + fbuf[                 tidxx * CELL_SIZE + tidxy + CELL_SIZE/8]);
-        atomicAdd(&fout[ai].y, fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy] + fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy + CELL_SIZE/8]);
-        atomicAdd(&fout[ai].z, fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy] + fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy + CELL_SIZE/8]);
+        atomicAdd(&fout[ai].x, fbuf[                 tidxi * CELL_SIZE + tidxj] + fbuf[                 tidxi * CELL_SIZE + tidxj + CELL_SIZE/8]);
+        atomicAdd(&fout[ai].y, fbuf[    STRIDE_DIM + tidxi * CELL_SIZE + tidxj] + fbuf[    STRIDE_DIM + tidxi * CELL_SIZE + tidxj + CELL_SIZE/8]);
+        atomicAdd(&fout[ai].z, fbuf[2 * STRIDE_DIM + tidxi * CELL_SIZE + tidxj] + fbuf[2 * STRIDE_DIM + tidxi * CELL_SIZE + tidxj + CELL_SIZE/8]);
     }
 }
 
 inline __device__ void reduce_force_pow2_strided(float *fbuf, float4 *fout,
-        int tidxx, int tidxy, int aidx)
+        int tidxi, int tidxj, int aidx)
 {
     int i = CELL_SIZE/2;
 
@@ -117,40 +117,40 @@ inline __device__ void reduce_force_pow2_strided(float *fbuf, float4 *fout,
     # pragma unroll 5
     while (i > 1)
     {
-        if (tidxy < i)
+        if (tidxj < i)
         {
 
-            fbuf[                 tidxx * CELL_SIZE + tidxy] += fbuf[                 tidxx * CELL_SIZE + tidxy + i];
-            fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy] += fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy + i];
-            fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy] += fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy + i];
+            fbuf[                 tidxi * CELL_SIZE + tidxj] += fbuf[                 tidxi * CELL_SIZE + tidxj + i];
+            fbuf[    STRIDE_DIM + tidxi * CELL_SIZE + tidxj] += fbuf[    STRIDE_DIM + tidxi * CELL_SIZE + tidxj + i];
+            fbuf[2 * STRIDE_DIM + tidxi * CELL_SIZE + tidxj] += fbuf[2 * STRIDE_DIM + tidxi * CELL_SIZE + tidxj + i];
         }
         i >>= 1;
     }
 
     /* i == 1, last reduction step, writing to global mem */
-    if (tidxy == 0)
+    if (tidxj == 0)
     {
         atomicAdd(&fout[aidx].x,
-            fbuf[                 tidxx * CELL_SIZE + tidxy] + fbuf[                 tidxx * CELL_SIZE + tidxy + i]);
+            fbuf[                 tidxi * CELL_SIZE + tidxj] + fbuf[                 tidxi * CELL_SIZE + tidxj + i]);
         atomicAdd(&fout[aidx].y,
-            fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy] + fbuf[    STRIDE_DIM + tidxx * CELL_SIZE + tidxy + i]);
+            fbuf[    STRIDE_DIM + tidxi * CELL_SIZE + tidxj] + fbuf[    STRIDE_DIM + tidxi * CELL_SIZE + tidxj + i]);
         atomicAdd(&fout[aidx].z,
-            fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy] + fbuf[2 * STRIDE_DIM + tidxx * CELL_SIZE + tidxy + i]);
+            fbuf[2 * STRIDE_DIM + tidxi * CELL_SIZE + tidxj] + fbuf[2 * STRIDE_DIM + tidxi * CELL_SIZE + tidxj + i]);
     }
 }
 
 inline __device__ void reduce_force_strided(float *forcebuf, float4 *f,
-        int tidxx, int tidxy, int ai)
+        int tidxi, int tidxj, int ai)
 {
     if ((CELL_SIZE & (CELL_SIZE - 1)))
     {
-        // reduce_force_generic_strided(forcebuf, f, tidxx, tidxy, ai);
+        // reduce_force_generic_strided(forcebuf, f, tidxi, tidxj, ai);
     }
 
     else
     {
-        // reduce_force8_strided(forcebuf, f, tidxx, tidxy, ai);
-        // reduce_force_pow2_strided(forcebuf, f, tidxx, tidxy, ai);
+        // reduce_force8_strided(forcebuf, f, tidxi, tidxj, ai);
+        // reduce_force_pow2_strided(forcebuf, f, tidxi, tidxj, ai);
     }
 }
 #endif 

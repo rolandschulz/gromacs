@@ -34,7 +34,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)(
     float qi, qj_f,
           r2, inv_r, inv_r2, inv_r6,
           c6, c12,
-          dVdr;
+          F_invr;
     float4  f4tmp;
     float3  xi, xj, rv;
     float3  shift;
@@ -102,19 +102,19 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)(
                 inv_r2      = inv_r * inv_r;
                 inv_r6      = inv_r2 * inv_r2 * inv_r2;
 
-                dVdr        = inv_r6 * (12.0f * c12 * inv_r6 - 6.0f * c6) * inv_r2;
+                F_invr      = inv_r6 * (12.0f * c12 * inv_r6 - 6.0f * c6) * inv_r2;
 
 #ifdef EL_CUTOFF
-                dVdr        += qi * qj_f * inv_r2 * inv_r;  
+                F_invr      += qi * qj_f * inv_r2 * inv_r;  
 #endif
 #ifdef EL_RF
-                dVdr        += qi * qj_f * (inv_r2 * inv_r - two_krf); 
+                F_invr      += qi * qj_f * (inv_r2 * inv_r - two_krf); 
 #endif
 #ifdef EL_EWALD
-                dVdr        += qi * qj_f * interpolate_coulomb_force_r(r2 * inv_r, erfc_tab_scale);
+                F_invr      += qi * qj_f * interpolate_coulomb_force_r(r2 * inv_r, erfc_tab_scale);
 #endif
 
-                f_ij = rv * dVdr;
+                f_ij = rv * F_invr;
 
                 // accumulate j forces
                 fsj_buf -= f_ij;
@@ -142,7 +142,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)(
         ai  = (ci * NSUBCELL + si_offset) * CELL_SIZE + tidxx;  /* i atom index */
         reduce_force_i_generic_strided(forcebuf + (1 + si_offset) * STRIDE_SI, f, tidxx, tidxy, ai);
     }
-    __syncthreads();
+    __syncthreads(); /* TODO remove this! */
 }
 
 
@@ -183,7 +183,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)(
     float qi, qj_f,
           r2, inv_r, inv_r2, inv_r6,
           c6, c12,
-          dVdr;
+          F_invr;
     float4 f4tmp;
     float3 xi, xj, rv;
     float3 shift;
@@ -250,18 +250,18 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)(
                 inv_r2      = inv_r * inv_r;
                 inv_r6      = inv_r2 * inv_r2 * inv_r2;
 
-                dVdr        = inv_r6 * (12.0f * c12 * inv_r6 - 6.0f * c6) * inv_r2;
+                F_invr      = inv_r6 * (12.0f * c12 * inv_r6 - 6.0f * c6) * inv_r2;
 
 #ifdef EL_CUTOFF
-                dVdr        += qi * qj_f * inv_r2 * inv_r;  
+                F_invr      += qi * qj_f * inv_r2 * inv_r;  
 #endif
 #ifdef EL_RF
-                dVdr        += qi * qj_f * (inv_r2 * inv_r - two_krf); 
+                F_invr      += qi * qj_f * (inv_r2 * inv_r - two_krf); 
 #endif
 #ifdef EL_EWALD
-                dVdr        += qi * qj_f * interpolate_coulomb_force_r(r2 * inv_r, erfc_tab_scale);
+                F_invr      += qi * qj_f * interpolate_coulomb_force_r(r2 * inv_r, erfc_tab_scale);
 #endif
-                f_ij = rv * dVdr;
+                f_ij = rv * F_invr;
 
                 // accumulate j forces
                 fsj_buf -= f_ij;
@@ -292,7 +292,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)(
 
         __syncthreads();
     }
-    __syncthreads();
+    __syncthreads(); /* TODO remove this! */
 }
 
 #undef EL_CUTOFF
