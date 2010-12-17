@@ -1530,6 +1530,9 @@ void init_md(FILE *fplog,
 			snew(write_buf->state_local[i]->cg_gl,state->cg_gl_nalloc);
 			snew(write_buf->state_local[i]->x,state->nalloc);
 		}
+	    MPI_Comm_rank(cr->dd->mpi_comm_all,&(write_buf->globalRank));
+	    MPI_Comm_split (cr->dd->mpi_comm_all, write_buf->globalRank/write_buf->coresPerNode, write_buf->globalRank, &(write_buf->gather_comm));//TODO RJ:Define coresPerNode!
+	    MPI_Comm_split (cr->dd->mpi_comm_all, write_buf->globalRank%write_buf->coresPerNode, write_buf->globalRank, &(write_buf->alltoall_comm));//TODO RJ:Define coresPerNode!
 	}
 
     if (nfile != -1)

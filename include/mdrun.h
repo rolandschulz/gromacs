@@ -144,7 +144,12 @@ typedef struct {
 	gmx_large_int_t step; 
 	double t;  
 	//first step of run or first step after checkpoint - required to compute the number of buffered frames
-	int step_after_checkpoint; 
+	int step_after_checkpoint;
+	//For collecting dd->cg, cg indices, ncg_home, and nat_home
+	MPI_Comm gather_comm;
+	MPI_Comm alltoall_comm;
+	//For use with gather and alltoall comms
+	int globalRank, coresPerNode;
 } t_write_buffer;
 
 /* Variables for temporary use with the deform option,

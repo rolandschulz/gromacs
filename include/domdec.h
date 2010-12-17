@@ -22,6 +22,7 @@
 #include "typedefs.h"
 #include "vsite.h"
 #include "genborn.h"
+#include "mdrun.h"
 
 #ifdef GMX_LIB_MPI
 #include <mpi.h>
@@ -117,6 +118,10 @@ int allocate_dd_buf(gmx_domdec_t ***dd_buf, t_commrec *cr);// Allocates dd and s
 
 void dd_collect_vec(gmx_domdec_t *dd,
                            t_state *state_local,rvec *lv,rvec *v);
+
+//This collects buffered frames from all nodes and stores them on the dd->ma ncg, nat, and index
+//of all the IOnodes
+void dd_collect_cg_buffered (t_write_buffer *write_buf, t_commrec *cr, int bufferStep);
 
 void dd_collect_state(gmx_domdec_t *dd,
                              t_state *state_local,t_state *state);

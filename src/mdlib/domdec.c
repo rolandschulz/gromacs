@@ -1222,6 +1222,43 @@ static void dd_move_cellx(gmx_domdec_t *dd,gmx_ddbox_t *ddbox,
     }
 }
 
+void dd_collect_cg_buffered(t_write_buffer *write_buf, t_commrec *cr, int bufferStep)
+{
+    int *sendBuf, //This is used to convey 2 different bits of data in a single MPI call, [0] = ncg_home, [1] = nat_home
+        *recvBuf,
+        i = 0, j;
+    snew(sendBuf, bufferStep * write_buf->dd[0]->nnodes * 2);//bufferedStep because each node has stored frames, nnodes because ionodes will receive bufferedStep frames, and 2 because we are collecting 2 integers from each buffered frame
+    snew(recvBuf, bufferStep * write_buf->dd[0]->nnodes * 2);//I used rank zero simply because all DDs should have the same nnodes value
+
+    for (i=0; i<bufferStep; i++)//correct :)
+    {
+        sendBuf[i]   = write_buf->dd[i]->ncg_home;
+        sendBuf[i+bufferStep] = write_buf->dd[i]->nat_home;
+    }
+    MPI_Gather  (sendBuf, bufferStep * 2, MPI_INT, recvBuf, bufferStep * 2, MPI_INT, 0, write_buf->gather_comm);
+
+    //TODO RJ: So, only IONODES need the data... think of a good way to make sure that if the data isn't headed to an IO node, that NULL is sent instead
+    MPI_Alltoall(recvBuf, bufferStep * 2 * write_buf->coresPerNode, MPI_INT,
+                 sendBuf, bufferStep * 2 * write_buf->coresPerNode, MPI_INT, write_buf->alltoall_comm);//TODO RJ: Check validity
+
+    if (IONODE(cr))//TODO RJ: Check
+    {
+
+        for (i=0; i<bufferStep; i++)
+        {
+            write_buf->dd[i]->ma->index[0] = 0;
+            for(j=0; j<write_buf->dd[i]->nnodes; j++)
+            {
+                write_buf->dd[i]->ma->ncg[j]     = sendBuf[i * write_buf->dd[i]->nnodes + j]; // I*nnodes skips I number of loops
+                write_buf->dd[i]->ma->nat[j]     = sendBuf[i * write_buf->dd[i]->nnodes + bufferStep * write_buf->dd[i]->nnodes + j]; //bufferedStep * nnodes skips the entire first partition of data
+                write_buf->dd[i]->ma->index[j+1] = write_buf->dd[i]->ma->index[j] + write_buf->dd[i]->ma->ncg[j];//The name is misleading, its used as a displacement buffer
+            }
+        }
+    }
+
+    //dd->comm->master_cg_ddp_count = state_local->ddp_count; //I'm not sure if this is relevant but I MAY want to do this anyways just to be safe
+}
+
 static void dd_collect_cg(gmx_domdec_t *dd,
                           t_state *state_local)
 {
@@ -1263,7 +1300,7 @@ static void dd_collect_cg(gmx_domdec_t *dd,
     if (DDMASTER(dd))
     {
         ma = dd->ma;
-        ibuf = ma->ibuf;
+        ibuf = ma->ibuf;//This works because what is happening here is the address of ibuf is = to ma_>ibuf so the two are interchangeable
     }
     else
     {
@@ -1406,10 +1443,11 @@ static void dd_collect_vec_gatherv(gmx_domdec_t *dd,
     {
         cgs_gl = &dd->comm->cgs_gl;
 
+        //do this sorting for each frame
         a = 0;
-        for(n=0; n<dd->nnodes; n++)
+        for(n=0; n<dd->nnodes; n++)  //loop over nodes
         {
-            for(i=ma->index[n]; i<ma->index[n+1]; i++)
+            for(i=ma->index[n]; i<ma->index[n+1]; i++)  //loop over cgs on a node
             {
                 for(c=cgs_gl->index[ma->cg[i]]; c<cgs_gl->index[ma->cg[i]+1]; c++)
                 {
@@ -1423,9 +1461,9 @@ static void dd_collect_vec_gatherv(gmx_domdec_t *dd,
 void dd_collect_vec(gmx_domdec_t *dd,
                     t_state *state_local,rvec *lv,rvec *v)
 {
-    gmx_domdec_master_t *ma;
-    int  n,i,c,a,nalloc=0;
-    rvec *buf=NULL;
+    //gmx_domdec_master_t *ma;
+    //int  n,i,c,a,nalloc=0;
+    //rvec *buf=NULL;
     
     dd_collect_cg(dd,state_local);
 
@@ -1436,6 +1474,166 @@ void dd_collect_vec(gmx_domdec_t *dd,
     else
     {
         dd_collect_vec_gatherv(dd,lv,v);
+    }
+}
+
+
+void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, int bufferStep)
+{
+    int *sendCount,  //integer array equal to the group size specifying the number of elements to send to each processor
+        *recvCount,  //integer array (of length group size) containing the number of elements that are received from each process (significant only at root)
+        *sendDisp,   //integer array (of length group size)
+        *recvDisp,   //integer array (of length group size). Entry  i specifies the displacement relative to recvbuf at which to place the incoming data from process  i (significant only at root)
+        *ncgReceive, //length: nnodes * bufferStep, each entry specifies number of cgs per step, 0 to nnodes-1 are ncgs for the first frame...
+        *natReceive, //length: nnodes * bufferStep, each entry specifies number of atoms per step
+        *ncg_nat_disp; //length: coresPerNode * bufferStep, data order:
+    int i, j, k, l, m,
+    ncgSendTotal=0, //Used to setup sendBuf and represents how many bytes each core will send, meaning: ncg * bufferStep per node
+    natSendTotal=0,
+    ncgReceiveTotal=0,
+    natReceiveTotal=0,
+    nodeSendTotal=0, // Used for the Alltoallv call
+    recvBufSize=0,
+    unloadDisp=0;
+    real *sendBuf, //Contains: First frame on first core , cg then atoms. Then it moves turns into second frame on first core...then turns into first frame on second core on this node
+         *recvBuf,
+         *sortBuf;
+
+    snew (sendCount, write_buf->coresPerNode);
+    snew (recvCount, write_buf->coresPerNode);
+    snew (ncgReceive, cr->nnodes * bufferStep);
+    snew (natReceive, cr->nnodes * bufferStep);
+    snew (recvDisp, write_buf->coresPerNode);
+    snew (sendDisp, cr->nionodes);
+    snew (ncg_nat_disp, cr->nnodes * bufferStep);
+
+    dd_collect_cg_buffered(write_buf, cr, bufferStep);//TODO RJ: Check //This could/should be made static as it isn't used anywhere else. Also it is only used once right here so really it could just be removed all together and just drop the code directly into this function.
+
+    //------------------------The Gather Comm start-----------------------------------------------------------------------
+
+
+    //This loop will be used to create information used for both the gather and alltoall comms
+    for (i=0; i<bufferStep; i++)
+    {
+        ncgSendTotal += write_buf->dd[i]->ncg_home;
+        natSendTotal += write_buf->dd[i]->nat_home;
+
+        for (j=0; j<cr->nnodes; j++)
+        {
+            ncgReceive[i*cr->nnodes + j] = write_buf->dd[i]->ma->ncg[j];//TODO RJ: check... looks ok
+            natReceive[i*cr->nnodes + j] = write_buf->dd[i]->ma->nat[j];//TODO RJ: check... looks ok
+            ncg_nat_disp[i*cr->nnodes+j] = (i==0 && j==0 ? 0 : ncg_nat_disp[i*cr->nnodes+j-1])
+                                         + write_buf->dd[i]->ma->ncg[j]
+                                         + write_buf->dd[i]->ma->nat[j] * 3;//TODO RJ: improper use of ncg_nat_disp! it was originally designed to store data for only 1 core, but now is being used more broadly
+        }
+    }
+
+    //TODO RJ: check
+    for(i=0; i<write_buf->coresPerNode; i++)
+    {
+        for (j=0; j<bufferStep; j++)
+        {
+            recvCount[i] += ncgReceive[i*bufferStep + j] * sizeof(int) + natReceive[i*bufferStep + j] * sizeof(real) * 3;
+            ncgReceiveTotal += ncgReceive[i*bufferStep + j];
+            natReceiveTotal += natReceive[i*bufferStep + j];
+            recvDisp[i] = (i==0 ? 0 : recvDisp[i-1] + recvCount[i]);
+        }
+    }
+
+    snew (sendBuf, ncgSendTotal + natSendTotal);
+    snew (recvBuf, ncgReceiveTotal + natReceiveTotal);
+
+    for (i=0; i<bufferStep; i++)
+    {
+        //This fills in the send buf with the cgs
+        for (j=0; j<write_buf->dd[i]->ncg_home; j++)
+        {
+            sendBuf[ncg_nat_disp[(i==0 ? 0 : i-1)] + j] = write_buf->dd[i]->index_gl[j];//TODO RJ: incorrect usage of disp
+        }
+
+        //This fills in each XYZ coordinate of each atom
+        for (j=0; j<write_buf->dd[i]->nat_home; j++)
+        {
+            for (k=0; k<3; k++)
+            {
+                //      v----skips past ncg-----v   v-------skips i atoms--------v
+                sendBuf[ncg_nat_disp[i] + (j*3) + k] = write_buf->state_local[i]->x[j][k];//TODO RJ: incorrect usage of disp
+            }
+        }
+    }
+
+    MPI_Gatherv (sendBuf, ncgSendTotal*sizeof(int) + natSendTotal*sizeof(real)*3, MPI_BYTE,
+                 recvBuf, recvCount, recvDisp, MPI_BYTE,
+                 0, write_buf->gather_comm);
+    //------------------------The Gather Comm end-------------------------------------------------------------------------
+    //------------------------The Alltoall Comm start---------------------------------------------------------------------
+    if (IONODE(cr))
+    {
+        srenew (recvDisp, cr->nionodes);
+
+        for (i = 0; i < cr->nionodes; i++)
+        {
+            for (j=0; j<write_buf->coresPerNode; j++)
+            {
+                sendCount[i]  += (ncgReceive[cr->nnodes * i + write_buf->globalRank] * sizeof(int))
+                              +  (natReceive[cr->nnodes * i + write_buf->globalRank] * sizeof(real) * 3);//TODO RJ: check
+
+                recvCount[i]  += (ncgReceive[cr->nnodes  * write_buf->globalRank + i] * sizeof(int))
+                              +  (natReceive[cr->nnodes  * write_buf->globalRank + i] * sizeof(real) * 3);//TODO RJ: check... looks ok
+            }
+            nodeSendTotal += sendCount[i];
+            recvBufSize += recvCount[i];
+            recvDisp[i] = (i==0 ? 0 : recvDisp[i-1] + recvCount[i]);
+        }
+
+        snew   (sortBuf, nodeSendTotal);
+        srenew (sendBuf, nodeSendTotal);
+        sortBuf = recvBuf;
+        srenew (recvBuf, recvBufSize);
+
+        //sorts the sendBuf so that first frame from first core is first, then comes first frame from second core...
+        l=0;//used to fill sendBuf
+        m=0;//used to create Send displacement
+        for (i=0; i<bufferStep; i++)//switch steps
+        {
+            for (j=0; j<write_buf->coresPerNode; j++)//switch cores
+            {
+                sendDisp[m++] = l;
+                for (k=ncg_nat_disp[bufferStep * j + i]; k<ncg_nat_disp[bufferStep * j + i + 1]; k++)//read 1 frame//TODO RJ: incorrect usage of disp
+                {
+                    sendBuf[l++] = sortBuf[k]; //TODO RJ: Check...looks ok
+                }
+            }
+        }
+
+        //TODO RJ: So, only IONODES need the data... think of a good way to make sure that if the data isn't headed to an IO node, that NULL is sent instead
+        MPI_Alltoallv(sendBuf, sendCount, sendDisp, MPI_BYTE, recvBuf, recvCount, recvDisp, MPI_BYTE, write_buf->alltoall_comm);
+        //------------------------The Alltoall Comm end-----------------------------------------------------------------------
+
+        //TODO RJ: CHECK! The original call was a rather confusing one
+        for (i=0; i<bufferStep; i++)
+        {
+            for (j=0; j<cr->nnodes; j++)//This + i will cycle through every cores' data
+            {
+                //figure out how many ints to read
+                for (k=0; k<ncgReceive [cr->dd->iorank * cr->nnodes + j]; k++)//I'm 99% sure this will eventually cycle through all cgs
+                {
+                    write_buf->dd[i]->ma->cg[k] = (int)recvBuf[k+unloadDisp];//TODO RJ: check to make sure this is ok... I know doubles cause trouble....
+                }
+                unloadDisp+=k;
+                //figure out how many atoms to read
+                //store atoms XYZ location in state_global->x
+                for (k=0; k<natReceive [cr->dd->iorank * cr->nnodes + j]; k++)
+                {
+                    for (l=0; l<3; l++)
+                    {
+                        //Sorts the atoms//TODO RJ: CHECK!!! lots of ways to screw this one up, so check it CAREFULLY!
+                        v[write_buf->dd[i]->comm->cgs_gl.index [ write_buf->dd[i]->ma->cg[write_buf->dd[i]->ma->index[j] + k]] ]  [l] = recvBuf[j+unloadDisp];
+                    }
+                }
+                unloadDisp+=k;
+            }
+        }
     }
 }
 
@@ -5689,7 +5887,7 @@ int copy_dd (gmx_domdec_t *copy_dd,gmx_domdec_t *orig_dd) // Copies orig_dd into
     copy_dd->ma = ma_new;
 
     memcpy (copy_dd->index_gl,orig_dd->index_gl, sizeof(int) * orig_dd->ncg_home);  //copy dd->index_gl
-    //ma doesn't need to be copies. Is only used as receive buffer
+    //ma doesn't need to be copied. Its only used as receive buffer
 
 
     //copy dd->comm

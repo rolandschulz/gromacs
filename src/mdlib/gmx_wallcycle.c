@@ -163,7 +163,7 @@ static void wallcycle_all_stop(gmx_wallcycle_t wc,int ewc,gmx_cycles_t cycle)
 
 void wallcycle_start(gmx_wallcycle_t wc, int ewc)
 {
-    PAT_region_begin(ewc+1, wcn[ewc]);
+    //TODO RJ:PAT_region_begin(ewc+1, wcn[ewc]);
     gmx_cycles_t cycle;
 
     if (wc == NULL)
@@ -227,7 +227,7 @@ double wallcycle_stop(gmx_wallcycle_t wc, int ewc)
         }
     }
 
-    PAT_region_end(ewc+1);
+    //TODO RJ:PAT_region_end(ewc+1);
     return last;
 }
 

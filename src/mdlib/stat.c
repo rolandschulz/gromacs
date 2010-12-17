@@ -555,8 +555,8 @@ static int copy_state_local(t_state *new_sl,t_state *old_sl)
 	memcpy(new_sl,old_sl,sizeof(t_state));
 	new_sl->cg_gl = cg_gl_new;
 	new_sl->x = x_new;
-        srenew(new_sl->cg_gl,old_sl->cg_gl_nalloc);
-        srenew(new_sl->x,old_sl->nalloc);
+	srenew(new_sl->cg_gl,old_sl->cg_gl_nalloc);
+	srenew(new_sl->x,old_sl->nalloc);
 	memcpy(new_sl->cg_gl, old_sl->cg_gl, sizeof(int) * old_sl->cg_gl_nalloc);
 	memcpy(new_sl->x, old_sl->x, sizeof(rvec) * old_sl->natoms);
 	return 0;
@@ -654,6 +654,8 @@ void write_traj(FILE *fplog,t_commrec *cr,
 
             if (writeXTCNow)
             {
+                /*
+                //rj: replace this for loop with new collect calls
                 for (i = 0; i <= bufferStep; i++)//Collect each buffered frame to one of the IO nodes. The data is collected to the node with rank write_buf->dd[i]->masterrank.
                 {
                     write_buf->dd[i]->masterrank = cr->dd->iorank2ddrank[i];
@@ -662,6 +664,9 @@ void write_traj(FILE *fplog,t_commrec *cr,
                         dd_collect_vec(write_buf->dd[i],write_buf->state_local[i],write_buf->state_local[i]->x,state_global->x);
                     }
                 }
+                */
+                //RJ: New collect call: dd_collect_vec_buffered(write_buf, state_global->x, cr, bufferStep);
+                dd_collect_vec_buffered(write_buf, state_global->x, cr, bufferStep);
             }
         }
     }
