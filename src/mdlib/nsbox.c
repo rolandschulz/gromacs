@@ -1304,9 +1304,11 @@ static void set_ci_excls(const gmx_nbsearch_t nbs,
 {
     const int *cell;
     int naps;
-    int ci,sj_ind_f,sj_ind_l,sj_ind_m,found;
-    int sj_first,sj_last;
+    int ci;
+    int sj_ind_nsubc;
+    int sj_first,sj_last,sj_nsubc;
     int i,ai,si,eind,ge,se;
+    int found,sj_ind_0,sj_ind_1,sj_ind_m;
     int si_ind;
     int inner_i,inner_e;
 
@@ -1314,11 +1316,7 @@ static void set_ci_excls(const gmx_nbsearch_t nbs,
 
     naps = nbs->naps;
 
-    ci       = nbl_ci->ci;
-    sj_ind_f = nbl_ci->sj_ind_start;
-    sj_ind_l = nbl_ci->sj_ind_end - 1;
-
-    if (sj_ind_f > sj_ind_l)
+    if (nbl_ci->sj_ind_end == nbl_ci->sj_ind_start)
     {
         /* Empty list */
         return;
@@ -1334,8 +1332,18 @@ static void set_ci_excls(const gmx_nbsearch_t nbs,
     }
 #endif
 
-    sj_first = nbl->sj[sj_ind_f].sj;
-    sj_last  = nbl->sj[sj_ind_l].sj;
+    ci = nbl_ci->ci;
+
+    /* There is a high probability that exclusions are within the same
+     * super-cell. Up to and including sj_ind_nsubc we search linearly.
+     * Note that sj_nsubc is not always within the same super-cell,
+     * but the resulting procedure is correct and fast anyhow.
+     */
+    sj_ind_nsubc = min(nbl_ci->sj_ind_start+NSUBCELL-1,nbl_ci->sj_ind_end-1);
+
+    sj_first = nbl->sj[nbl_ci->sj_ind_start].sj;
+    sj_last  = nbl->sj[nbl_ci->sj_ind_end-1].sj;
+    sj_nsubc = nbl->sj[sj_ind_nsubc].sj;
 
     /* Loop over the atoms in the i super-cell */
     for(i=0; i<nbs->napc; i++)
@@ -1357,39 +1365,44 @@ static void set_ci_excls(const gmx_nbsearch_t nbs,
             {
                 ge = cell[excl->a[eind]];
                 se = ge/naps;
-                /* Could the sub-cell se this exclusion is in be in our list? */
+                /* Could the sub-cell se be in our list? */
                 if (se >= sj_first && se <= sj_last)
                 {
-                    sj_ind_f = nbl_ci->sj_ind_start;
-                    sj_ind_l = nbl_ci->sj_ind_end - 1;
+                    found = -1;
 
-                    if (se == sj_first)
+                    if (se <= sj_nsubc)
                     {
-                        found = sj_ind_f;
-                    }
-                    else if (se == sj_last)
-                    {
-                        found = sj_ind_l;
+                        /* Search for se looking linearly through the list */
+                        sj_ind_m = nbl_ci->sj_ind_start;
+                        while(found == -1 && nbl->sj[sj_ind_m].sj <= se)
+                        {
+                            if (se == nbl->sj[sj_ind_m].sj)
+                            {
+                                found = sj_ind_m;
+                            }
+                            sj_ind_m++;
+                        }
                     }
                     else
                     {
-                        found = -1;
-                    }
-                    /* Search for se using bisection. */
-                    while (found == -1 && sj_ind_l - sj_ind_f > 1)
-                    {
-                        sj_ind_m = (sj_ind_f + sj_ind_l)/2;
-                        if (se == nbl->sj[sj_ind_m].sj)
+                        /* Search for se using bisection */
+                        sj_ind_0 = sj_ind_nsubc + 1;
+                        sj_ind_1 = nbl_ci->sj_ind_end;
+                        while (found == -1 && sj_ind_0 < sj_ind_1)
                         {
-                            found = sj_ind_m;
-                        }
-                        else if (se < nbl->sj[sj_ind_m].sj)
-                        {
-                            sj_ind_l = sj_ind_m;
-                        }
-                        else
-                        {
-                            sj_ind_f = sj_ind_m;
+                            sj_ind_m = (sj_ind_0 + sj_ind_1)/2;
+                            if (se == nbl->sj[sj_ind_m].sj)
+                            {
+                                found = sj_ind_m;
+                            }
+                            else if (se < nbl->sj[sj_ind_m].sj)
+                            {
+                                sj_ind_1 = sj_ind_m;
+                            }
+                            else
+                            {
+                                sj_ind_0 = sj_ind_m + 1;
+                            }
                         }
                     }
 
