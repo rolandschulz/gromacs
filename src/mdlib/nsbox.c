@@ -97,6 +97,7 @@ typedef struct gmx_nbsearch {
 
     int  naps;  /* Number of atoms in the inner loop / sub cell */
     int  napc;  /* Number of atoms in the super cell            */
+    int  naps2log;
 
     int  ncx;
     int  ncy;
@@ -151,6 +152,15 @@ void gmx_nbsearch_init(gmx_nbsearch_t * nbs_ptr,int natoms_subcell)
                   "napc (%d) is larger than the maximum allowed value (%d)",
                   nbs->napc,NBL_NAPC_MAX);
     }
+    nbs->naps2log = 0;
+    while ((1<<nbs->naps2log) < nbs->naps)
+    {
+        nbs->naps2log++;
+    }
+    if ((1<<nbs->naps2log) != nbs->naps)
+    {
+        gmx_fatal(FARGS,"nsbox naps (%d) is not a power of 2",nbs->naps);
+    }
 
     nbs->cxy_na      = NULL;
     nbs->cxy_ind     = NULL;
@@ -164,7 +174,7 @@ void gmx_nbsearch_init(gmx_nbsearch_t * nbs_ptr,int natoms_subcell)
     if (getenv("GMX_NSBOX_BB") != NULL)
     {
         /* Use only bounding box sub cell pair distances,
-         * fast, but produces slighlty more sub cell pairs.
+         * fast, but produces slightly more sub cell pairs.
          */
         nbs->subc_dc = NULL;
     }
@@ -1305,10 +1315,11 @@ static void set_ci_excls(const gmx_nbsearch_t nbs,
     const int *cell;
     int naps;
     int ci;
-    int sj_ind_nsubc;
-    int sj_first,sj_last,sj_nsubc;
+    int sj_first,sj_last;
+    int ndirect;
     int i,ai,si,eind,ge,se;
     int found,sj_ind_0,sj_ind_1,sj_ind_m;
+    gmx_bool Found_si;
     int si_ind;
     int inner_i,inner_e;
 
@@ -1334,16 +1345,19 @@ static void set_ci_excls(const gmx_nbsearch_t nbs,
 
     ci = nbl_ci->ci;
 
-    /* There is a high probability that exclusions are within the same
-     * super-cell. Up to and including sj_ind_nsubc we search linearly.
-     * Note that sj_nsubc is not always within the same super-cell,
-     * but the resulting procedure is correct and fast anyhow.
-     */
-    sj_ind_nsubc = min(nbl_ci->sj_ind_start+NSUBCELL-1,nbl_ci->sj_ind_end-1);
-
     sj_first = nbl->sj[nbl_ci->sj_ind_start].sj;
     sj_last  = nbl->sj[nbl_ci->sj_ind_end-1].sj;
-    sj_nsubc = nbl->sj[sj_ind_nsubc].sj;
+
+    /* Determine how many contiguous j-sub-cells we have starting
+     * from the first i-sub-cell. This number can be used to directly
+     * calculate j-sub-cell indices for excluded atoms.
+     */
+    ndirect = 0;
+    while (nbl_ci->sj_ind_start + ndirect < nbl_ci->sj_ind_end &&
+           nbl->sj[nbl_ci->sj_ind_start+ndirect].sj == ci*NSUBCELL + ndirect)
+    {
+        ndirect++;
+    }
 
     /* Loop over the atoms in the i super-cell */
     for(i=0; i<nbs->napc; i++)
@@ -1351,7 +1365,7 @@ static void set_ci_excls(const gmx_nbsearch_t nbs,
         ai = nbs->a[ci*nbs->napc+i];
         if (ai >= 0)
         {
-            si = ci*NSUBCELL + i/naps;
+            si = ci*NSUBCELL + (i>>nbs->naps2log);
 
 #ifdef DEBUG_NSBOX_EXCLS
             if (nbs->cell[ai] != ci*nbs->napc + i)
@@ -1364,33 +1378,34 @@ static void set_ci_excls(const gmx_nbsearch_t nbs,
             for(eind=excl->index[ai]; eind<excl->index[ai+1]; eind++)
             {
                 ge = cell[excl->a[eind]];
-                se = ge/naps;
+
+                /* Without shifts we only calculate interactions j>i
+                 * for one-way neighbor lists.
+                 */
+                if (!nbl->TwoWay && nbl_ci->shift == CENTRAL &&
+                    ge <= ci*nbs->napc + i)
+                {
+                    continue;
+                }
+
+                se = ge>>nbs->naps2log;
                 /* Could the sub-cell se be in our list? */
                 if (se >= sj_first && se <= sj_last)
                 {
-                    found = -1;
-
-                    if (se <= sj_nsubc)
+                    if (se < sj_first + ndirect)
                     {
-                        /* Search for se looking linearly through the list */
-                        sj_ind_m = nbl_ci->sj_ind_start;
-                        while(found == -1 && nbl->sj[sj_ind_m].sj <= se)
-                        {
-                            if (se == nbl->sj[sj_ind_m].sj)
-                            {
-                                found = sj_ind_m;
-                            }
-                            sj_ind_m++;
-                        }
+                        /* We can calculate sj_ind directly from se */
+                        found = nbl_ci->sj_ind_start + se - sj_first;
                     }
                     else
                     {
                         /* Search for se using bisection */
-                        sj_ind_0 = sj_ind_nsubc + 1;
+                        found = -1;
+                        sj_ind_0 = nbl_ci->sj_ind_start + ndirect;
                         sj_ind_1 = nbl_ci->sj_ind_end;
                         while (found == -1 && sj_ind_0 < sj_ind_1)
                         {
-                            sj_ind_m = (sj_ind_0 + sj_ind_1)/2;
+                            sj_ind_m = (sj_ind_0 + sj_ind_1)>>1;
                             if (se == nbl->sj[sj_ind_m].sj)
                             {
                                 found = sj_ind_m;
@@ -1408,7 +1423,9 @@ static void set_ci_excls(const gmx_nbsearch_t nbs,
 
                     if (found >= 0)
                     {
-                        for(si_ind=nbl->sj[found].si_ind; si_ind<nbl->sj[found+1].si_ind; si_ind++)
+                        Found_si = FALSE;
+                        si_ind = nbl->sj[found].si_ind;
+                        while (!Found_si && si_ind < nbl->sj[found+1].si_ind)
                         {
                             if (nbl->si[si_ind].si == si)
                             {
@@ -1424,7 +1441,10 @@ static void set_ci_excls(const gmx_nbsearch_t nbs,
 #endif
                                 nbl->si[si_ind].excl &=
                                     ~(1UL<<(inner_i*naps + inner_e));
+
+                                Found_si = TRUE;
                             }
+                            si_ind++;
                         }
                     }
                 }
