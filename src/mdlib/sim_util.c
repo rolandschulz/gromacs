@@ -100,7 +100,7 @@
 
 #ifdef GMX_GPU
 #include "gpu_data.h"
-#include "gpu_nb.h" /* XXX might not be needed later on */
+#include "gpu_nb.h" 
 #endif
 
 #if 0
@@ -443,7 +443,7 @@ void do_force(FILE *fplog,t_commrec *cr,
     t_cudata d_data = fr->gpu_data;
     
     float time = 0; 
-    static t_gpu_times gputime = { 0.0, 0, 0.0, 0 };
+    static t_gpu_times gputime = { 0.0, 0, 0, 0.0, 0 };
     
     start  = mdatoms->start;
     homenr = mdatoms->homenr;
@@ -710,10 +710,14 @@ void do_force(FILE *fplog,t_commrec *cr,
        }
 
         /* Launch GPU-accelerated nonbonded calculations.
-           Both tocopying /from device and kernel execution is asynchronous */
+           Both copying to/from device and kernel execution is asynchronous */
         wallcycle_start(wcycle,ewcSEND_X_GPU);
-           
-        cu_stream_nb(fr->gpu_data, fr->nbat, !fr->streamGPU);
+     
+        cu_stream_nb(fr->gpu_data, fr->nbat, (flags & GMX_FORCE_VIRIAL), !fr->streamGPU);
+        if (flags & GMX_FORCE_VIRIAL)
+        {
+            gputime.nb_count_ene++;
+        }
         gputime.nb_count++;
 
         wallcycle_stop(wcycle,ewcSEND_X_GPU);
@@ -860,12 +864,15 @@ void do_force(FILE *fplog,t_commrec *cr,
 #ifdef GMX_GPU
             wallcycle_start(wcycle,ewcRECV_F_GPU);\
 
-            cu_blockwait_nb(fr->gpu_data, &time);
+            cu_blockwait_nb(fr->gpu_data, (flags & GMX_FORCE_VIRIAL),
+                            enerd->grpp.ener[egLJSR], enerd->grpp.ener[egCOULSR],
+                            &time);
             gputime.nb_total_time += time;
             if (!(gputime.nb_count % 500) || gputime.nb_count == 5001)
             {
-                printf("NB time [%4d]:\t %5.3f ms\n", gputime.nb_count, 
-                        gputime.nb_total_time/gputime.nb_count);
+                printf("NB time [%4d (%4d)]:\t%5.3f ms\n", 
+                        gputime.nb_count, gputime.nb_count_ene, 
+                        gputime.nb_total_time/gputime.nb_count);               
             }
 
             wallcycle_stop(wcycle,ewcRECV_F_GPU);

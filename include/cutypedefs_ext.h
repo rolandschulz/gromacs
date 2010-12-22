@@ -16,7 +16,9 @@ struct gpu_times
     float   nb_total_time;  /* total execution time of the nonbonded gpu operations:
                                - trasfer to/from GPU: x, q, shifts, f
                                - kernel exection */
-    int     nb_count;       /* call count of the nonbonded gpu operations */
+    int     nb_count;       /* total call count of the nonbonded gpu operations */
+    int     nb_count_ene;   /* callc count of the force + energy nonbonded gpu operations */
+
 
     float   atomdt_trans_total_time;/* total time of the data trasnfer after a neighbor search step */
     int     atomdt_count;           /* cll count   - || - */

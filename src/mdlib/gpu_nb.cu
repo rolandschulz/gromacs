@@ -9,27 +9,57 @@
 
 #include "gpu_nb.h"
 #include "gpu_data.h"
+#include "cupmalloc.h"
 
 #define CELL_SIZE           (GPU_NS_CELL_SIZE)
 #define NB_DEFAULT_THREADS  (CELL_SIZE * CELL_SIZE)
 
 #include "gpu_nb_kernel_utils.h"
 
+/*****  Generate kernels  *****/
+
+/* Force-type defines (EL_*) and FUNCTION_NAME are undef-d at the end 
+   of the kernels in gpu_nb_kernels.h
+*/
+
+/*** Force only kernels ***/
+/* Cut-Off */
 #define EL_CUTOFF
 #define FUNCTION_NAME(x, y) x##_cutoff_##y
 #include "gpu_nb_kernels.h"
-#undef FUNCTION_NAME
-
+/* Reaction-Field */
 #define EL_RF
 #define FUNCTION_NAME(x, y) x##_RF_##y
 #include "gpu_nb_kernels.h"
-#undef FUNCTION_NAME
-
+/* Ewald */
 #define EL_EWALD
 #define FUNCTION_NAME(x, y) x##_ewald_##y
 #include "gpu_nb_kernels.h"
-#undef FUNCTION_NAME
 
+/*** Force & energy kernels ***/
+#define CALC_ENERGIES
+
+/* Cut-Off */
+#define EL_CUTOFF
+#define FUNCTION_NAME(x, y) x##_cutoff_##y
+#include "gpu_nb_kernels.h"
+/* Reaction-Field */
+#define EL_RF
+#define FUNCTION_NAME(x, y) x##_RF_##y
+#include "gpu_nb_kernels.h"
+/* Ewald */
+#define EL_EWALD
+#define FUNCTION_NAME(x, y) x##_ewald_##y
+#include "gpu_nb_kernels.h"
+
+#undef CALC_ENERGIES
+
+/* XXX
+    if GMX_GPU_ENE env var set it always runs the energy kernel unless the 
+    GMX_GPU_NO_ENE env var is set, case in which it never runs the energy kernel.     
+    --> only for benchmarking purposes */
+static gmx_bool alwaysE = (getenv("GMX_GPU_ALWAYS_ENE") != NULL); 
+static gmx_bool neverE  = (getenv("GMX_GPU_NEVER_ENE") != NULL);
 
 /* based on the number of work units, return the number of blocks to be used 
    for the nonbonded GPU kernel */
@@ -55,8 +85,9 @@ inline int calc_nb_blocknr(int nwork_units)
     
     Timing is done using the start_nb and stop_nb events.
  */
-void cu_stream_nb(t_cudata d_data, 
-                  const gmx_nb_atomdata_t *nbatom,
+void cu_stream_nb(t_cudata d_data,
+                  const gmx_nb_atomdata_t *nbatom,                                    
+                  gmx_bool calc_ene,
                   gmx_bool sync)
 {
     int     shmem; 
@@ -64,8 +95,9 @@ void cu_stream_nb(t_cudata d_data,
     dim3    dim_block(CELL_SIZE, CELL_SIZE, 1); 
     dim3    dim_grid(nb_blocks, 1, 1); 
 
-    /* fn pointer to the kernel */
-    void    (*p_k_calc_nb)(
+    /* fn pointer to the nonbonded kernel */
+    /* force-only */
+    void    (*p_k_calc_nb_f)(
                 const gmx_nbl_ci_t * /*nbl_ci*/,
                 const gmx_nbl_sj_t * /*nbl_sj*/,
                 const gmx_nbl_si_t * /*nbl_si*/,
@@ -74,12 +106,33 @@ void cu_stream_nb(t_cudata d_data,
                 const float4 * /*xq*/,
                 const float * /*nbfp*/,
                 const float3 * /*shift_vec*/,
-                float /*two_krf*/,
+                float /*two_k_rf*/,
                 float /*cutoff_sq*/,
-                float /*erfc_tab_scale*/,
+                float /*coulomb_tab_scale*/,
+                float4 * /*f*/) = NULL;
+    /* force & energy */
+    void    (*p_k_calc_nb_fe)(
+                const gmx_nbl_ci_t * /*nbl_ci*/,
+                const gmx_nbl_sj_t * /*nbl_sj*/,
+                const gmx_nbl_si_t * /*nbl_si*/,
+                const int * /*atom_types*/,
+                int /*ntypes*/,
+                const float4 * /*xq*/,
+                const float * /*nbfp*/,
+                const float3 * /*shift_vec*/,
+                float /*two_k_rf*/,
+                float /*cutoff_sq*/,
+                float /*coulomb_tab_scale*/,                
+                float /*beta*/,
+                float /*c_rf*/,
+                float * /*e_lj*/,
+                float * /*e_el*/,
                 float4 * /*f*/) = NULL;
 
     static gmx_bool doKernel2 = (getenv("GMX_NB_K2") != NULL);        
+    
+    /* XXX debugging code, remove this */
+    calc_ene = (calc_ene || alwaysE) && !neverE; 
 
     /* size of force buffers in shmem */
     if (!doKernel2)
@@ -90,6 +143,51 @@ void cu_stream_nb(t_cudata d_data,
     {
         shmem =  CELL_SIZE * CELL_SIZE * 3 * sizeof(float);
     }
+
+    /* select which kernel will be used */
+    switch (d_data->eeltype)
+    {
+        case cu_eelCUT:
+            if (!doKernel2)
+            {
+                p_k_calc_nb_f   = k_calc_nb_cutoff_forces_1;
+                p_k_calc_nb_fe  = k_calc_nb_cutoff_forces_energies_1;  
+            }
+            else 
+            {
+                p_k_calc_nb_f   = k_calc_nb_cutoff_forces_2;
+                p_k_calc_nb_fe  = k_calc_nb_cutoff_forces_energies_2;
+            }
+            break;
+        case cu_eelRF:
+            if (!doKernel2)
+            {
+                p_k_calc_nb_f   = k_calc_nb_RF_forces_1;
+                p_k_calc_nb_fe  = k_calc_nb_RF_forces_energies_1;
+            }
+            else 
+            {
+                p_k_calc_nb_f   = k_calc_nb_RF_forces_2;
+                p_k_calc_nb_fe  = k_calc_nb_RF_forces_energies_2;
+            }
+            break;
+        case cu_eelEWALD:
+            if (!doKernel2)
+            {
+                p_k_calc_nb_f   = k_calc_nb_ewald_forces_1;
+                p_k_calc_nb_fe  = k_calc_nb_ewald_forces_energies_1;
+            }
+            else 
+            {
+                p_k_calc_nb_f   = k_calc_nb_ewald_forces_2;
+                p_k_calc_nb_fe  = k_calc_nb_ewald_forces_energies_2; 
+            }
+            break;
+        default: 
+        {
+            gmx_incons("The provided electrostatics type does not exist in the  CUDA implementation!");
+        }
+    }   
 
     if (debug)
     {
@@ -109,57 +207,45 @@ void cu_stream_nb(t_cudata d_data,
     /* upload shift vec */
     upload_cudata_async(d_data->shift_vec, nbatom->shift_vec, SHIFTS * sizeof(*d_data->shift_vec), 0);   
 
-    /* async nonbonded calculations */        
-    switch (d_data->eeltype)
+    /* launch async nonbonded calculations */        
+    if (!calc_ene)
     {
-        case cu_eelCUT:
-            if (!doKernel2)
-            {
-                p_k_calc_nb = k_calc_nb_cutoff_forces_1;
-            }
-            else 
-            {
-                p_k_calc_nb = k_calc_nb_cutoff_forces_2;
-            }
-            break;
-        case cu_eelRF:
-            if (!doKernel2)
-            {
-                p_k_calc_nb = k_calc_nb_RF_forces_1;
-            }
-            else 
-            {
-                p_k_calc_nb = k_calc_nb_RF_forces_2;
-            }
-            break;
-        case cu_eelEWALD:
-            if (!doKernel2)
-            {
-                p_k_calc_nb = k_calc_nb_ewald_forces_1;
-            }
-            else 
-            {
-                p_k_calc_nb = k_calc_nb_ewald_forces_2;
-            }
-            break;
-        default: 
-        {
-            gmx_incons("The provided electrostatics type does not exist in the  CUDA implementation!");
-        }
+        p_k_calc_nb_f<<<dim_grid, dim_block, shmem, 0>>>(d_data->ci,
+                                                        d_data->sj,
+                                                        d_data->si,
+                                                        d_data->atom_types,
+                                                        d_data->ntypes,
+                                                        d_data->xq,
+                                                        d_data->nbfp,
+                                                        d_data->shift_vec,
+                                                        d_data->two_k_rf,
+                                                        d_data->cutoff_sq,
+                                                        d_data->coulomb_tab_scale,
+                                                        d_data->f);
+    } 
+    else 
+    {
+        /* set energy outputs to 0 */
+        cudaMemsetAsync(d_data->e_lj, 0.0f, sizeof(*d_data->e_lj), 0);
+        cudaMemsetAsync(d_data->e_el, 0.0f, sizeof(*d_data->e_el), 0);
+   
+        p_k_calc_nb_fe<<<dim_grid, dim_block, shmem, 0>>>(d_data->ci,
+                                                        d_data->sj,
+                                                        d_data->si,
+                                                        d_data->atom_types,
+                                                        d_data->ntypes,
+                                                        d_data->xq,
+                                                        d_data->nbfp,
+                                                        d_data->shift_vec,
+                                                        d_data->two_k_rf,
+                                                        d_data->cutoff_sq,
+                                                        d_data->coulomb_tab_scale,
+                                                        d_data->ewald_beta,
+                                                        d_data->c_rf,
+                                                        d_data->e_lj, 
+                                                        d_data->e_el,
+                                                        d_data->f);       
     }
-
-    p_k_calc_nb<<<dim_grid, dim_block, shmem, 0>>>(d_data->ci,
-                                                    d_data->sj,
-                                                    d_data->si,
-                                                    d_data->atom_types,
-                                                    d_data->ntypes,
-                                                    d_data->xq,
-                                                    d_data->nbfp,
-                                                    d_data->shift_vec,
-                                                    d_data->two_krf,
-                                                    d_data->cutoff_sq,
-                                                    d_data->coulomb_tab_scale,
-                                                    d_data->f);
 
     if (sync)
     {
@@ -172,13 +258,31 @@ void cu_stream_nb(t_cudata d_data,
    
     /* async copy DtoH f */
     download_cudata_async(nbatom->f, d_data->f, d_data->natoms*sizeof(*d_data->f), 0);
+
+    /* DtoH energies */
+    if (calc_ene)
+    {
+        download_cudata_async(d_data->tdata.e_lj, d_data->e_lj, sizeof(*d_data->e_lj), 0);
+        download_cudata_async(d_data->tdata.e_el, d_data->e_el, sizeof(*d_data->e_el), 0);
+    }
     cudaEventRecord(d_data->stop_nb, 0);
 }
 
 /* Blocking wait for the asynchrounously launched nonbonded calculations to finish. */
-void cu_blockwait_nb(t_cudata d_data, float *time)
+void cu_blockwait_nb(t_cudata d_data, gmx_bool calc_ene, 
+                     float *e_lj, float *e_el,                  
+                     float *time)
 {    
     cu_blockwait_event(d_data->stop_nb, d_data->start_nb, time);
+
+    /* XXX debugging code, remove this */
+    calc_ene = (calc_ene || alwaysE) && !neverE; 
+
+    if (calc_ene)
+    {
+        *e_lj += *d_data->tdata.e_lj;
+        *e_el += *d_data->tdata.e_el;
+    }
 }
 
 /* Blocking wait for the asynchrounously launched nonbonded calculations to finish. */

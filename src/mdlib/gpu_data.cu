@@ -93,7 +93,7 @@ void init_cudata_ff(FILE *fplog,
  
     d_data->ewald_beta  = fr->ewaldcoeff;
     d_data->eps_r       = fr->epsilon_r;
-    d_data->two_krf     = 2.0 * fr->k_rf;   
+    d_data->two_k_rf     = 2.0 * fr->k_rf;   
     d_data->cutoff_sq   = (fr->rlist + 0.15)*(fr->rlist + 0.15);
     
     if (fr->eeltype == eelCUT)
@@ -143,6 +143,14 @@ void init_cudata_ff(FILE *fplog,
 
     stat = cudaMalloc((void**)&d_data->shift_vec, SHIFTS*sizeof(*d_data->shift_vec));
     CU_RET_ERR(stat, "cudaMalloc failed on d_data->shift_vec");
+
+    stat = cudaMalloc((void**)&d_data->e_lj, sizeof(*d_data->e_lj));
+    CU_RET_ERR(stat, "cudaMalloc failed on d_data->e_lj");
+    stat = cudaMalloc((void**)&d_data->e_el, sizeof(*d_data->e_el));
+    CU_RET_ERR(stat, "cudaMalloc failed on d_data->e_el");
+
+    pmalloc((void**)&d_data->tdata.e_lj, sizeof(*d_data->tdata.e_lj));
+    pmalloc((void**)&d_data->tdata.e_el, sizeof(*d_data->tdata.e_el));
 
     if (fplog != NULL)
     {
@@ -300,6 +308,16 @@ void destroy_cudata(FILE *fplog, t_cudata d_data)
 
     if (d_data == NULL) return;
 
+    if (d_data->eeltype == cu_eelEWALD)
+    {
+        stat = cudaGetTextureReference(&tex, "tex_coulomb_tab");
+        CU_RET_ERR(stat, "cudaGetTextureReference on tex_coulomb_tab failed");
+        stat = cudaUnbindTexture(tex);
+        CU_RET_ERR(stat, "cudaUnbindTexture failed on tex");
+        destroy_cudata_array(d_data->coulomb_tab, &d_data->coulomb_tab_size);            
+    }
+
+
     stat = cudaEventDestroy(d_data->start_nb);
     CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->start_nb");
     stat = cudaEventDestroy(d_data->stop_nb);
@@ -315,14 +333,13 @@ void destroy_cudata(FILE *fplog, t_cudata d_data)
     CU_RET_ERR(stat, "cudaUnbindTexture failed on tex");
     destroy_cudata_array(d_data->nbfp);
 
-    if (d_data->eeltype == cu_eelEWALD)
-    {
-        stat = cudaGetTextureReference(&tex, "tex_coulomb_tab");
-        CU_RET_ERR(stat, "cudaGetTextureReference on tex_coulomb_tab failed");
-        stat = cudaUnbindTexture(tex);
-        CU_RET_ERR(stat, "cudaUnbindTexture failed on tex");
-        destroy_cudata_array(d_data->coulomb_tab, &d_data->coulomb_tab_size);            
-    }
+    stat = cudaFree(d_data->shift_vec);
+    CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->shift_vec");
+
+    stat = cudaFree(d_data->e_lj);
+    CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->e_lj");
+    stat = cudaFree(d_data->e_el);
+    CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->e_el");
 
     destroy_cudata_array(d_data->f, &d_data->natoms, &d_data->nalloc);
     destroy_cudata_array(d_data->xq);

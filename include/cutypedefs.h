@@ -14,6 +14,14 @@ enum {
     cu_eelEWALD, cu_eelRF, cu_eelCUT
 };
 
+typedef struct gpu_tmp_data gpu_tmp_data_t;
+
+/* Staging area and temporary data for GPU ops */
+struct gpu_tmp_data
+{
+    float *e_lj;
+    float *e_el; 
+};
 struct cudata 
 {
     int     natoms;     /* number of atoms for all 8 neighbouring domains 
@@ -21,16 +29,20 @@ struct cudata
     int     nalloc;     /* allocation size for the atom data (xq, f), 
                            when needed it's reallocated to natoms * 20% + 100 buffer zone   */ 
     
-    float4  *f;         /* forces, size natoms                      */
     float4  *xq;        /* atom coordinates + charges, size natoms  */
+    float4  *f;         /* forces, size natoms                      */
+    /* TODO: try float2 for the energies */
+    float   *e_lj,      /* LJ energy                                */
+            *e_el;      /* Electrostatics energy                    */
 
     int     ntypes;     /* number of atom types             */
     int     *atom_types;/* atom type indices, size natoms   */
     
     /* nonbonded paramters 
        TODO -> constant so some of them should be moved to constant memory */
-    float   eps_r; 
-    float   two_krf;
+    float   eps_r; /* TODO rename this to epsfac  and get rid of the FACEL constant */
+    float   c_rf;
+    float   two_k_rf;
     float   ewald_beta;
     float   cutoff_sq;
     float   *nbfp;      /* nonbonded parameters C12, C6 */    
@@ -66,8 +78,11 @@ struct cudata
     gmx_nbl_si_t    *si;        /* Array of i sub-cells (in pairs with j)       */
     int             si_nalloc;  /* Allocation size of ii                        */
 
-    float3          *shift_vec;  /* shifts */
+    float3          *shift_vec;  /* shifts */    
+
+    gpu_tmp_data_t  tdata; 
 };
+
 
 #ifdef __cplusplus
 }

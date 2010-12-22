@@ -6,8 +6,21 @@
 
     Each thread calculates an i force-component taking one pair of i-j atoms.
  */
-__global__ void FUNCTION_NAME(k_calc_nb, forces_1)(
-                            const gmx_nbl_ci_t *nbl_ci,
+/*
+TODO:
+  - fix the bloody BUG !!! 
+  - fix GPU_FACEL
+  - profile to see #threads influencing runtime
+  - check how costly is the reduction 
+  - improve energy reduction!
+ */
+
+#ifdef CALC_ENERGIES                           
+__global__ void FUNCTION_NAME(k_calc_nb, forces_energies_1)
+#else
+__global__ void FUNCTION_NAME(k_calc_nb, forces_1)
+#endif
+                           (const gmx_nbl_ci_t *nbl_ci,
                             const gmx_nbl_sj_t *nbl_sj,
                             const gmx_nbl_si_t *nbl_si,
                             const int *atom_types,
@@ -15,10 +28,17 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)(
                             const float4 *xq,
                             const float *nbfp,
                             const float3 *shift_vec,
-                            float two_krf,
+                            float two_k_rf,
                             float cutoff_sq,
-                            float erfc_tab_scale,
-                            float4 *f)
+                            float coulomb_tab_scale,
+#ifdef CALC_ENERGIES
+                            float beta,
+                            float c_rf,
+                            float *e_lj,
+                            float *e_el,
+#endif
+                            float4 *f
+                            )
 {    
     unsigned int tidxx  = threadIdx.y;
     unsigned int tidxy  = threadIdx.x;
@@ -34,6 +54,9 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)(
     float qi, qj_f,
           r2, inv_r, inv_r2, inv_r6,
           c6, c12,
+#ifdef CALC_ENERGIES
+          E_lj, E_el,
+#endif                       
           F_invr;
     float4  f4tmp;
     float3  xi, xj, rv;
@@ -57,6 +80,11 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)(
         forcebuf[    STRIDE_DIM + (1 + si_offset) * STRIDE_SI + tidx] = 0.0f;
         forcebuf[2 * STRIDE_DIM + (1 + si_offset) * STRIDE_SI + tidx] = 0.0f;
     }
+
+#ifdef CALC_ENERGIES
+    E_lj = 0.0f;
+    E_el = 0.0f;
+#endif
 
     // loop over i-s neighboring cells
     for (j = cij_start ; j < cij_end; j++)
@@ -104,14 +132,31 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)(
 
                 F_invr      = inv_r6 * (12.0f * c12 * inv_r6 - 6.0f * c6) * inv_r2;
 
+#ifdef CALC_ENERGIES
+                E_lj        += inv_r6 * (c12 * inv_r6 - c6);
+#endif
+
 #ifdef EL_CUTOFF
-                F_invr      += qi * qj_f * inv_r2 * inv_r;  
+                F_invr      += qi * qj_f * inv_r2 * inv_r;
 #endif
 #ifdef EL_RF
-                F_invr      += qi * qj_f * (inv_r2 * inv_r - two_krf); 
+                F_invr      += qi * qj_f * (inv_r2 * inv_r - two_k_rf);
 #endif
 #ifdef EL_EWALD
-                F_invr      += qi * qj_f * interpolate_coulomb_force_r(r2 * inv_r, erfc_tab_scale);
+                F_invr      += qi * qj_f * interpolate_coulomb_force_r(r2 * inv_r, coulomb_tab_scale);
+#endif
+                
+#ifdef CALC_ENERGIES
+#ifdef EL_CUTOFF
+                E_el        += qi * qj_f * inv_r;           
+#endif
+#ifdef EL_RF
+                E_el        += qi * qj_f * (inv_r + 0.5f * two_k_rf * r2 - c_rf);
+#endif
+#ifdef EL_EWALD
+                E_el        += qi * qj_f * inv_r * erfc(inv_r * beta);
+#endif
+
 #endif
 
                 f_ij = rv * F_invr;
@@ -123,7 +168,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)(
                 forcebuf[                 (1 + si_offset) * STRIDE_SI + tidx] += f_ij.x;
                 forcebuf[    STRIDE_DIM + (1 + si_offset) * STRIDE_SI + tidx] += f_ij.y;
                 forcebuf[2 * STRIDE_DIM + (1 + si_offset) * STRIDE_SI + tidx] += f_ij.z;
-            }        
+            }
         }
         /* store j forces in shmem */
         forcebuf[                 tidx] = fsj_buf.x;
@@ -142,6 +187,13 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)(
         ai  = (ci * NSUBCELL + si_offset) * CELL_SIZE + tidxx;  /* i atom index */
         reduce_force_i_generic_strided(forcebuf + (1 + si_offset) * STRIDE_SI, f, tidxx, tidxy, ai);
     }
+
+#ifdef CALC_ENERGIES
+    /* add each thread's local energy to the global value */
+    atomicAdd(e_lj, E_lj);
+    atomicAdd(e_el, E_el);
+#endif
+
     __syncthreads(); /* TODO remove this! */
 }
 
@@ -155,8 +207,12 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)(
 
     Each thread calculates an i force-component taking one pair of i-j atoms.
  */
-__global__ void FUNCTION_NAME(k_calc_nb, forces_2)(
-                            const gmx_nbl_ci_t *nbl_ci,
+#ifdef CALC_ENERGIES                           
+__global__ void FUNCTION_NAME(k_calc_nb, forces_energies_2)
+#else
+__global__ void FUNCTION_NAME(k_calc_nb, forces_2)
+#endif
+                           (const gmx_nbl_ci_t *nbl_ci,
                             const gmx_nbl_sj_t *nbl_sj,
                             const gmx_nbl_si_t *nbl_si,
                             const int *atom_types,
@@ -164,9 +220,15 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)(
                             const float4 *xq,
                             const float *nbfp,
                             const float3 *shift_vec,
-                            float two_krf,
-                            float cutoff_sq,       
-                            float erfc_tab_scale,
+                            float two_k_rf,
+                            float cutoff_sq,
+                            float coulomb_tab_scale,
+#ifdef CALC_ENERGIES
+                            float beta,
+                            float c_rf,
+                            float *e_lj,
+                            float *e_el,
+#endif                          
                             float4 *f)
 {
     unsigned int tidxx  = threadIdx.y;
@@ -183,6 +245,9 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)(
     float qi, qj_f,
           r2, inv_r, inv_r2, inv_r6,
           c6, c12,
+#ifdef CALC_ENERGIES
+          E_lj, E_el,
+#endif             
           F_invr;
     float4 f4tmp;
     float3 xi, xj, rv;
@@ -205,6 +270,11 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)(
     {
         fsi_buf[si_offset] = make_float3(0.0f);
     }
+
+#ifdef CALC_ENERGIES
+    E_lj = 0.0f;
+    E_el = 0.0f;
+#endif
 
     // loop over i-s neighboring cells
     for (j = cij_start ; j < cij_end; j++)
@@ -255,11 +325,24 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)(
 #ifdef EL_CUTOFF
                 F_invr      += qi * qj_f * inv_r2 * inv_r;  
 #endif
+
 #ifdef EL_RF
-                F_invr      += qi * qj_f * (inv_r2 * inv_r - two_krf); 
+                F_invr      += qi * qj_f * (inv_r2 * inv_r - two_k_rf); 
 #endif
 #ifdef EL_EWALD
-                F_invr      += qi * qj_f * interpolate_coulomb_force_r(r2 * inv_r, erfc_tab_scale);
+                F_invr      += qi * qj_f * interpolate_coulomb_force_r(r2 * inv_r, coulomb_tab_scale);
+#endif
+                
+#ifdef CALC_ENERGIES
+#ifdef EL_CUTOFF
+                E_el        += qi * qj_f * inv_r;
+#endif
+#ifdef EL_RF
+                E_el        += qi * qj_f * (inv_r + 0.5f * two_k_rf - c_rf);
+#endif
+#ifdef EL_EWALD
+                E_el        += qi * qj_f * inv_r * erfc(inv_r * beta);
+#endif
 #endif
                 f_ij = rv * F_invr;
 
@@ -292,9 +375,17 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)(
 
         __syncthreads();
     }
+
+#ifdef CALC_ENERGIES
+    /* add each thread's local energy to the global value */
+    atomicAdd(e_lj, E_lj);
+    atomicAdd(e_el, E_el);
+#endif
+
     __syncthreads(); /* TODO remove this! */
 }
 
+#undef FUNCTION_NAME
 #undef EL_CUTOFF
 #undef EL_RF
 #undef EL_EWALD
