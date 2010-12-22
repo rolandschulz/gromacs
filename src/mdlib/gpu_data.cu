@@ -10,7 +10,7 @@
 #include "cupmalloc.h"
 
 #define USE_CUDA_EVENT_BLOCKING_SYNC FALSE /* makes the CPU thread busy-wait! */
-#define ERFC_TABLE_SIZE 2048
+#define EWALD_COULOMB_FORCE_TABLE_SIZE 1024  /* size chosen such we do not run out of texture cache */
 
 #define MY_PI               (3.1415926535897932384626433832795f)
 #define TWO_OVER_SQRT_PI    (2.0f/sqrt(MY_PI))
@@ -41,7 +41,7 @@ static void tabulate_ewald_coulomb_force_r(t_cudata d_data)
     const textureReference  *tex_coulomb_tab;
 
     beta        = d_data->ewald_beta;
-    tabsize     = ERFC_TABLE_SIZE;
+    tabsize     = EWALD_COULOMB_FORCE_TABLE_SIZE;
 
     d_data->coulomb_tab_size   = tabsize;
     d_data->coulomb_tab_scale = (tabsize - 1) / (beta * sqrt(d_data->cutoff_sq));
