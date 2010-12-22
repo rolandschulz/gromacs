@@ -29,6 +29,10 @@ static void tabulate_ewald_coulomb_force_r(t_cudata d_data);
 /* 
   Tabulates the Ewald Coulomb force.
   Original idea: OpenMM 
+
+ TODO 
+    - replace smalloc with pmalloc
+    - use double instead of float 
  */
 static void tabulate_ewald_coulomb_force_r(t_cudata d_data)
 {
@@ -44,9 +48,9 @@ static void tabulate_ewald_coulomb_force_r(t_cudata d_data)
     tabsize     = EWALD_COULOMB_FORCE_TABLE_SIZE;
 
     d_data->coulomb_tab_size   = tabsize;
-    d_data->coulomb_tab_scale = (tabsize - 1) / (beta * sqrt(d_data->cutoff_sq));
+    d_data->coulomb_tab_scale = (tabsize - 1) / sqrt(d_data->cutoff_sq);
 
-    smalloc(ftmp, tabsize * sizeof(*ftmp));
+    smalloc(ftmp, tabsize * sizeof(*ftmp)); 
 
     for (i = 1; i < tabsize; i++)
     {
@@ -64,7 +68,7 @@ static void tabulate_ewald_coulomb_force_r(t_cudata d_data)
     stat = cudaGetTextureReference(&tex_coulomb_tab, "tex_coulomb_tab");
     CU_RET_ERR(stat, "cudaGetTextureReference on tex_coulomb_tab failed");
     cd = cudaCreateChannelDesc<float>();
-    stat = cudaBindTexture(NULL, tex_coulomb_tab, d_data->coulomb_tab, &cd, tabsize);
+    stat = cudaBindTexture(NULL, tex_coulomb_tab, d_data->coulomb_tab, &cd, tabsize * sizeof(*d_data->coulomb_tab));
     CU_RET_ERR(stat, "cudaBindTexture on tex_coulomb_tab failed");
 
     sfree(ftmp);
@@ -93,8 +97,8 @@ void init_cudata_ff(FILE *fplog,
  
     d_data->ewald_beta  = fr->ewaldcoeff;
     d_data->eps_r       = fr->epsilon_r;
-    d_data->two_k_rf     = 2.0 * fr->k_rf;   
-    d_data->cutoff_sq   = (fr->rlist + 0.15)*(fr->rlist + 0.15);
+    d_data->two_k_rf    = 2.0 * fr->k_rf;   
+    d_data->cutoff_sq   = fr->rlist * fr->rlist;
     
     if (fr->eeltype == eelCUT)
     {
