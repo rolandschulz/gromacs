@@ -1661,9 +1661,10 @@ static void combine_nblists(int nnbl,const gmx_nblist_t *nbl,
                             gmx_nblist_t *nblc)
 {
     int nci,nsj,nsi;
-    int i,j;
+    int i,j0,j1,j;
     int sj_offset,si_offset;
     const gmx_nblist_t *nbli;
+    int nth,th;
 
     nci = nblc->nci;
     nsj = nblc->nsj;
@@ -1696,6 +1697,8 @@ static void combine_nblists(int nnbl,const gmx_nblist_t *nbl,
                         nblc->alloc,nblc->free);
     }
 
+    nth = omp_get_max_threads();
+
     for(i=0; i<nnbl; i++)
     {
         sj_offset = nblc->nsj;
@@ -1716,18 +1719,24 @@ static void combine_nblists(int nnbl,const gmx_nblist_t *nbl,
             nblc->ci[nblc->nci].sj_ind_end   += sj_offset;
             nblc->nci++;
         }
-#pragma omp parallel for schedule(static)
-        for(j=0; j<nbli->nsj; j++)
+#pragma omp parallel private(th,j0,j1,j)
         {
-            nblc->sj[nblc->nsj+j].sj       = nbli->sj[j].sj;
-            nblc->sj[nblc->nsj+j+1].si_ind = nbli->sj[j+1].si_ind + si_offset;
+            th = omp_get_thread_num();
+            j0 = (nbli->nsj*(th+0))/nth;
+            j1 = (nbli->nsj*(th+1))/nth;
+            for(j=j0; j<j1; j++)
+            {
+                nblc->sj[nblc->nsj+j].sj       = nbli->sj[j].sj;
+                nblc->sj[nblc->nsj+j+1].si_ind = nbli->sj[j+1].si_ind + si_offset;
+            }
+            j0 = (nbli->nsi*(th+0))/nth;
+            j1 = (nbli->nsi*(th+1))/nth;
+            for(j=j0; j<j1; j++)
+            {
+                nblc->si[nblc->nsi+j] = nbli->si[j];
+            }
         }
         nblc->nsj += nbli->nsj;
-#pragma omp parallel for schedule(static)
-        for(j=0; j<nbli->nsi; j++)
-        {
-            nblc->si[nblc->nsi+j] = nbli->si[j];
-        }
         nblc->nsi += nbli->nsi;
     }
 }
