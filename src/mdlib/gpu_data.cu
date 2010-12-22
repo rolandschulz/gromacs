@@ -10,7 +10,7 @@
 #include "cupmalloc.h"
 
 #define USE_CUDA_EVENT_BLOCKING_SYNC FALSE /* makes the CPU thread busy-wait! */
-#define EWALD_COULOMB_FORCE_TABLE_SIZE 1024  /* size chosen such we do not run out of texture cache */
+#define EWALD_COULOMB_FORCE_TABLE_SIZE 1536   /* size chosen such we do not run out of texture cache */
 
 #define MY_PI               (3.1415926535897932384626433832795f)
 #define TWO_OVER_SQRT_PI    (2.0f/sqrt(MY_PI))
