@@ -1205,7 +1205,6 @@ static void make_subcell_list(const gmx_nbsearch_t nbs,
     int  sj,si1,si,csj,csi;
     const real *bb_ci,*x_ci;
     real d2;
-    gmx_bool InRange;
     int  jas,ja,ias,iac2,e;
 #define ISUBCELL_GROUP 1
 
@@ -1234,19 +1233,13 @@ static void make_subcell_list(const gmx_nbsearch_t nbs,
 
             d2 = subc_bb_dist2(naps,si,bb_ci,csj,nbs->bb);
 
-            if (nbs->subc_dc == NULL)
-            {
-                InRange = (d2 < rl2);
-            }
-            else
-            {
-                InRange = (d2 < rbb2 ||
-                           (d2 < rl2 &&
-                            nbs->subc_dc(naps,si,x_ci,
-                                         csj,stride,x,rl2)));
-            }
-
-            if (InRange)
+            /* Check if the distance is within the distance where
+             * we use only the bounding box distance rbb,
+             * or within the cut-off and there is at least one atom pair
+             * within the cut-off.
+             */
+            if (d2 < rbb2 ||
+                (d2 < rl2 && nbs->subc_dc(naps,si,x_ci,csj,stride,x,rl2)))
             {
                 nbl->si[nbl->nsi].si = ci*NSUBCELL + si;
                 /* Here we only set the set self and double pair exclusions */
