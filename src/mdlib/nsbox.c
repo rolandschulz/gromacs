@@ -58,12 +58,19 @@
 
 #include <xmmintrin.h>
 #include <emmintrin.h>
+#ifdef GMX_SSE4_1
+#include <smmintrin.h>
+#endif
 #endif
 
 
-/* Neighbor search box upper and lower bound in x,y,z: total 6 reals */
-#define NNBSBB_D 2
-#define NNBSBB   (3*NNBSBB_D)
+/* Neighbor search box upper and lower bound in x,y,z.
+ * Store this in 4 iso 3 reals for SSE.
+ */
+#define NNBSBB_C  4
+#define NNBSBB_B  (2*NNBSBB_C)
+/* Neighbor search box upper and lower bound in z only. */
+#define NNBSBB_D  2
 
 #define NSBOX_SHIFT_BACKWARD
 
@@ -261,7 +268,7 @@ static int set_grid_size_xy(gmx_nbsearch_t nbs,int n,matrix box)
         srenew(nbs->a,nbs->nc_nalloc*nbs->napc);
         srenew(nbs->nsubc,nbs->nc_nalloc);
         srenew(nbs->bbcz,nbs->nc_nalloc*NNBSBB_D);
-        srenew(nbs->bb,nbs->nc_nalloc*NSUBCELL*NNBSBB);
+        srenew(nbs->bb,nbs->nc_nalloc*NSUBCELL*NNBSBB_B);
     }
 
     nbs->sx = box[XX][XX]/nbs->ncx;
@@ -397,11 +404,11 @@ static void calc_bounding_box(int na,int stride,const real *x,real *bb)
         i += stride;
     }
     bb[0] = xl;
-    bb[1] = xh;
-    bb[2] = yl;
-    bb[3] = yh;
-    bb[4] = zl;
-    bb[5] = zh;
+    bb[4] = xh;
+    bb[1] = yl;
+    bb[5] = yh;
+    bb[2] = zl;
+    bb[6] = zh;
 }
 
 static void print_bbsizes(FILE *fp,const gmx_nbsearch_t nbs)
@@ -418,7 +425,7 @@ static void print_bbsizes(FILE *fp,const gmx_nbsearch_t nbs)
             cs = c*NSUBCELL + s;
             for(d=0; d<DIM; d++)
             {
-                ba[d] += nbs->bb[cs*NNBSBB+d*2+1] - nbs->bb[cs*NNBSBB+d*2];
+                ba[d] += nbs->bb[cs*NNBSBB_B+NNBSBB_C+d] - nbs->bb[cs*NNBSBB_B+d];
             }
             ns++;
         }
@@ -619,18 +626,18 @@ static void sort_columns(gmx_nbsearch_t nbs,
                                                nbs->naps*sub_z);
 
                         calc_bounding_box(na_x,nbat->xstride,xnb,
-                                          nbs->bb+(ash_x/nbs->naps)*NNBSBB);
+                                          nbs->bb+(ash_x/nbs->naps)*NNBSBB_B);
 
                         if (gmx_debug_at)
                         {
                             fprintf(debug,"%2d %2d %2d %d %d %d bb %5.2f %5.2f %5.2f %5.2f %5.2f %5.2f\n",
                                     cx,cy,cz,sub_x,sub_y,sub_z,
-                                    (nbs->bb+(ash_x/nbs->naps)*NNBSBB)[0],
-                                    (nbs->bb+(ash_x/nbs->naps)*NNBSBB)[1],
-                                    (nbs->bb+(ash_x/nbs->naps)*NNBSBB)[2],
-                                    (nbs->bb+(ash_x/nbs->naps)*NNBSBB)[3],
-                                    (nbs->bb+(ash_x/nbs->naps)*NNBSBB)[4],
-                                    (nbs->bb+(ash_x/nbs->naps)*NNBSBB)[5]);
+                                    (nbs->bb+(ash_x/nbs->naps)*NNBSBB_B)[0],
+                                    (nbs->bb+(ash_x/nbs->naps)*NNBSBB_B)[4],
+                                    (nbs->bb+(ash_x/nbs->naps)*NNBSBB_B)[1],
+                                    (nbs->bb+(ash_x/nbs->naps)*NNBSBB_B)[5],
+                                    (nbs->bb+(ash_x/nbs->naps)*NNBSBB_B)[2],
+                                    (nbs->bb+(ash_x/nbs->naps)*NNBSBB_B)[6]);
                         }
                     }
                     else
@@ -905,20 +912,20 @@ static real box_dist2(real bx0,real bx1,real by0,real by1,real bz0,real bz1,
 
     d2 = 0;
 
-    dl  = bx0 - bb[1];
+    dl  = bx0 - bb[4];
     dh  = bb[0] - bx1;
     dm  = max(dl,dh);
     dm0 = max(dm,0);
     d2 += dm0*dm0;
 
-    dl  = by0 - bb[3];
-    dh  = bb[2] - by1;
+    dl  = by0 - bb[5];
+    dh  = bb[1] - by1;
     dm  = max(dl,dh);
     dm0 = max(dm,0);
     d2 += dm0*dm0;
 
-    dl  = bz0 - bb[5];
-    dh  = bb[4] - bz1;
+    dl  = bz0 - bb[6];
+    dh  = bb[2] - bz1;
     dm  = max(dl,dh);
     dm0 = max(dm,0);
     d2 += dm0*dm0;
@@ -934,31 +941,114 @@ static real subc_bb_dist2(int naps,
     real d2;
     real dl,dh,dm,dm0;
 
-    bb_i = bb_i_ci  +  si*NNBSBB;
-    bb_j = bb_j_all + csj*NNBSBB;
+    bb_i = bb_i_ci  +  si*NNBSBB_B;
+    bb_j = bb_j_all + csj*NNBSBB_B;
 
     d2 = 0;
 
-    dl  = bb_i[0] - bb_j[1];
-    dh  = bb_j[0] - bb_i[1];
+    dl  = bb_i[0] - bb_j[4];
+    dh  = bb_j[0] - bb_i[4];
     dm  = max(dl,dh);
     dm0 = max(dm,0);
     d2 += dm0*dm0;
 
-    dl  = bb_i[2] - bb_j[3];
-    dh  = bb_j[2] - bb_i[3];
+    dl  = bb_i[1] - bb_j[5];
+    dh  = bb_j[1] - bb_i[5];
     dm  = max(dl,dh);
     dm0 = max(dm,0);
     d2 += dm0*dm0;
 
-    dl  = bb_i[4] - bb_j[5];
-    dh  = bb_j[4] - bb_i[5];
+    dl  = bb_i[2] - bb_j[6];
+    dh  = bb_j[2] - bb_i[6];
     dm  = max(dl,dh);
     dm0 = max(dm,0);
     d2 += dm0*dm0;
 
     return d2;
 }
+
+#if ( !defined(GMX_DOUBLE) && ( defined(GMX_IA32_SSE) || defined(GMX_X86_64_SSE) || defined(GMX_X86_64_SSE2) ) )
+
+static real subc_bb_dist2_sse(int naps,
+                              int si,const real *bb_i_ci,
+                              int csj,const real *bb_j_all)
+{
+    const real *bb_i,*bb_j;
+
+    __m128 bb_i_SSE0,bb_i_SSE1;
+    __m128 bb_j_SSE0,bb_j_SSE1;
+    __m128 dl_SSE;
+    __m128 dh_SSE;
+    __m128 dm_SSE;
+    __m128 dm0_SSE;
+    __m128 d2_SSE;
+
+    float d2_array[7],*d2_align;
+
+    d2_align = (float *)(((size_t)(d2_array+3)) & (~((size_t)15)));
+
+    bb_i = bb_i_ci  +  si*NNBSBB_B;
+    bb_j = bb_j_all + csj*NNBSBB_B;
+
+    bb_i_SSE0 = _mm_load_ps(bb_i);
+    bb_i_SSE1 = _mm_load_ps(bb_i+NNBSBB_C);
+    bb_j_SSE0 = _mm_load_ps(bb_j);
+    bb_j_SSE1 = _mm_load_ps(bb_j+NNBSBB_C);
+    
+    
+    dl_SSE    = _mm_sub_ps(bb_i_SSE0,bb_j_SSE1);
+    dh_SSE    = _mm_sub_ps(bb_j_SSE0,bb_i_SSE1);
+
+    dm_SSE    = _mm_max_ps(dl_SSE,dh_SSE);
+    dm0_SSE   = _mm_max_ps(dm_SSE,_mm_setzero_ps());
+    d2_SSE    = _mm_mul_ps(dm0_SSE,dm0_SSE);
+
+    _mm_store_ps(d2_align,d2_SSE);
+
+    return d2_align[0] + d2_align[1] + d2_align[2];
+}
+
+#ifdef GMX_SSE4_1
+static real subc_bb_dist2_sse4_1(int naps,
+                                 int si,const real *bb_i_ci,
+                                 int csj,const real *bb_j_all)
+{
+    const real *bb_i,*bb_j;
+
+    __m128 bb_i_SSE0,bb_i_SSE1;
+    __m128 bb_j_SSE0,bb_j_SSE1;
+    __m128 dl_SSE;
+    __m128 dh_SSE;
+    __m128 dm_SSE;
+    __m128 dm0_SSE;
+    __m128 d2_SSE;
+
+    float d2;
+
+    bb_i = bb_i_ci  +  si*NNBSBB_B;
+    bb_j = bb_j_all + csj*NNBSBB_B;
+
+    bb_i_SSE0 = _mm_load_ps(bb_i);
+    bb_i_SSE1 = _mm_load_ps(bb_i+NNBSBB_C);
+    bb_j_SSE0 = _mm_load_ps(bb_j);
+    bb_j_SSE1 = _mm_load_ps(bb_j+NNBSBB_C);
+    
+    
+    dl_SSE    = _mm_sub_ps(bb_i_SSE0,bb_j_SSE1);
+    dh_SSE    = _mm_sub_ps(bb_j_SSE0,bb_i_SSE1);
+
+    dm_SSE    = _mm_max_ps(dl_SSE,dh_SSE);
+    dm0_SSE   = _mm_max_ps(dm_SSE,_mm_setzero_ps());
+    /* Dot product of components 0,1,2 */
+    d2_SSE    = _mm_dp_ps(dm0_SSE,dm0_SSE,0x71);
+
+    _mm_store_ss(&d2,d2_SSE);
+
+    return d2;
+}
+#endif
+
+#endif
 
 static gmx_bool subc_in_range_x(int naps,
                                 int si,const real *x_i,
@@ -1170,7 +1260,7 @@ void gmx_nblist_init(gmx_nblist_t *nbl,
     nbl->si_nalloc   = 0;
 
     snew(nbl->work,1);
-    snew_aligned(nbl->work->bb_ci,NSUBCELL*NNBSBB,16);
+    snew_aligned(nbl->work->bb_ci,NSUBCELL*NNBSBB_B,16);
     snew_aligned(nbl->work->x_ci,NBL_NAPC_MAX*DIM,16);
 }
 
@@ -1231,7 +1321,18 @@ static void make_subcell_list(const gmx_nbsearch_t nbs,
         {
             csi = ci*NSUBCELL + si;
 
+            /* These calls should be selected at run time based on the CPU,
+             * not at compile time.
+             */
+#if ( !defined(GMX_DOUBLE) && ( defined(GMX_IA32_SSE) || defined(GMX_X86_64_SSE) || defined(GMX_X86_64_SSE2) ) )
+#ifdef GMX_SSE4_1
+            d2 = subc_bb_dist2_sse4_1(naps,si,bb_ci,csj,nbs->bb);
+#else
+            d2 = subc_bb_dist2_sse(naps,si,bb_ci,csj,nbs->bb);
+#endif
+#else
             d2 = subc_bb_dist2(naps,si,bb_ci,csj,nbs->bb);
+#endif
 
             /* Check if the distance is within the distance where
              * we use only the bounding box distance rbb,
@@ -1532,15 +1633,15 @@ static void set_supcell_i_bb(const real *bb,int ci,
 {
     int ia,i;
     
-    ia = ci*NSUBCELL*NNBSBB;
-    for(i=0; i<NSUBCELL*NNBSBB; i+=NNBSBB)
+    ia = ci*NSUBCELL*NNBSBB_B;
+    for(i=0; i<NSUBCELL*NNBSBB_B; i+=NNBSBB_B)
     {
         bb_ci[i+0] = bb[ia+i+0] + shx;
-        bb_ci[i+1] = bb[ia+i+1] + shx;
-        bb_ci[i+2] = bb[ia+i+2] + shy;
-        bb_ci[i+3] = bb[ia+i+3] + shy;
-        bb_ci[i+4] = bb[ia+i+4] + shz;
-        bb_ci[i+5] = bb[ia+i+5] + shz;
+        bb_ci[i+1] = bb[ia+i+1] + shy;
+        bb_ci[i+2] = bb[ia+i+2] + shz;
+        bb_ci[i+4] = bb[ia+i+4] + shx;
+        bb_ci[i+5] = bb[ia+i+5] + shy;
+        bb_ci[i+6] = bb[ia+i+6] + shz;
     }
 }
 
@@ -2021,13 +2122,13 @@ static void gmx_nbsearch_make_nblist_part(const gmx_nbsearch_t nbs,
                                     for(k=c0; k<c1; k++)
                                     {
                                         if (box_dist2(bx0,bx1,by0,by1,bz0,bz1,
-                                                      bb+k*NNBSBB) < rl2 &&
+                                                      bb+k*NNBSBB_B) < rl2 &&
                                             k < cf)
                                         {
                                             cf = k;
                                         }
                                         if (box_dist2(bx0,bx1,by0,by1,bz0,bz1,
-                                                      bb+k*NNBSBB) < rl2 &&
+                                                      bb+k*NNBSBB_B) < rl2 &&
                                             k > cl)
                                         {
                                             cl = k;
