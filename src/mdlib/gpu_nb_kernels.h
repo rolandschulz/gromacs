@@ -37,8 +37,8 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)
                             float4 *f
                             )
 {    
-    unsigned int tidxx  = threadIdx.y;
-    unsigned int tidxy  = threadIdx.x;
+    unsigned int tidxi  = threadIdx.y;
+    unsigned int tidxj  = threadIdx.x;
     unsigned int tidx   = threadIdx.y * blockDim.y + threadIdx.x;
     unsigned int bidx   = blockIdx.x;
 
@@ -89,7 +89,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)
         sj          = nbl_sj[j].sj; /* TODO int4? */
         si_start    = nbl_sj[j].si_ind;
         si_end      = nbl_sj[j + 1].si_ind;
-        aj          = sj * CELL_SIZE + tidxy;
+        aj          = sj * CELL_SIZE + tidxj;
 
         /* load j atom data into registers */
         f4tmp   = xq[aj];
@@ -105,7 +105,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)
         {
             si          = nbl_si[i].si;
             si_offset   = si - ci * NSUBCELL;       /* i force buffer offset */ 
-            ai          = si * CELL_SIZE + tidxx;  /* i atom index */
+            ai          = si * CELL_SIZE + tidxi;  /* i atom index */
 
             excl_bit = (nbl_si[i].excl >> tidx) & 1;
 
@@ -175,15 +175,15 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)
         __syncthreads();
 
         /* reduce j forces */
-        reduce_force_j_generic_strided(forcebuf, f, tidxx, tidxy, aj);
+        reduce_force_j_generic_strided(forcebuf, f, tidxi, tidxj, aj);
         __syncthreads();
     }
     
     /* reduce i forces */
     for(si_offset = 0; si_offset < NSUBCELL; si_offset++)
     {
-        ai  = (ci * NSUBCELL + si_offset) * CELL_SIZE + tidxx;  /* i atom index */
-        reduce_force_i_generic_strided(forcebuf + (1 + si_offset) * STRIDE_SI, f, tidxx, tidxy, ai);
+        ai  = (ci * NSUBCELL + si_offset) * CELL_SIZE + tidxi;  /* i atom index */
+        reduce_force_i_generic_strided(forcebuf + (1 + si_offset) * STRIDE_SI, f, tidxi, tidxj, ai);
     }
 
 #ifdef CALC_ENERGIES
@@ -227,8 +227,8 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)
 #endif                          
                             float4 *f)
 {
-    unsigned int tidxx  = threadIdx.y;
-    unsigned int tidxy  = threadIdx.x;
+    unsigned int tidxi  = threadIdx.y;
+    unsigned int tidxj  = threadIdx.x;
     unsigned int tidx   = threadIdx.y * blockDim.y + threadIdx.x;
     unsigned int bidx   = blockIdx.x;
 
@@ -278,7 +278,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)
         sj          = nbl_sj[j].sj; /* TODO int4? */
         si_start    = nbl_sj[j].si_ind;
         si_end      = nbl_sj[j + 1].si_ind;
-        aj          = sj * CELL_SIZE + tidxy;
+        aj          = sj * CELL_SIZE + tidxj;
 
         /* load j atom data into registers */
         f4tmp   = xq[aj];
@@ -294,7 +294,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)
         {
             si          = nbl_si[i].si;
             si_offset   = si - ci * NSUBCELL;       /* i force buffer offset */     
-            ai          = si * CELL_SIZE + tidxx;  /* i atom index */
+            ai          = si * CELL_SIZE + tidxi;  /* i atom index */
 
             excl_bit = (nbl_si[i].excl >> tidx) & 1;
 
@@ -359,18 +359,18 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)
         __syncthreads();
 
         /* reduce j forces */
-        reduce_force_j_generic_strided(forcebuf, f, tidxx, tidxy, aj);
+        reduce_force_j_generic_strided(forcebuf, f, tidxi, tidxj, aj);
         __syncthreads();
     }
 
     /* reduce i forces */
     for (si_offset = 0; si_offset < NSUBCELL; si_offset++)
     {
-        ai  = (ci * NSUBCELL + si_offset) * CELL_SIZE + tidxx;
+        ai  = (ci * NSUBCELL + si_offset) * CELL_SIZE + tidxi;
         forcebuf[                 tidx] = fsi_buf[si_offset].x;
         forcebuf[    STRIDE_DIM + tidx] = fsi_buf[si_offset].y;
         forcebuf[2 * STRIDE_DIM + tidx] = fsi_buf[si_offset].z;
-        reduce_force_i_generic_strided(forcebuf, f, tidxx, tidxy, ai);
+        reduce_force_i_generic_strided(forcebuf, f, tidxi, tidxj, ai);
 
         __syncthreads();
     }
