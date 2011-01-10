@@ -8,9 +8,7 @@
  */
 /*
 TODO:
-  - fix the bloody BUG !!! 
   - fix GPU_FACEL
-  - check how costly is the reduction 
   - improve energy reduction!
  */
 
@@ -178,9 +176,9 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)
 
         /* reduce j forces */
         reduce_force_j_generic_strided(forcebuf, f, tidxx, tidxy, aj);
+        __syncthreads();
     }
-    __syncthreads();
-
+    
     /* reduce i forces */
     for(si_offset = 0; si_offset < NSUBCELL; si_offset++)
     {
@@ -362,8 +360,8 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)
 
         /* reduce j forces */
         reduce_force_j_generic_strided(forcebuf, f, tidxx, tidxy, aj);
+        __syncthreads();
     }
-    __syncthreads();
 
     /* reduce i forces */
     for (si_offset = 0; si_offset < NSUBCELL; si_offset++)
