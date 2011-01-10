@@ -859,11 +859,11 @@ void do_force(FILE *fplog,t_commrec *cr,
  
     if (fr->useGPU || fr->emulateGPU)
     {
+        wallcycle_start(wcycle,ewcRECV_F_GPU);
+
         if (fr->useGPU)
         {
 #ifdef GMX_GPU
-            wallcycle_start(wcycle,ewcRECV_F_GPU);\
-
             cu_blockwait_nb(fr->gpu_data, (flags & GMX_FORCE_VIRIAL),
                             enerd->grpp.ener[egLJSR], enerd->grpp.ener[egCOULSR],
                             &time);
@@ -874,8 +874,6 @@ void do_force(FILE *fplog,t_commrec *cr,
                         gputime.nb_count, gputime.nb_count_ene, 
                         gputime.nb_total_time/gputime.nb_count);               
             }
-
-            wallcycle_stop(wcycle,ewcRECV_F_GPU);
 #endif  /* GMX_GPU */
         }
         else
@@ -890,7 +888,9 @@ void do_force(FILE *fplog,t_commrec *cr,
                                  enerd->grpp.ener[egBHAMSR] :
                                  enerd->grpp.ener[egLJSR]);
         }
-    
+
+        wallcycle_stop(wcycle,ewcRECV_F_GPU);
+
         gmx_nb_atomdata_add_nbat_f_to_f(fr->nbs,fr->nbat,f);
     }
 
