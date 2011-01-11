@@ -1366,8 +1366,8 @@ static void make_subcell_list(const gmx_nbsearch_t nbs,
                     }
                     else
                     {
-                        /* Only minor > major bits set */
-                        nbl->si[nbl->nsi].excl = 0x80c0e0f0f8fcfeUL;
+                        /* Only minor < major bits set */
+                        nbl->si[nbl->nsi].excl = 0x7F3F1F0F07030100UL; 
                     }
                 }
                 else
@@ -1547,7 +1547,7 @@ static void set_ci_excls(const gmx_nbsearch_t nbs,
                                 }
 #endif
                                 nbl->si[si_ind].excl &=
-                                    ~(1UL<<(inner_i*naps + inner_e));
+                                    ~(1UL<<(inner_i + inner_e*naps));
 
                                 Found_si = TRUE;
                             }

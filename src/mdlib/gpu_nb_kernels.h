@@ -34,12 +34,11 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)
                             float *e_lj,
                             float *e_el,
 #endif
-                            float4 *f
-                            )
+                            float4 *f)
 {    
-    unsigned int tidxi  = threadIdx.y;
-    unsigned int tidxj  = threadIdx.x;
-    unsigned int tidx   = threadIdx.y * blockDim.y + threadIdx.x;
+    unsigned int tidxi  = threadIdx.x;
+    unsigned int tidxj  = threadIdx.y;
+    unsigned int tidx   = threadIdx.y * blockDim.x + threadIdx.x;
     unsigned int bidx   = blockIdx.x;
 
     int ci, si, sj, si_offset,
@@ -172,18 +171,17 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)
         forcebuf[                 tidx] = fsj_buf.x;
         forcebuf[    STRIDE_DIM + tidx] = fsj_buf.y;
         forcebuf[2 * STRIDE_DIM + tidx] = fsj_buf.z;
-        __syncthreads();
 
         /* reduce j forces */
         reduce_force_j_generic_strided(forcebuf, f, tidxi, tidxj, aj);
-        __syncthreads();
-    }
-    
+    }    
+    __syncthreads();
+
     /* reduce i forces */
     for(si_offset = 0; si_offset < NSUBCELL; si_offset++)
     {
         ai  = (ci * NSUBCELL + si_offset) * CELL_SIZE + tidxi;  /* i atom index */
-        reduce_force_i_generic_strided(forcebuf + (1 + si_offset) * STRIDE_SI, f, tidxi, tidxj, ai);
+        reduce_force_i_strided(forcebuf + (1 + si_offset) * STRIDE_SI, f, tidxi, tidxj, ai);
     }
 
 #ifdef CALC_ENERGIES
@@ -227,9 +225,9 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)
 #endif                          
                             float4 *f)
 {
-    unsigned int tidxi  = threadIdx.y;
-    unsigned int tidxj  = threadIdx.x;
-    unsigned int tidx   = threadIdx.y * blockDim.y + threadIdx.x;
+    unsigned int tidxi  = threadIdx.x;
+    unsigned int tidxj  = threadIdx.y;
+    unsigned int tidx   = threadIdx.y * blockDim.x + threadIdx.x;
     unsigned int bidx   = blockIdx.x;
 
     int ci, si, sj, si_offset,
@@ -255,7 +253,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)
     extern __shared__ float forcebuf[];  /* j force buffer */
     float3 fsi_buf[NSUBCELL];            /* i force buffer */
 
-    nb_ci       = nbl_ci[bidx];
+    nb_ci       = nbl_ci[bidx];         /* cell index */
     ci          = nb_ci.ci;             /* i cell index = current block index */
     cij_start   = nb_ci.sj_ind_start;   /* first ...*/
     cij_end     = nb_ci.sj_ind_end;     /* and last index of j cells */
@@ -320,10 +318,13 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)
 
                 F_invr      = inv_r6 * (12.0f * c12 * inv_r6 - 6.0f * c6) * inv_r2;
 
+#ifdef CALC_ENERGIES
+                E_lj        += inv_r6 * (c12 * inv_r6 - c6);
+#endif
+
 #ifdef EL_CUTOFF
                 F_invr      += qi * qj_f * inv_r2 * inv_r;  
 #endif
-
 #ifdef EL_RF
                 F_invr      += qi * qj_f * (inv_r2 * inv_r - two_k_rf); 
 #endif
@@ -336,7 +337,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)
                 E_el        += qi * qj_f * inv_r;
 #endif
 #ifdef EL_RF
-                E_el        += qi * qj_f * (inv_r + 0.5f * two_k_rf - c_rf);
+                E_el        += qi * qj_f * (inv_r + 0.5f * two_k_rf * r2 - c_rf);
 #endif
 #ifdef EL_EWALD
                 E_el        += qi * qj_f * inv_r * erfc(inv_r * beta);
@@ -356,11 +357,9 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)
         forcebuf[                 tidx] = fsj_buf.x;
         forcebuf[    STRIDE_DIM + tidx] = fsj_buf.y;
         forcebuf[2 * STRIDE_DIM + tidx] = fsj_buf.z;
-        __syncthreads();
 
         /* reduce j forces */
         reduce_force_j_generic_strided(forcebuf, f, tidxi, tidxj, aj);
-        __syncthreads();
     }
 
     /* reduce i forces */
@@ -370,8 +369,8 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)
         forcebuf[                 tidx] = fsi_buf[si_offset].x;
         forcebuf[    STRIDE_DIM + tidx] = fsi_buf[si_offset].y;
         forcebuf[2 * STRIDE_DIM + tidx] = fsi_buf[si_offset].z;
-        reduce_force_i_generic_strided(forcebuf, f, tidxi, tidxj, ai);
-
+        __syncthreads();
+        reduce_force_i_strided(forcebuf, f, tidxi, tidxj, ai);        
         __syncthreads();
     }
 

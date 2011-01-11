@@ -171,7 +171,7 @@ nsbox_generic_kernel(const gmx_nblist_t         *nbl,
                     {
                         ja               = sj*nbl->naps + jc;
                         
-                        if (!(nbl->si[siind].excl & 1UL<<(ic*nbl->naps+jc)))
+                        if (!(nbl->si[siind].excl & 1UL<<(jc*nbl->naps+ic)))
                         {
                             continue;
                         }
