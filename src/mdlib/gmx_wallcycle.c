@@ -51,6 +51,10 @@
 #include "tmpi.h"
 #endif
 
+#ifdef GMX_GPU
+#include "gpu_data.h"
+#endif
+
 typedef struct
 {
     int          n;
@@ -344,19 +348,39 @@ static void print_cycles(FILE *fplog, double c2t, const char *name, int nnodes,
   }
 }
 
+static void print_gputimes(FILE *fplog, const char *name, 
+                           int n, double tot_t)
+{
+    char num[11];
+    char avg_perf[11];
+
+    if (n > 0)
+    {
+        sprintf(num, "%10d", n);
+        sprintf(avg_perf, "%10.3f", tot_t/n);
+    }
+    else
+    {
+      sprintf(num,"          ");
+      sprintf(avg_perf,"          ");
+    }
+    fprintf(fplog, " %-24s %10s %12.2f %s\n", 
+            name, num, tot_t/1000, avg_perf); 
+}
+
 static gmx_bool subdivision(int ewc)
 {
     return (ewc >= ewcPME_REDISTXF && ewc <= ewcPME_SOLVE);
 }
 
 void wallcycle_print(FILE *fplog, int nnodes, int npme, double realtime,
-		     gmx_wallcycle_t wc, double cycles[])
+		     gmx_wallcycle_t wc, double cycles[], gpu_times_t *gputimes)
 {
     double c2t,tot,sum;
     int    i,j,npp;
     char   buf[STRLEN];
     const char *myline = "-----------------------------------------------------------------------";
-    
+        
     if (wc == NULL)
     {
         return;
@@ -433,6 +457,25 @@ void wallcycle_print(FILE *fplog, int nnodes, int npme, double realtime,
             }
         }
         fprintf(fplog,"%s\n",myline);
+    }
+
+    /* print GPU timing summary */
+    if (gputimes)
+    {
+        fprintf(fplog, "\n GPU timings\n%s\n", myline);
+        fprintf(fplog," Computing:                   Number     Seconds     ms/step     %c\n",'%');
+        fprintf(fplog, "%s\n", myline);
+        // " %-19s %4d %10s %12.3f %10.1f   %5.1f\n"
+        print_gputimes(fplog, "Neighborlist H2D",
+                gputimes->atomdt_count, gputimes->atomdt_h2d_total_time);
+        print_gputimes(fplog, "Nonbonded",
+                 gputimes->nb_count, gputimes->nb_total_time);
+        fprintf(fplog, "%s\n", myline);
+        print_gputimes(fplog, "Nonbonded H2D", 
+                gputimes->nb_count, gputimes->nb_h2d_time);
+        print_gputimes(fplog, "Nonbonded D2H",
+                   gputimes->nb_count, gputimes->nb_d2h_time);
+        fprintf(fplog, "%s\n", myline);
     }
 
     if (cycles[ewcMoveE] > tot*0.05)

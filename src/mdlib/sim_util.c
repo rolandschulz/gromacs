@@ -442,8 +442,7 @@ void do_force(FILE *fplog,t_commrec *cr,
     float  cycles_ppdpme,cycles_pme,cycles_seppme,cycles_force;
     t_cudata d_data = fr->gpu_data;
     
-    float time = 0; 
-    static t_gpu_times gputime = { 0.0, 0, 0, 0.0, 0 };
+    gpu_times_t *gpu_t = get_gpu_times(d_data);
     
     start  = mdatoms->start;
     homenr = mdatoms->homenr;
@@ -676,7 +675,6 @@ void do_force(FILE *fplog,t_commrec *cr,
             if (fr->useGPU)
             {
                 init_cudata_atoms(fr->gpu_data, fr->nbat, &(fr->nbl[0]), fr->streamGPU);
-                gputime.atomdt_count++;
             }
 #endif
         }
@@ -699,13 +697,12 @@ void do_force(FILE *fplog,t_commrec *cr,
         /* wait for the atomdata trasfer to be finished */
         if (bNS)
         {
-            cu_blockwait_atomdata(d_data, &time);
-            gputime.atomdt_trans_total_time += time;
+            cu_blockwait_atomdata(d_data);
             
-            if (gputime.nb_count % 1000 == 0)
+            if (gpu_t->nb_count % 1000 == 0)
             {
-                printf("NS transfer [%4d]:\t%5.3f ms\n", gputime.nb_count, 
-                        gputime.atomdt_trans_total_time/gputime.atomdt_count);
+                printf("NS transfer [%4d]:\t%5.3f ms\n", gpu_t->nb_count, 
+                        gpu_t->atomdt_h2d_total_time/gpu_t->atomdt_count);
             }
        }
 
@@ -714,11 +711,6 @@ void do_force(FILE *fplog,t_commrec *cr,
         wallcycle_start(wcycle,ewcSEND_X_GPU);
      
         cu_stream_nb(fr->gpu_data, fr->nbat, (flags & GMX_FORCE_VIRIAL), !fr->streamGPU);
-        if (flags & GMX_FORCE_VIRIAL)
-        {
-            gputime.nb_count_ene++;
-        }
-        gputime.nb_count++;
 
         wallcycle_stop(wcycle,ewcSEND_X_GPU);
     }
@@ -865,14 +857,23 @@ void do_force(FILE *fplog,t_commrec *cr,
         {
 #ifdef GMX_GPU
             cu_blockwait_nb(fr->gpu_data, (flags & GMX_FORCE_VIRIAL),
-                            enerd->grpp.ener[egLJSR], enerd->grpp.ener[egCOULSR],
-                            &time);
-            gputime.nb_total_time += time;
-            if (!(gputime.nb_count % 500) || gputime.nb_count == 5001)
+                            enerd->grpp.ener[egLJSR], enerd->grpp.ener[egCOULSR]);
+            if (!(gpu_t->nb_count % 500) || gpu_t->nb_count == 5001)
             {
-                printf("NB time [%4d (%4d)]:\t%5.3f ms\n", 
-                        gputime.nb_count, gputime.nb_count_ene, 
-                        gputime.nb_total_time/gputime.nb_count);               
+                if (gpu_t->nb_h2d_time > 0)
+                {
+                    printf("NB time [%4d (%4d)]:\t%5.3f ms | H2D: %5.3f  D2H: %5.3f\n", 
+                            gpu_t->nb_count, gpu_t->nb_count_ene, 
+                            gpu_t->nb_total_time/gpu_t->nb_count,
+                            gpu_t->nb_h2d_time/gpu_t->nb_count,
+                            gpu_t->nb_d2h_time/gpu_t->nb_count);
+                }
+                else 
+                {
+                    printf("NB time [%4d (%4d)]:\t%5.3f ms\n", 
+                            gpu_t->nb_count, gpu_t->nb_count_ene, 
+                            gpu_t->nb_total_time/gpu_t->nb_count);
+                }
             }
 #endif  /* GMX_GPU */
         }
@@ -1501,6 +1502,7 @@ void finish_run(FILE *fplog,t_commrec *cr,const char *confout,
                 t_inputrec *inputrec,
                 t_nrnb nrnb[],gmx_wallcycle_t wcycle,
                 gmx_runtime_t *runtime,
+                gpu_times_t *gputimes,
                 gmx_bool bWriteStat)
 {
   int    i,j;
@@ -1562,7 +1564,7 @@ void finish_run(FILE *fplog,t_commrec *cr,const char *confout,
 
   if (SIMMASTER(cr)) {
     wallcycle_print(fplog,cr->nnodes,cr->npmenodes,runtime->realtime,
-                    wcycle,cycles);
+                    wcycle,cycles, gputimes);
 
     if (EI_DYNAMICS(inputrec->eI)) {
       delta_t = inputrec->delta_t;

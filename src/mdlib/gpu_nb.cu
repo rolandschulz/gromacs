@@ -94,6 +94,7 @@ void cu_stream_nb(t_cudata d_data,
     int     nb_blocks = calc_nb_blocknr(d_data->nci);
     dim3    dim_block(CELL_SIZE, CELL_SIZE, 1); 
     dim3    dim_grid(nb_blocks, 1, 1); 
+    gmx_bool time_trans = d_data->time_transfers; 
 
     /* fn pointer to the nonbonded kernel */
     /* force-only */
@@ -195,17 +196,27 @@ void cu_stream_nb(t_cudata d_data,
         dim_block.x, dim_block.y, dim_block.z, dim_grid.x, dim_grid.y, d_data->nsi, 
         NSUBCELL, d_data->naps);
     }
-
-    cudaEventRecord(d_data->start_nb, 0);
     
-    /* set the forces to 0 */
+    /* beginning of timed nonbonded calculation section */
+    cudaEventRecord(d_data->start_nb, 0);
+
+    /* beginning of timed HtoD section */
+    if (time_trans)
+    {
+        cudaEventRecord(d_data->start_nb_h2d, 0);
+    }
+
+    /* 0 the force output array */
     cudaMemsetAsync(d_data->f, 0, d_data->natoms * sizeof(*d_data->f), 0);
-
-    /* upload x, q */    
+    /* HtoD x, q */    
     upload_cudata_async(d_data->xq, nbatom->x, d_data->natoms * sizeof(*d_data->xq), 0);
-
-    /* upload shift vec */
+    /* HtoD shift vec */
     upload_cudata_async(d_data->shift_vec, nbatom->shift_vec, SHIFTS * sizeof(*d_data->shift_vec), 0);   
+    
+    if (time_trans)
+    {
+        cudaEventRecord(d_data->stop_nb_h2d, 0);
+    }
 
     /* launch async nonbonded calculations */        
     if (!calc_ene)
@@ -256,32 +267,60 @@ void cu_stream_nb(t_cudata d_data,
         CU_LAUNCH_ERR("k_calc_nb");
     }
    
-    /* async copy DtoH f */
-    download_cudata_async(nbatom->f, d_data->f, d_data->natoms*sizeof(*d_data->f), 0);
+    /* beginning of timed D2H section */
+    if (time_trans)
+    {
+        cudaEventRecord(d_data->start_nb_d2h, 0);
+    }
 
+    /* DtoH f */
+    download_cudata_async(nbatom->f, d_data->f, d_data->natoms*sizeof(*d_data->f), 0);
     /* DtoH energies */
     if (calc_ene)
     {
-        download_cudata_async(d_data->tdata.e_lj, d_data->e_lj, sizeof(*d_data->e_lj), 0);
-        download_cudata_async(d_data->tdata.e_el, d_data->e_el, sizeof(*d_data->e_el), 0);
+        download_cudata_async(d_data->tmpdata.e_lj, d_data->e_lj, sizeof(*d_data->e_lj), 0);
+        download_cudata_async(d_data->tmpdata.e_el, d_data->e_el, sizeof(*d_data->e_el), 0);
+        d_data->timings.nb_count_ene++; 
     }
+
+    if (time_trans)
+    {        
+        cudaEventRecord(d_data->stop_nb_d2h, 0);
+    }
+
     cudaEventRecord(d_data->stop_nb, 0);
+
+    d_data->timings.nb_count++; 
 }
 
 /* Blocking wait for the asynchrounously launched nonbonded calculations to finish. */
 void cu_blockwait_nb(t_cudata d_data, gmx_bool calc_ene, 
-                     float *e_lj, float *e_el,                  
-                     float *time)
+                     float *e_lj, float *e_el)
 {    
-    cu_blockwait_event(d_data->stop_nb, d_data->start_nb, time);
+    cudaError_t s;
+    float t;
+
+    cu_blockwait_event(d_data->stop_nb, d_data->start_nb, &t);
+    d_data->timings.nb_total_time += t;
+    
+    if (d_data->time_transfers)
+    {
+        s = cudaEventElapsedTime(&t, d_data->start_nb_h2d, d_data->stop_nb_h2d);
+        CU_RET_ERR(s, "cudaEventElapsedTime failed in cu_blockwait_nb");
+        d_data->timings.nb_h2d_time += t;
+        
+        s = cudaEventElapsedTime(&t, d_data->start_nb_d2h, d_data->stop_nb_d2h);
+        CU_RET_ERR(s, "cudaEventElapsedTime failed in cu_blockwait_nb");
+        d_data->timings.nb_d2h_time += t;        
+    }
 
     /* XXX debugging code, remove this */
     calc_ene = (calc_ene || alwaysE) && !neverE; 
 
     if (calc_ene)
     {
-        *e_lj += *d_data->tdata.e_lj;
-        *e_el += *d_data->tdata.e_el;
+        *e_lj += *d_data->tmpdata.e_lj;
+        *e_el += *d_data->tmpdata.e_el;
     }
 }
 

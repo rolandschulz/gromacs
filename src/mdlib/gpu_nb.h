@@ -17,8 +17,7 @@ void cu_do_nb(t_cudata /*d_data*/, rvec /*shiftvec*/[]);
 gmx_bool cu_checkstat_nb(t_cudata /*d_data*/, float * /*time*/);
 
 void cu_blockwait_nb(t_cudata /*d_data*/, gmx_bool /*calc_ene*/, 
-                     float * /*e_lj*/, float * /*e_el*/,  
-                     float * /*time*/);
+                     float * /*e_lj*/, float * /*e_el*/);
 
 #ifdef __cplusplus
 }

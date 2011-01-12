@@ -4,7 +4,6 @@
 #include "types/nblist_box.h"
 #include "cutypedefs_ext.h"
 
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -22,6 +21,7 @@ struct gpu_tmp_data
     float *e_lj;
     float *e_el; 
 };
+
 struct cudata 
 {
     int     natoms;     /* number of atoms for all 8 neighbouring domains 
@@ -45,7 +45,7 @@ struct cudata
     float   two_k_rf;
     float   ewald_beta;
     float   cutoff_sq;
-    float   *nbfp;      /* nonbonded parameters C12, C6 */    
+    float   *nbfp;      /* nonbonded parameters C12, C6 */
 
     int  eeltype;       /* type of electrostatics */ 
 
@@ -59,7 +59,10 @@ struct cudata
     cudaStream_t    nb_stream;                  /* XXX nonbonded calculation stream - not in use    */
     cudaEvent_t     start_nb, stop_nb;          /* events for timing nonbonded calculation + related 
                                                    data transfers                                   */
-    cudaEvent_t     start_atdat, stop_atdat;    /* event for timing atom data (every NS step)       */
+    gmx_bool        time_transfers;             /* enable/disable separate host-device data trasnfer timing */
+    cudaEvent_t     start_nb_h2d, stop_nb_h2d;  /* events for timing host to device transfer (every step) */
+    cudaEvent_t     start_nb_d2h, stop_nb_d2h;  /* events for timing device to host transfer (every step) */
+    cudaEvent_t     start_atdat, stop_atdat;    /* events for timing atom data transfer (every NS step) */
 
     /* neighbor list data */
     int             naps;       /* number of atoms per subcell                  */
@@ -80,7 +83,8 @@ struct cudata
 
     float3          *shift_vec;  /* shifts */    
 
-    gpu_tmp_data_t  tdata; 
+    gpu_tmp_data_t  tmpdata;    
+    gpu_times_t     timings;
 };
 
 

@@ -14,7 +14,9 @@
 
 #define MY_PI               (3.1415926535897932384626433832795f)
 #define TWO_OVER_SQRT_PI    (2.0f/sqrt(MY_PI))
-
+    
+#define TIME_GPU_TRANSFERS 1
+        
 __device__ __global__ void k_empty(){}
 
 /*** CUDA Data operations ***/
@@ -94,7 +96,9 @@ void init_cudata_ff(FILE *fplog,
     if (dp_data == NULL) return;
     
     snew(d_data, 1);
- 
+
+    d_data->time_transfers = TIME_GPU_TRANSFERS > 0; /* TODO fix this! */
+
     d_data->ewald_beta  = fr->ewaldcoeff;
     d_data->eps_r       = fr->epsilon_r;
     d_data->two_k_rf    = 2.0 * fr->k_rf;   
@@ -133,6 +137,19 @@ void init_cudata_ff(FILE *fplog,
     stat = cudaEventCreateWithFlags(&(d_data->stop_atdat), eventflags);
     CU_RET_ERR(stat, "cudaEventCreate on stop_atdat failed");
 
+    if (d_data->time_transfers)
+    {
+        stat = cudaEventCreateWithFlags(&(d_data->start_nb_h2d), eventflags);
+        CU_RET_ERR(stat, "cudaEventCreate on start_nb_h2d failed");
+        stat = cudaEventCreateWithFlags(&(d_data->stop_nb_h2d), eventflags);
+        CU_RET_ERR(stat, "cudaEventCreate on stop_nb_h2d failed");
+
+        stat = cudaEventCreateWithFlags(&(d_data->start_nb_d2h), eventflags);
+        CU_RET_ERR(stat, "cudaEventCreate on start_nb_d2h failed");
+        stat = cudaEventCreateWithFlags(&(d_data->stop_nb_d2h), eventflags);
+        CU_RET_ERR(stat, "cudaEventCreate on stop_nb_d2h failed");
+    }
+
     /* NB params */
     d_data->ntypes  = ntypes;
     stat = cudaMalloc((void **)&d_data->nbfp, 2*ntypes*ntypes*sizeof(*(d_data->nbfp)));
@@ -146,23 +163,24 @@ void init_cudata_ff(FILE *fplog,
     CU_RET_ERR(stat, "cudaBindTexture on tex_nbfp failed");
 
     stat = cudaMalloc((void**)&d_data->shift_vec, SHIFTS*sizeof(*d_data->shift_vec));
-    CU_RET_ERR(stat, "cudaMalloc failed on d_data->shift_vec");
+    CU_RET_ERR(stat, "cudaMalloc failed on d_data->shift_vec"); 
 
     stat = cudaMalloc((void**)&d_data->e_lj, sizeof(*d_data->e_lj));
     CU_RET_ERR(stat, "cudaMalloc failed on d_data->e_lj");
     stat = cudaMalloc((void**)&d_data->e_el, sizeof(*d_data->e_el));
     CU_RET_ERR(stat, "cudaMalloc failed on d_data->e_el");
 
-    pmalloc((void**)&d_data->tdata.e_lj, sizeof(*d_data->tdata.e_lj));
-    pmalloc((void**)&d_data->tdata.e_el, sizeof(*d_data->tdata.e_el));
+    pmalloc((void**)&d_data->tmpdata.e_lj, sizeof(*d_data->tmpdata.e_lj));
+    pmalloc((void**)&d_data->tmpdata.e_el, sizeof(*d_data->tmpdata.e_el));
 
-    if (fplog != NULL)
-    {
-        fprintf(fplog, "Initialized CUDA data structures.\n");
-        
-        printf("Initialized CUDA data structures.\n");
-        fflush(stdout);
-    }
+    /* initilize timing structure */
+    d_data->timings.nb_total_time = 0.0;
+    d_data->timings.nb_h2d_time = 0.0;
+    d_data->timings.nb_d2h_time = 0.0;
+    d_data->timings.nb_count = 0;
+    d_data->timings.nb_count_ene = 0;
+    d_data->timings.atomdt_h2d_total_time = 0.0;
+    d_data->timings.atomdt_count = 0;
 
     /* initilize to NULL all data structures that might need reallocation 
        in init_cudata_atoms */
@@ -185,6 +203,13 @@ void init_cudata_ff(FILE *fplog,
 
     *dp_data = d_data;
 
+    if (fplog != NULL)
+    {
+        fprintf(fplog, "Initialized CUDA data structures.\n");
+        
+        printf("Initialized CUDA data structures.\n");
+        fflush(stdout);
+    }
     /* 
        k_calc_nb_*_1 48/16 kB Shared/L1 
      */
@@ -303,6 +328,8 @@ void init_cudata_atoms(t_cudata d_data,
 
     stat = cudaEventRecord(d_data->stop_atdat, 0);
     CU_RET_ERR(stat, "cudaEventRecord failed on d_data->stop_atdat");
+
+    d_data->timings.atomdt_count++;    
 }
 
 void destroy_cudata(FILE *fplog, t_cudata d_data)
@@ -330,6 +357,19 @@ void destroy_cudata(FILE *fplog, t_cudata d_data)
     CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->start_atdat");
     stat = cudaEventDestroy(d_data->stop_atdat);
     CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->stop_atdat");
+
+    if (d_data->time_transfers)
+    {
+        stat = cudaEventDestroy(d_data->start_nb_h2d);
+        CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->start_nb_h2d");
+        stat = cudaEventDestroy(d_data->stop_nb_h2d);
+        CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->stop_nb_h2d");
+
+        stat = cudaEventDestroy(d_data->start_nb_d2h);
+        CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->start_nb_d2h");
+        stat = cudaEventDestroy(d_data->stop_nb_d2h);
+        CU_RET_ERR(stat, "cudaEventDestroy failed on d_data->stop_nb_d2h");
+    }
 
     stat = cudaGetTextureReference(&tex, "tex_nbfp");
     CU_RET_ERR(stat, "cudaGetTextureReference on tex_nbfp failed");
@@ -433,9 +473,11 @@ static void realloc_cudata_array(void **d_dest, void *h_src, size_t type_size,
     }
 }
 
-void cu_blockwait_atomdata(t_cudata d_data, float *time)
-{    
-    cu_blockwait_event(d_data->stop_atdat, d_data->start_atdat, time);
+void cu_blockwait_atomdata(t_cudata d_data)
+{   
+    float t;
+    cu_blockwait_event(d_data->stop_atdat, d_data->start_atdat, &t);
+    d_data->timings.atomdt_h2d_total_time += t;
 }
 
 void cu_blockwait_atomdata_OLD(t_cudata d_data, float *time)
@@ -447,6 +489,12 @@ void cu_blockwait_atomdata_OLD(t_cudata d_data, float *time)
 
     stat = cudaEventElapsedTime(time, d_data->start_atdat, d_data->stop_atdat);
     CU_RET_ERR(stat, "cudaEventElapsedTime on start_atdat and stop_atdat failed");
+}
+
+/* GPU timerstruct  query functions */
+gpu_times_t * get_gpu_times(t_cudata d_data)
+{
+    return &d_data->timings;
 }
 
 int cu_upload_X(t_cudata d_data, real *h_x) 

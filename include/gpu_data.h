@@ -26,7 +26,9 @@ int cu_upload_X(t_cudata /*d_data*/,
 int cu_download_F(real * /*h_f*/, 
                    t_cudata /*d_data*/);
 
-void cu_blockwait_atomdata(t_cudata /*d_data*/, float * /*time*/);
+void cu_blockwait_atomdata(t_cudata /*d_data*/);
+
+gpu_times_t * get_gpu_times(t_cudata /*d_data*/);
 
 #ifdef __cplusplus
 }
