@@ -12,7 +12,7 @@ texture<float, 1, cudaReadModeElementType> tex_nbfp;
 texture<float, 1, cudaReadModeElementType> tex_coulomb_tab;
 
 /* source: OpenMM */
-static __device__ float interpolate_coulomb_force_r(float r, float scale)
+inline __device__ float interpolate_coulomb_force_r(float r, float scale)
 {  
     float   normalized = scale * r;
     int     index = (int) normalized;
@@ -98,13 +98,14 @@ __device__ void reduce_force_i_8_strided(volatile float *fbuf, float4 *fout,
 inline __device__ void reduce_force_i_pow2_strided(volatile float *fbuf, float4 *fout,
         int tidxi, int tidxj, int aidx)
 {
-    int i; 
-    float4 f = make_float4(0.0f);
+    int     i, j; 
+    float4  f = make_float4(0.0f);
 
     /* Reduce the initial CELL_SIZE values for each i atom to half
        every step by using CELL_SIZE * i threads. */
-    # pragma unroll 2
-    for (i = CELL_SIZE/2; i > 1; i >>= 1) 
+    i = CELL_SIZE/2;
+    # pragma unroll 5
+    for (j = CELL_SIZE_POW2_EXPONENT - 1; j > 0; j--)
     {
         if (tidxj < i)
         {
@@ -113,6 +114,7 @@ inline __device__ void reduce_force_i_pow2_strided(volatile float *fbuf, float4 
             fbuf[    STRIDE_DIM + tidxj * CELL_SIZE + tidxi] += fbuf[    STRIDE_DIM + (tidxj + i) * CELL_SIZE + tidxi];
             fbuf[2 * STRIDE_DIM + tidxj * CELL_SIZE + tidxi] += fbuf[2 * STRIDE_DIM + (tidxj + i) * CELL_SIZE + tidxi];
         }
+        i >>= 1;
     }
 
     /* i == 1, last reduction step, writing to global mem */
@@ -127,7 +129,6 @@ inline __device__ void reduce_force_i_pow2_strided(volatile float *fbuf, float4 
         atomicAdd(&fout[aidx].z, f.z);
     }
 }
-
 inline __device__ void reduce_force_i_strided(float *forcebuf, float4 *f,
         int tidxi, int tidxj, int ai)
 {    
@@ -138,8 +139,7 @@ inline __device__ void reduce_force_i_strided(float *forcebuf, float4 *f,
     }             
     else    
     {
-        reduce_force_i_8_strided(forcebuf, f, tidxi, tidxj, ai);
-        // reduce_force_i_pow2_strided(forcebuf, f, tidxi, tidxj, ai);
+        reduce_force_i_pow2_strided(forcebuf, f, tidxi, tidxj, ai);
     }
 }
 

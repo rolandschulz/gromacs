@@ -11,8 +11,9 @@
 #include "gpu_data.h"
 #include "cupmalloc.h"
 
-#define CELL_SIZE           (GPU_NS_CELL_SIZE)
-#define NB_DEFAULT_THREADS  (CELL_SIZE * CELL_SIZE)
+#define CELL_SIZE               (GPU_NS_CELL_SIZE)
+#define CELL_SIZE_POW2_EXPONENT (3) /* NOTE: change this togather with GPU_NS_CELL_SIZE !*/
+#define NB_DEFAULT_THREADS      (CELL_SIZE * CELL_SIZE)
 
 #include "gpu_nb_kernel_utils.h"
 
