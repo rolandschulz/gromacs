@@ -80,7 +80,7 @@ typedef struct gmx_wallcycle
 
 /* Each name should not exceed 19 characters */
 static const char *wcn[ewcNR] =
-{ "Run", "Step", "PP during PME", "Domain decomp.", "DD comm. load", "DD comm. bounds", "Vsite constr.", "Send X to PME", "Comm. coord.", "Neighbor search", "Send X to GPU" , "Born radii", "Force", "Wait + Comm. F", "PME mesh", "PME redist. X/F", "PME spread/gather", "PME 3D-FFT", "PME solve", "Wait + Comm. X/F", "Wait + Recv. PME F", "Recv. F from GPU", "Vsite spread", "Write traj.", "Update", "Constraints", "Comm. energies", "Test" };
+{ "Run", "Step", "PP during PME", "Domain decomp.", "DD comm. load", "DD comm. bounds", "Vsite constr.", "Send X to PME", "Comm. coord.", "Neighbor search", "Launch GPU calc." , "Born radii", "Force", "Wait + Comm. F", "PME mesh", "PME redist. X/F", "PME spread/gather", "PME 3D-FFT", "PME solve", "Wait + Comm. X/F", "Wait + Recv. PME F", "Wait for GPU calc.", "Vsite spread", "Write traj.", "Update", "Constraints", "Comm. energies", "Test" };
 
 gmx_bool wallcycle_have_counter(void)
 {
@@ -376,7 +376,7 @@ static gmx_bool subdivision(int ewc)
 void wallcycle_print(FILE *fplog, int nnodes, int npme, double realtime,
 		     gmx_wallcycle_t wc, double cycles[], gpu_times_t *gputimes)
 {
-    double c2t,tot,sum;
+    double c2t,tot,tot_gpu,tot_cpu_overlap,sum;
     int    i,j,npp;
     char   buf[STRLEN];
     const char *myline = "-----------------------------------------------------------------------";
@@ -462,20 +462,36 @@ void wallcycle_print(FILE *fplog, int nnodes, int npme, double realtime,
     /* print GPU timing summary */
     if (gputimes)
     {
+        tot_gpu = gputimes->atomdt_h2d_total_time + gputimes->nb_total_time;
+    
+        tot_cpu_overlap = wc->wcc[ewcFORCE].c;
+        if (wc->wcc[ewcPMEMESH].n > 0)
+        {
+            tot_cpu_overlap += wc->wcc[ewcPMEMESH].c;
+        }
+        tot_cpu_overlap *= c2t * 1000; /* convert s to ms */
+
         fprintf(fplog, "\n GPU timings\n%s\n", myline);
-        fprintf(fplog," Computing:                   Number     Seconds     ms/step     %c\n",'%');
+        fprintf(fplog," Computing:                   Number      Seconds    ms/step     %c\n",'%');
         fprintf(fplog, "%s\n", myline);
         // " %-19s %4d %10s %12.3f %10.1f   %5.1f\n"
         print_gputimes(fplog, "Neighborlist H2D",
                 gputimes->atomdt_count, gputimes->atomdt_h2d_total_time);
-        print_gputimes(fplog, "Nonbonded",
-                 gputimes->nb_count, gputimes->nb_total_time);
-        fprintf(fplog, "%s\n", myline);
-        print_gputimes(fplog, "Nonbonded H2D", 
+         print_gputimes(fplog, "Nonbonded H2D", 
                 gputimes->nb_count, gputimes->nb_h2d_time);
+        print_gputimes(fplog, "Nonbonded calc.",
+                 gputimes->nb_count,
+                 gputimes->nb_total_time - gputimes->nb_h2d_time - gputimes->nb_d2h_time);
         print_gputimes(fplog, "Nonbonded D2H",
                    gputimes->nb_count, gputimes->nb_d2h_time);
         fprintf(fplog, "%s\n", myline);
+        print_gputimes(fplog, "Total ", 0, tot_gpu);
+        fprintf(fplog, "%s\n", myline);
+
+        fprintf(fplog, "\n Force evaluation time GPU/CPU: %.3f ms/%.3f ms = %.3f\n",
+                tot_gpu/gputimes->nb_count, tot_cpu_overlap/gputimes->nb_count, 
+                tot_gpu/tot_cpu_overlap);
+        fprintf(fplog, " for optimal performance this ratio should be 1\n");
     }
 
     if (cycles[ewcMoveE] > tot*0.05)
