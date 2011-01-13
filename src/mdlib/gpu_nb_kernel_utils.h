@@ -129,6 +129,39 @@ inline __device__ void reduce_force_i_pow2_strided(volatile float *fbuf, float4 
         atomicAdd(&fout[aidx].z, f.z);
     }
 }
+
+inline __device__ void reduce_energy_pow2(volatile float *buf,
+                                          float *e_lj, float *e_el,
+                                          unsigned int tidx)
+{
+    int     i, j; 
+    float4  f = make_float4(0.0f);
+    float   e1, e2;
+
+    i = CELL_SIZE_2/2;
+
+# pragma unroll 10
+    for (j = 2 * CELL_SIZE_POW2_EXPONENT - 1; j > 0; j--)
+    {
+        if (tidx < i)
+        {
+            buf[             tidx] += buf[             tidx + i];
+            buf[STRIDE_DIM + tidx] += buf[STRIDE_DIM + tidx + i];
+        }
+        i >>= 1;
+    }
+
+    /* last reduction step, writing to global mem */
+    if (tidx == 0)
+    {
+        e1 = buf[             tidx] + buf[             tidx + i];
+        e2 = buf[STRIDE_DIM + tidx] + buf[STRIDE_DIM + tidx + i];
+
+        atomicAdd(e_lj, e1);
+        atomicAdd(e_el, e2); 
+    }
+}
+
 inline __device__ void reduce_force_i_strided(float *forcebuf, float4 *f,
         int tidxi, int tidxj, int ai)
 {    

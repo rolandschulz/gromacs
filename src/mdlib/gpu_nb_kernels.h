@@ -185,9 +185,10 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)
     }
 
 #ifdef CALC_ENERGIES
-    /* add each thread's local energy to the global value */
-    atomicAdd(e_lj, E_lj);
-    atomicAdd(e_el, E_el);
+    /* flush the partial energies to shmem and sum them up */
+    forcebuf[             tidx] = E_lj;
+    forcebuf[STRIDE_DIM + tidx] = E_el;
+    reduce_energy_pow2(forcebuf, e_lj, e_el, tidx);
 #endif
 }
 
@@ -375,10 +376,12 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)
     }
 
 #ifdef CALC_ENERGIES
-    /* add each thread's local energy to the global value */
-    atomicAdd(e_lj, E_lj);
-    atomicAdd(e_el, E_el);
+    /* flush the partial energies to shmem and sum them up */
+    forcebuf[             tidx] = E_lj;
+    forcebuf[STRIDE_DIM + tidx] = E_el;
+    reduce_energy_pow2(forcebuf, e_lj, e_el, tidx);
 #endif
+
 }
 
 #undef FUNCTION_NAME
