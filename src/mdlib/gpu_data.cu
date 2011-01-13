@@ -164,6 +164,7 @@ void init_cudata_ff(FILE *fplog,
 
     stat = cudaMalloc((void**)&d_data->shift_vec, SHIFTS*sizeof(*d_data->shift_vec));
     CU_RET_ERR(stat, "cudaMalloc failed on d_data->shift_vec"); 
+    d_data->shift_vec_copied = FALSE;
 
     stat = cudaMalloc((void**)&d_data->e_lj, sizeof(*d_data->e_lj));
     CU_RET_ERR(stat, "cudaMalloc failed on d_data->e_lj");

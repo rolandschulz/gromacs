@@ -48,6 +48,7 @@ struct cudata
     float   *nbfp;      /* nonbonded parameters C12, C6 */
 
     int  eeltype;       /* type of electrostatics */ 
+    gmx_bool shift_vec_copied; /* indicates whether shift vector has already been transfered */
 
     /* Ewald Coulomb tabulated force */
     int     coulomb_tab_size;

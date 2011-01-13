@@ -209,10 +209,16 @@ void cu_stream_nb(t_cudata d_data,
 
     /* 0 the force output array */
     cudaMemsetAsync(d_data->f, 0, d_data->natoms * sizeof(*d_data->f), 0);
+
     /* HtoD x, q */    
     upload_cudata_async(d_data->xq, nbatom->x, d_data->natoms * sizeof(*d_data->xq), 0);
-    /* HtoD shift vec */
-    upload_cudata_async(d_data->shift_vec, nbatom->shift_vec, SHIFTS * sizeof(*d_data->shift_vec), 0);   
+
+    /* HtoD shift vec if we have a dynamic box */
+    if (nbatom->dynamic_box || !d_data->shift_vec_copied)
+    {
+        upload_cudata_async(d_data->shift_vec, nbatom->shift_vec, SHIFTS * sizeof(*d_data->shift_vec), 0);   
+        d_data->shift_vec_copied = TRUE;
+    }
     
     if (time_trans)
     {
