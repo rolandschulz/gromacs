@@ -108,6 +108,7 @@ typedef struct {
     int  *type;   /* Atom types                                         */
     int  XFormat; /* The format of x (and q), enum                      */
     real *q;      /* Charges, can be NULL if incorporated in x          */
+    gmx_bool dynamic_box; /* Do we need to update shift_vec every step? */
     rvec *shift_vec; /* Shift vectors, copied from t_forcerec           */
     int  xstride; /* stride for a coordinate in x (usually 3 or 4)      */
     real *x;      /* x and possibly q, size natoms*xstride              */

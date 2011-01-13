@@ -441,8 +441,10 @@ void do_force(FILE *fplog,t_commrec *cr,
     t_pbc  pbc;
     float  cycles_ppdpme,cycles_pme,cycles_seppme,cycles_force;
     t_cudata d_data = fr->gpu_data;
-    
+
+#ifdef GMX_GPU    
     gpu_times_t *gpu_t = get_gpu_times(d_data);
+#endif
     
     start  = mdatoms->start;
     homenr = mdatoms->homenr;
@@ -683,7 +685,8 @@ void do_force(FILE *fplog,t_commrec *cr,
 
     if (fr->useGPU || fr->emulateGPU)
     {
-        gmx_nb_atomdata_copy_shiftvec(fr->shift_vec,fr->nbat);
+        gmx_nb_atomdata_copy_shiftvec(flags & GMX_FORCE_DYNAMICBOX,
+                                      fr->shift_vec,fr->nbat);
         if (!bNS)
         {
             /* We are not doing ns this step, we need to copy x to nbat->x */

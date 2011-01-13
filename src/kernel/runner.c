@@ -838,7 +838,12 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
      * if rerunMD, don't write last frame again 
      */
     finish_run(fplog,cr,ftp2fn(efSTO,nfile,fnm),
-               inputrec,nrnb,wcycle,&runtime, get_gpu_times(fr->gpu_data),
+               inputrec,nrnb,wcycle,&runtime,
+#ifdef GMX_GPU
+               get_gpu_times(fr->gpu_data),
+#else
+               NULL,
+#endif
                EI_DYNAMICS(inputrec->eI) && !MULTISIM(cr));
 
     /* Does what it says */  
