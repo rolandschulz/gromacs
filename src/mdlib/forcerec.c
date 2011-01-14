@@ -1327,12 +1327,12 @@ gmx_bool gmx_check_use_gpu(FILE *fp)
     emulateGPU = (env != NULL);
 
     /* Try to turn GPU acceleration on if GMX_GPU is defined */
-    useGPU = FALSE;
-#ifdef GMX_GPU
-    if (fr->emulateGPU)
+    useGPU = FALSE;    
+    if (emulateGPU)
     {
         fprintf(fp, "Emulating GPU\n");
-    }
+    }    
+#ifdef GMX_GPU
     else
     {
         if (getenv("GMX_NO_GPU") == NULL)
@@ -1344,7 +1344,7 @@ gmx_bool gmx_check_use_gpu(FILE *fp)
             env = getenv("GMX_GPU_ID");
             if (env != NULL)
             {
-                sscanf("%d",&gpu_device_id);
+                sscanf(env, "%d",&gpu_device_id);
             }
             if (init_gpu(fp, gpu_device_id) != 0)
             {
@@ -1353,7 +1353,7 @@ gmx_bool gmx_check_use_gpu(FILE *fp)
             else
             {
                 fprintf(fp,"Using GPU#%d\n", gpu_device_id);
-                fr->useGPU = TRUE;
+                useGPU = TRUE;
             }
         }
         else 
