@@ -444,6 +444,7 @@ void do_force(FILE *fplog,t_commrec *cr,
 
 #ifdef GMX_GPU    
     gpu_times_t *gpu_t = get_gpu_times(d_data);
+    gmx_bool    gpu_debug_print = getenv("GMX_GPU_DEBUG_PRINT") != NULL;
 #endif
     
     start  = mdatoms->start;
@@ -680,7 +681,7 @@ void do_force(FILE *fplog,t_commrec *cr,
         {
             cu_blockwait_atomdata(d_data);
             
-            if (gpu_t->nb_count % 1000 == 0)
+            if (gpu_debug_print && gpu_t->nb_count % 1000 == 0)
             {
                 printf("NS transfer [%4d]:\t%5.3f ms\n", gpu_t->nb_count, 
                         gpu_t->atomdt_h2d_total_time/gpu_t->atomdt_count);
@@ -839,7 +840,7 @@ void do_force(FILE *fplog,t_commrec *cr,
 #ifdef GMX_GPU
             cu_blockwait_nb(fr->gpu_data, (flags & GMX_FORCE_VIRIAL),
                             enerd->grpp.ener[egLJSR], enerd->grpp.ener[egCOULSR]);
-            if (!(gpu_t->nb_count % 500) || gpu_t->nb_count == 5001)
+            if (gpu_debug_print && (!(gpu_t->nb_count % 500) || gpu_t->nb_count == 5001))
             {
                 if (gpu_t->nb_h2d_time > 0)
                 {
