@@ -498,7 +498,7 @@ void wallcycle_print(FILE *fplog, int nnodes, int npme, double realtime,
         fprintf(fplog, "%s\n", myline);
 
         fprintf(fplog, "\n Force evaluation time GPU/CPU: %.3f ms/%.3f ms = %.3f\n",
-                tot_gpu/gputimes->nb_count, tot_cpu_overlap/gputimes->nb_count, 
+                tot_gpu/gputimes->nb_count, tot_cpu_overlap/wc->wcc[ewcFORCE].n, 
                 tot_gpu/tot_cpu_overlap);
         fprintf(fplog, " For optimal performance this ratio should be 1!\n");
     }
