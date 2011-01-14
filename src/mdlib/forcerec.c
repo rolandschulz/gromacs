@@ -1318,6 +1318,75 @@ static void init_forcerec_f_threads(t_forcerec *fr,int grpp_nener)
     }
 }
 
+gmx_bool gmx_check_use_gpu(FILE *fp)
+{
+    gmx_bool useGPU,emulateGPU;
+    char *env;
+
+    env = getenv("GMX_EMULATE_GPU");
+    emulateGPU = (env != NULL);
+
+    /* Try to turn GPU acceleration on if GMX_GPU is defined */
+    useGPU = FALSE;
+#ifdef GMX_GPU
+    if (fr->emulateGPU)
+    {
+        fprintf(fp, "Emulating GPU\n");
+    }
+    else
+    {
+        if (getenv("GMX_NO_GPU") == NULL)
+        {
+            int gpu_device_id;
+
+            /* initialize GPU */
+            gpu_device_id = 0; /* TODO get dev_id */
+            env = getenv("GMX_GPU_ID");
+            if (env != NULL)
+            {
+                sscanf("%d",&gpu_device_id);
+            }
+            if (init_gpu(fp, gpu_device_id) != 0)
+            {
+                gmx_warning("Could not initialize GPU #%d", gpu_device_id);
+            }
+            else
+            {
+                fprintf(fp,"Using GPU#%d\n", gpu_device_id);
+                fr->useGPU = TRUE;
+            }
+        }
+        else 
+        {
+            gmx_warning("GPU mode turned off by GMX_NO_GPU env var!");
+        }
+    }
+#endif
+    
+    return (useGPU || emulateGPU);
+}
+
+void remove_chargegroups(gmx_mtop_t *mtop)
+{
+    int mt;
+    t_block *cgs;
+    int i;
+
+    for(mt=0; mt<mtop->nmoltype; mt++)
+    {
+        cgs = &mtop->moltype[mt].cgs;
+        if (cgs->nr < mtop->moltype[mt].atoms.nr)
+        {
+            cgs->nr = mtop->moltype[mt].atoms.nr;
+            srenew(cgs->index,cgs->nr+1);
+            for(i=0; i<cgs->nr+1; i++)
+            {
+                cgs->index[i] = i;
+            }
+        }
+    }
+}
+
 static void set_nsbox_cutoffs(FILE *fp,t_forcerec *fr,real nblist_lifetime)
 {
     /* Temporary code for cut-off setup */
@@ -1386,6 +1455,7 @@ void init_forcerec(FILE *fp,
                    const char *tabfn,
                    const char *tabpfn,
                    const char *tabbfn,
+                   gmx_bool       useGPU,
                    gmx_bool       bNoSolvOpt,
                    real       print_force)
 {
@@ -1886,53 +1956,32 @@ void init_forcerec(FILE *fp,
     
     snew(fr->excl_load,fr->nthreads+1);
 
-    /* nsbox neighbor searching and GPU stuff */
-    napc = GPU_NS_CELL_SIZE;
-
-    env = getenv("GMX_EMULATE_GPU");
-    fr->emulateGPU = (env != NULL);
-    if (fr->emulateGPU)
+    if (!useGPU)
     {
-        sscanf(env,"%d",&napc);
-        if (napc == 0)
-        {
-            napc = GPU_NS_CELL_SIZE;
-        }
-        if (fp != NULL)
-        {
-            fprintf(fp, "Emulating GPU, using %d atoms per cell\n",napc);
-        }
+        fr->useGPU     = FALSE;
+        fr->emulateGPU = FALSE;
     }
-
-    /* turn GPU acceleration on if GMX_GPU is defined */
-    fr->useGPU = FALSE;
-#ifdef GMX_GPU
-    if (!fr->emulateGPU)
+    else
     {
-        if (getenv("GMX_NO_GPU") == NULL)
-        {
-            int gpu_device_id;
+        /* nsbox neighbor searching and GPU stuff */
+        napc = GPU_NS_CELL_SIZE;
 
-            /* initialize GPU */
-            gpu_device_id = 0; /* TODO get dev_id */
-            if (init_gpu(fp, gpu_device_id) != 0)
+        env = getenv("GMX_EMULATE_GPU");
+        fr->emulateGPU = (env != NULL);
+        fr->useGPU = !fr->emulateGPU;
+        if (fr->emulateGPU)
+        {
+            sscanf(env,"%d",&napc);
+            if (napc == 0)
             {
-                gmx_warning("Could not initialize GPU #%d", gpu_device_id);
+                napc = GPU_NS_CELL_SIZE;
             }
-            else
+            if (fp != NULL)
             {
-                fr->useGPU = TRUE;
+                fprintf(fp, "Emulating GPU, using %d atoms per cell\n",napc);
             }
         }
-        else 
-        {
-            gmx_warning("GPU mode turned off by GMX_NO_GPU env var!");
-        }
-    }
- #endif   
 
-    if (fr->useGPU || fr->emulateGPU)
-    {
         set_nsbox_cutoffs(fp,fr,EI_DYNAMICS(ir->eI) ? ir->delta_t*(ir->nstlist-1) : 0.0);
 
         gmx_nbsearch_init(&fr->nbs,napc);

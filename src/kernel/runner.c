@@ -329,6 +329,7 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
              int repl_ex_seed, real pforce,real cpt_period,real max_hours,
              const char *deviceOptions, unsigned long Flags)
 {
+    gmx_bool   useGPU;
     double     nodetime=0,realtime;
     t_inputrec *inputrec;
     t_state    *state=NULL;
@@ -357,6 +358,8 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
     t_commrec   *cr_old=cr; 
     int         nthreads=1;
 
+    useGPU = gmx_check_use_gpu(fplog);
+
     /* CAUTION: threads may be started later on in this function, so
        cr doesn't reflect the final parallel state right now */
     snew(inputrec,1);
@@ -377,6 +380,15 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
     {
         /* Read (nearly) all data required for the simulation */
         read_tpx_state(ftp2fn(efTPX,nfile,fnm),inputrec,state,NULL,mtop);
+
+        if (useGPU)
+        {
+            if (fplog)
+            {
+                fprintf(fplog,"Removing all charge groups because of GPU\n");
+            }
+            remove_chargegroups(mtop);
+        }
 
         /* NOW the threads will be started: */
 #ifdef GMX_THREADS
@@ -646,7 +658,8 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
         init_forcerec(fplog,oenv,fr,fcd,inputrec,mtop,cr,box,FALSE,
                       opt2fn("-table",nfile,fnm),
                       opt2fn("-tablep",nfile,fnm),
-                      opt2fn("-tableb",nfile,fnm),FALSE,pforce);
+                      opt2fn("-tableb",nfile,fnm),
+                      useGPU,FALSE,pforce);
 
         /* version for PCA_NOT_READ_NODE (see md.c) */
         /*init_forcerec(fplog,fr,fcd,inputrec,mtop,cr,box,FALSE,
