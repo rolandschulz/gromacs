@@ -632,28 +632,6 @@ void do_force(FILE *fplog,t_commrec *cr,
         }
         else
         {
-            real rcut_nsbox,rlist_nsbox;
-
-            /* Temporary code for cut-off setup */
-            if (fr->rcoulomb == fr->rlist && fr->rvdw == fr->rlist)
-            {
-                rcut_nsbox  = fr->rcoulomb;
-                rlist_nsbox = fr->rcoulomb + 0.15;
-            }
-            else
-            {
-                if (fr->rcoulomb > fr->rlist || fr->rvdw > fr->rlist)
-                {
-                    gmx_fatal(FARGS,"nsbox does not support twin-range forces");
-                }
-                if (fr->rcoulomb != fr->rvdw)
-                {
-                    gmx_fatal(FARGS,"nsbox does not support rcoulomb != rvdw");
-                }
-                rcut_nsbox  = fr->rcoulomb;
-                rlist_nsbox = fr->rlist;
-            }
-
             if (top->cgs.index[top->cgs.nr] > top->cgs.nr)
             {
                 put_atoms_in_box(box,mdatoms->homenr,x);
@@ -664,7 +642,7 @@ void do_force(FILE *fplog,t_commrec *cr,
 
             gmx_nbsearch_make_nblist(fr->nbs,fr->nbat,
                                      &top->excls,
-                                     rcut_nsbox,rlist_nsbox,
+                                     fr->rcut_nsbox,fr->rlist_nsbox,
                                      800,
                                      fr->nnbl,fr->nbl,TRUE);
 

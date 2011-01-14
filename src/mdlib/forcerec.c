@@ -1318,6 +1318,61 @@ static void init_forcerec_f_threads(t_forcerec *fr,int grpp_nener)
     }
 }
 
+static void set_nsbox_cutoffs(FILE *fp,t_forcerec *fr,real nblist_lifetime)
+{
+    /* Temporary code for cut-off setup */
+    double rbuf;
+
+    if (fr->rcoulomb == fr->rlist && fr->rvdw == fr->rlist)
+    {
+        char *env;
+
+        fr->rcut_nsbox  = fr->rcoulomb;
+                
+        env = getenv("GMX_NSBOX_BUF");
+        if (env != NULL)
+        {
+            double dbl;
+            sscanf(env,"%lf",&rbuf);
+        }
+        else
+        {
+            /* Buffer size for the probably of less than 2e-5
+             * that an atom pair in SPC water at 298 K crosses
+             * the buffer region.
+             * Atoms in SPC water are probably the fastest moving
+             * particles in bio-molecular simulations.
+             * Note that the probability of a missed interaction
+             * (which would still be very small at the cut-off)
+             * is much smaller, because many atoms pairs outside
+             * this buffer radius are still in the buffer due to
+             * it being based on groups of atoms.
+             */
+            rbuf = 3.0*pow(nblist_lifetime,0.75);
+        }
+        fr->rlist_nsbox = fr->rcut_nsbox + rbuf;
+    }
+    else
+    {
+        if (fr->rcoulomb > fr->rlist || fr->rvdw > fr->rlist)
+        {
+            gmx_fatal(FARGS,"nsbox does not support twin-range forces");
+        }
+        if (fr->rcoulomb != fr->rvdw)
+        {
+            gmx_fatal(FARGS,"nsbox does not support rcoulomb != rvdw");
+        }
+        fr->rcut_nsbox  = fr->rcoulomb;
+        fr->rlist_nsbox = fr->rlist;
+        rbuf = fr->rlist_nsbox - fr->rcut_nsbox;
+    }
+    if (fp != NULL)
+    {
+        fprintf(fp,
+                "nsbox neighbor list life time %g ps, buffer size: %.3f nm\n",
+                nblist_lifetime,rbuf);
+    }
+}
 
 void init_forcerec(FILE *fp,
                    const output_env_t oenv,
@@ -1878,6 +1933,8 @@ void init_forcerec(FILE *fp,
 
     if (fr->useGPU || fr->emulateGPU)
     {
+        set_nsbox_cutoffs(fp,fr,EI_DYNAMICS(ir->eI) ? ir->delta_t*(ir->nstlist-1) : 0.0);
+
         gmx_nbsearch_init(&fr->nbs,napc);
 
         fr->nnbl = 1;
