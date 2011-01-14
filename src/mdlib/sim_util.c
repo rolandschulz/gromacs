@@ -895,7 +895,7 @@ void do_force(FILE *fplog,t_commrec *cr,
 
         wallcycle_stop(wcycle,ewcRECV_F_GPU);
 
-        gmx_nb_atomdata_add_nbat_f_to_f(fr->nbs,fr->nbat,f);
+        gmx_nb_atomdata_add_nbat_f_to_f(fr->nbs,fr->nbat,mdatoms->homenr,f);
     }
 
     if (bDoForces)

@@ -90,6 +90,12 @@ nsbox_generic_kernel(const gmx_nblist_t         *nbl,
     int *         type;
 
     int           npair;
+
+    /* Zero the output force array */
+    for(n=0; n<nbat->natoms*nbat->xstride; n++)
+    {
+        nbat->f[n] = 0;
+    }
 	
     if (fr->bcoultab && fr->eeltype != eelRF_ZERO)
     {

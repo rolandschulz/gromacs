@@ -99,8 +99,8 @@ void gmx_nb_atomdata_copy_x_to_nbat_x(const gmx_nbsearch_t nbs,
 
 /* Add the forces stored in nbat to f, zeros the forces in nbat */
 void gmx_nb_atomdata_add_nbat_f_to_f(const gmx_nbsearch_t nbs,
-                                     gmx_nb_atomdata_t *nbat,
-                                     rvec *f);
+                                     const gmx_nb_atomdata_t *nbat,
+                                     int natoms,rvec *f);
 #ifdef __cplusplus
 }
 #endif

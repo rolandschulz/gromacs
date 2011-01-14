@@ -871,8 +871,6 @@ static void gmx_nb_atomdata_realloc(gmx_nb_atomdata_t *nbat,int n)
     nb_realloc_real(&nbat->x,n*nbat->xstride,nbat->alloc,nbat->free);
     nb_realloc_real(&nbat->f,n*nbat->xstride,nbat->alloc,nbat->free);
     nbat->nalloc = n;
-    /* Zero f, since we always expect it to be zero (unless during use) */
-    memset(nbat->f,0,nbat->nalloc*nbat->xstride*sizeof(*nbat->f));
 }
 
 void gmx_nbsearch_put_on_grid(gmx_nbsearch_t nbs,
@@ -2404,58 +2402,32 @@ void gmx_nb_atomdata_copy_x_to_nbat_x(const gmx_nbsearch_t nbs,
 }
 
 static void gmx_nb_atomdata_add_nbat_f_to_f_part(const gmx_nbsearch_t nbs,
-                                                 gmx_nb_atomdata_t *nbat,
-                                                 int cxy0,int cxy1,
+                                                 const gmx_nb_atomdata_t *nbat,
+                                                 int a0,int a1,
                                                  rvec *f)
 {
-    int  cxy,na,ash,i;
-    const int  *a;
-    real *fnb;
+    int  a,i;
+    const int  *cell;
+    const real *fnb;
+
+    cell = nbs->cell;
+
+    fnb = nbat->f;
 
     /* Loop over all columns and copy and fill */
-    for(cxy=cxy0; cxy<cxy1; cxy++)
+    for(a=a0; a<a1; a++)
     {
-        na  = nbs->cxy_na[cxy];
-        ash = nbs->cxy_ind[cxy]*nbs->napc;
+        i = cell[a]*nbat->xstride;
 
-        a   = nbs->a + ash;
-        fnb = nbat->f + ash*nbat->xstride;
-
-        switch (nbat->XFormat)
-        {
-        case nbatXYZ:
-            for(i=0; i<na; i++)
-            {
-                f[a[i]][XX] += fnb[i*3];
-                f[a[i]][YY] += fnb[i*3+1];
-                f[a[i]][ZZ] += fnb[i*3+2];
-
-                fnb[i*3]   = 0;
-                fnb[i*3+1] = 0;
-                fnb[i*3+2] = 0;
-            }
-            break;
-        case nbatXYZQ:
-            for(i=0; i<na; i++)
-            {
-                f[a[i]][XX] += fnb[i*4];
-                f[a[i]][YY] += fnb[i*4+1];
-                f[a[i]][ZZ] += fnb[i*4+2];
-
-                fnb[i*4]   = 0;
-                fnb[i*4+1] = 0;
-                fnb[i*4+2] = 0;
-            }
-            break;
-        default:
-            gmx_incons("Unsupported stride");
-        }
+        f[a][XX] += fnb[i];
+        f[a][YY] += fnb[i+1];
+        f[a][ZZ] += fnb[i+2];
     }
 }
 
 void gmx_nb_atomdata_add_nbat_f_to_f(const gmx_nbsearch_t nbs,
-                                     gmx_nb_atomdata_t *nbat,
-                                     rvec *f)
+                                     const gmx_nb_atomdata_t *nbat,
+                                     int natoms,rvec *f)
 {
     int nth,th;
 
@@ -2464,8 +2436,8 @@ void gmx_nb_atomdata_add_nbat_f_to_f(const gmx_nbsearch_t nbs,
     for(th=0; th<nth; th++)
     {
         gmx_nb_atomdata_add_nbat_f_to_f_part(nbs,nbat,
-                                             ((th+0)*nbs->ncx*nbs->ncy)/nth,
-                                             ((th+1)*nbs->ncx*nbs->ncy)/nth,
+                                             ((th+0)*natoms)/nth,
+                                             ((th+1)*natoms)/nth,
                                              f);
     }
 }
