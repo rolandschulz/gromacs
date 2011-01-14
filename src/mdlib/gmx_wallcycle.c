@@ -349,7 +349,7 @@ static void print_cycles(FILE *fplog, double c2t, const char *name, int nnodes,
 }
 
 static void print_gputimes(FILE *fplog, const char *name, 
-                           int n, double tot_t)
+                           int n, double t, double tot_t)
 {
     char num[11];
     char avg_perf[11];
@@ -357,15 +357,23 @@ static void print_gputimes(FILE *fplog, const char *name,
     if (n > 0)
     {
         sprintf(num, "%10d", n);
-        sprintf(avg_perf, "%10.3f", tot_t/n);
+        sprintf(avg_perf, "%10.3f", t/n);
     }
     else
     {
       sprintf(num,"          ");
       sprintf(avg_perf,"          ");
     }
-    fprintf(fplog, " %-24s %10s %12.2f %s\n", 
-            name, num, tot_t/1000, avg_perf); 
+    if (t != tot_t)
+    {
+        fprintf(fplog, " %-24s %10s %12.2f %s   %5.1f\n", 
+                name, num, t/1000, avg_perf, 100 * t/tot_t); 
+    }
+    else
+    {
+         fprintf(fplog, " %-24s %10s %12.2f %s  %5.1f\n", 
+               name, "", t/1000, avg_perf, 100.0); 
+    }
 }
 
 static gmx_bool subdivision(int ewc)
@@ -476,22 +484,23 @@ void wallcycle_print(FILE *fplog, int nnodes, int npme, double realtime,
         fprintf(fplog, "%s\n", myline);
         // " %-19s %4d %10s %12.3f %10.1f   %5.1f\n"
         print_gputimes(fplog, "Neighborlist H2D",
-                gputimes->atomdt_count, gputimes->atomdt_h2d_total_time);
+                gputimes->atomdt_count, gputimes->atomdt_h2d_total_time, tot_gpu);
          print_gputimes(fplog, "Nonbonded H2D", 
-                gputimes->nb_count, gputimes->nb_h2d_time);
+                gputimes->nb_count, gputimes->nb_h2d_time, tot_gpu);
         print_gputimes(fplog, "Nonbonded calc.",
                  gputimes->nb_count,
-                 gputimes->nb_total_time - gputimes->nb_h2d_time - gputimes->nb_d2h_time);
+                 gputimes->nb_total_time - gputimes->nb_h2d_time - gputimes->nb_d2h_time, 
+                 tot_gpu);
         print_gputimes(fplog, "Nonbonded D2H",
-                   gputimes->nb_count, gputimes->nb_d2h_time);
+                   gputimes->nb_count, gputimes->nb_d2h_time, tot_gpu);
         fprintf(fplog, "%s\n", myline);
-        print_gputimes(fplog, "Total ", 0, tot_gpu);
+        print_gputimes(fplog, "Total ", gputimes->nb_count, tot_gpu, tot_gpu);
         fprintf(fplog, "%s\n", myline);
 
         fprintf(fplog, "\n Force evaluation time GPU/CPU: %.3f ms/%.3f ms = %.3f\n",
                 tot_gpu/gputimes->nb_count, tot_cpu_overlap/gputimes->nb_count, 
                 tot_gpu/tot_cpu_overlap);
-        fprintf(fplog, " for optimal performance this ratio should be 1\n");
+        fprintf(fplog, " For optimal performance this ratio should be 1!\n");
     }
 
     if (cycles[ewcMoveE] > tot*0.05)
