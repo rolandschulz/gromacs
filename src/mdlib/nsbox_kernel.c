@@ -65,7 +65,7 @@ nsbox_generic_kernel(const gmx_nblist_t         *nbl,
     int           ci;
     int           sjind0,sjind1,sjind,sj;
     int           siind0,siind1,siind,si;
-    int           ic,jc,ia,ja,is,js;
+    int           i,j,ia,ja,is,js;
     int           nnn,n0;
     int           ggid;
     real          shX,shY,shZ;
@@ -158,9 +158,9 @@ nsbox_generic_kernel(const gmx_nblist_t         *nbl,
             {
                 si               = nbl->si[siind].si;
 
-                for(ic=0; ic<nbl->naps; ic++)
+                for(i=0; i<nbl->naps; i++)
                 {
-                    ia               = si*nbl->naps + ic;
+                    ia               = si*nbl->naps + i;
                     
                     is               = ia*nbat->xstride;
                     ix               = shX + x[is+0];
@@ -173,11 +173,11 @@ nsbox_generic_kernel(const gmx_nblist_t         *nbl,
                     fiy              = 0;              
                     fiz              = 0;              
                     
-                    for(jc=0; jc<nbl->naps; jc++)
+                    for(j=0; j<nbl->naps; j++)
                     {
-                        ja               = sj*nbl->naps + jc;
+                        ja               = sj*nbl->naps + j;
                         
-                        if (!(nbl->si[siind].excl & 1UL<<(jc*nbl->naps+ic)))
+                        if (!(nbl->si[siind].excl & 1UL<<(j*nbl->naps+i)))
                         {
                             continue;
                         }
