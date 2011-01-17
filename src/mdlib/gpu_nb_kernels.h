@@ -111,12 +111,6 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)
             /* all threads load an atom from i cell si into shmem! */
             f4tmp   = xq[ai];
             xi      = make_float3(f4tmp.x, f4tmp.y, f4tmp.z);
-            qi      = f4tmp.w;
-            typei   = atom_types[ai];
-
-            /* LJ C6 and C12 */
-            c6      = tex1Dfetch(tex_nbfp, 2 * (ntypes * typei + typej));
-            c12     = tex1Dfetch(tex_nbfp, 2 * (ntypes * typei + typej) + 1);
 
             rv      = xi - xj;
             r2      = norm2(rv);
@@ -124,6 +118,13 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)
             /* cutoff & exclusion check */
             if (r2 < cutoff_sq * excl_bit)
             {
+                qi      = f4tmp.w;
+                typei   = atom_types[ai];
+
+                /* LJ C6 and C12 */
+                c6      = tex1Dfetch(tex_nbfp, 2 * (ntypes * typei + typej));
+                c12     = tex1Dfetch(tex_nbfp, 2 * (ntypes * typei + typej) + 1);
+
                 inv_r       = 1.0f / sqrt(r2);
                 inv_r2      = inv_r * inv_r;
                 inv_r6      = inv_r2 * inv_r2 * inv_r2;
@@ -300,12 +301,6 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)
             /* all threads load an atom from i cell si into shmem! */            
             f4tmp   = xq[ai];
             xi      = make_float3(f4tmp.x, f4tmp.y, f4tmp.z);
-            qi      = f4tmp.w;
-            typei   = atom_types[ai];
-
-            /* LJ C6 and C12 */
-            c6  = tex1Dfetch(tex_nbfp, 2 * (ntypes * typei + typej));
-            c12 = tex1Dfetch(tex_nbfp, 2 * (ntypes * typei + typej) + 1);
 
             rv  = xi - xj;
             r2  = norm2(rv);
@@ -313,6 +308,13 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)
             /* cutoff & exclusion check */
             if (r2 < cutoff_sq * excl_bit)
             {
+                qi      = f4tmp.w;
+                typei   = atom_types[ai];
+
+                /* LJ C6 and C12 */
+                c6  = tex1Dfetch(tex_nbfp, 2 * (ntypes * typei + typej));
+                c12 = tex1Dfetch(tex_nbfp, 2 * (ntypes * typei + typej) + 1);
+
                 inv_r       = 1.0f / sqrt(r2);
                 inv_r2      = inv_r * inv_r;
                 inv_r6      = inv_r2 * inv_r2 * inv_r2;
