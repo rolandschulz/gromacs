@@ -2,14 +2,12 @@
     - #blocks   = #neighbor lists, blockId = neigbor_listId
     - #threads  = CELL_SIZE^2
     - shmem     = (1 + NSUBCELL) * CELL_SIZE^2 * 3 * sizeof(float)
-    - registers = 44
 
     Each thread calculates an i force-component taking one pair of i-j atoms.
  */
 /*
 TODO:
   - fix GPU_FACEL
-  - improve energy reduction!
  */
 
 #ifdef CALC_ENERGIES                           
@@ -44,7 +42,6 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)
     int ci, si, sj, si_offset,
         ai, aj,
         cij_start, cij_end,
-        si_start, si_end,
         typei, typej,
         i, j; 
     float qi, qj_f,
@@ -54,11 +51,12 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)
           E_lj, E_el,
 #endif                       
           F_invr;
-    float4  f4tmp;
+    float4  xqbuf;
     float3  xi, xj, rv;
     float3  shift;
     float3  f_ij, fsj_buf;
     gmx_nbl_ci_t nb_ci;
+    gmx_nbl_sj_t sj_curr, sj_next;
     unsigned int excl_bit;
 
     extern __shared__ float forcebuf[]; /* force buffer */
@@ -82,25 +80,26 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)
     E_el = 0.0f;
 #endif
 
+    sj_curr    = nbl_sj[cij_start];
     /* loop over the j sub-cells = seen by any of the atoms in the current cell */
     for (j = cij_start ; j < cij_end; j++)
     {
-        sj          = nbl_sj[j].sj; /* TODO int4? */
-        si_start    = nbl_sj[j].si_ind;
-        si_end      = nbl_sj[j + 1].si_ind;
+        sj_next     = nbl_sj[j + 1];
+
+        sj          = sj_curr.sj;
         aj          = sj * CELL_SIZE + tidxj;
 
         /* load j atom data into registers */
-        f4tmp   = xq[aj];
-        xj      = make_float3(f4tmp.x, f4tmp.y, f4tmp.z);
-        qj_f    = GPU_FACEL * f4tmp.w;
+        xqbuf   = xq[aj];
+        xj      = make_float3(xqbuf.x, xqbuf.y, xqbuf.z);
+        qj_f    = GPU_FACEL * xqbuf.w;
         typej   = atom_types[aj];
         xj      -= shift;
 
         fsj_buf = make_float3(0.0f);
 
         /* loop over i sub-cells in ci */
-        for (i = si_start; i < si_end; i++)
+        for (i = sj_curr.si_ind; i < sj_next.si_ind; i++)
         {
             si          = nbl_si[i].si;
             si_offset   = si - ci * NSUBCELL;       /* i force buffer offset */ 
@@ -109,8 +108,8 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)
             excl_bit = (nbl_si[i].excl >> tidx) & 1;
 
             /* all threads load an atom from i cell si into shmem! */
-            f4tmp   = xq[ai];
-            xi      = make_float3(f4tmp.x, f4tmp.y, f4tmp.z);
+            xqbuf   = xq[ai];
+            xi      = make_float3(xqbuf.x, xqbuf.y, xqbuf.z);
 
             rv      = xi - xj;
             r2      = norm2(rv);
@@ -118,7 +117,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)
             /* cutoff & exclusion check */
             if (r2 < cutoff_sq * excl_bit)
             {
-                qi      = f4tmp.w;
+                qi      = xqbuf.w;
                 typei   = atom_types[ai];
 
                 /* LJ C6 and C12 */
@@ -175,6 +174,8 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)
 
         /* reduce j forces */
         reduce_force_j_generic_strided(forcebuf, f, tidxi, tidxj, aj);
+
+        sj_curr = sj_next;
     }    
     __syncthreads();
 
@@ -197,8 +198,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)
 /*  Launch parameterts:
     - #blocks   = #neighbor lists, blockId = neigbor_listId
     - #threads  = CELL_SIZE^2
-    - shmem     = CELL_SIZE^2 * 3 * sizeof(float)
-    - registers = 45
+    - shmem     = CELL_SIZE^2 * sizeof(float)
     - local mem = 4 bytes !!! 
 
     Each thread calculates an i force-component taking one pair of i-j atoms.
@@ -235,7 +235,6 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)
     int ci, si, sj, si_offset,
         ai, aj,
         cij_start, cij_end,
-        si_start, si_end,
         typei, typej,
         i, j; 
     float qi, qj_f,
@@ -245,11 +244,12 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)
           E_lj, E_el,
 #endif             
           F_invr;
-    float4 f4tmp;
+    float4 xqbuf;
     float3 xi, xj, rv;
     float3 shift;
     float3 f_ij, fsj_buf;
     gmx_nbl_ci_t nb_ci;
+    gmx_nbl_sj_t sj_curr, sj_next;
     unsigned int excl_bit;
 
     extern __shared__ float forcebuf[];  /* j force buffer */
@@ -272,25 +272,25 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)
     E_el = 0.0f;
 #endif
 
+    sj_curr    = nbl_sj[cij_start];
     /* loop over the j sub-cells = seen by any of the atoms in the current cell */   
     for (j = cij_start ; j < cij_end; j++)
     {
-        sj          = nbl_sj[j].sj; /* TODO int4? */
-        si_start    = nbl_sj[j].si_ind;
-        si_end      = nbl_sj[j + 1].si_ind;
+        sj_next     = nbl_sj[j + 1];
+        sj          = sj_curr.sj;
         aj          = sj * CELL_SIZE + tidxj;
 
         /* load j atom data into registers */
-        f4tmp   = xq[aj];
-        xj      = make_float3(f4tmp.x, f4tmp.y, f4tmp.z);
-        qj_f    = GPU_FACEL * f4tmp.w;
+        xqbuf   = xq[aj];
+        xj      = make_float3(xqbuf.x, xqbuf.y, xqbuf.z);
+        qj_f    = GPU_FACEL * xqbuf.w;
         typej   = atom_types[aj];
         xj      -= shift;
 
         fsj_buf = make_float3(0.0f);
 
         /* loop over i sub-cells in ci */
-        for (i = si_start; i < si_end; i++)
+        for (i = sj_curr.si_ind; i < sj_next.si_ind; i++)
         {
             si          = nbl_si[i].si;
             si_offset   = si - ci * NSUBCELL;       /* i force buffer offset */     
@@ -299,8 +299,8 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)
             excl_bit = (nbl_si[i].excl >> tidx) & 1;
 
             /* all threads load an atom from i cell si into shmem! */            
-            f4tmp   = xq[ai];
-            xi      = make_float3(f4tmp.x, f4tmp.y, f4tmp.z);
+            xqbuf   = xq[ai];
+            xi      = make_float3(xqbuf.x, xqbuf.y, xqbuf.z);
 
             rv  = xi - xj;
             r2  = norm2(rv);
@@ -308,7 +308,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)
             /* cutoff & exclusion check */
             if (r2 < cutoff_sq * excl_bit)
             {
-                qi      = f4tmp.w;
+                qi      = xqbuf.w;
                 typei   = atom_types[ai];
 
                 /* LJ C6 and C12 */
@@ -363,6 +363,8 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2)
 
         /* reduce j forces */
         reduce_force_j_generic_strided(forcebuf, f, tidxi, tidxj, aj);
+
+        sj_curr = sj_next;
     }
 
     /* reduce i forces */
