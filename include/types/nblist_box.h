@@ -61,20 +61,16 @@ typedef void gmx_nbat_free_t(void *ptr);
 typedef struct {
     int ci;            /* i-cell              */
     int shift;         /* Shift vector index  */
-    int sj_ind_start;  /* Start index into sj */
-    int sj_ind_end;    /* End index into sj   */
+    int sj4_ind_start;  /* Start index into sj */
+    int sj4_ind_end;    /* End index into sj   */
 } gmx_nbl_ci_t;
 
 typedef struct {
-    int sj;            /* The j innerloop sub cell                   */
-    int si_ind;        /* Index into i innerloop sub cells,          *
-                        * the index end is ii_ind of the next j cell */
-} gmx_nbl_sj_t;
-
-typedef struct {
-    int si;            /* The j innerloop sub cell                   */
-    unsigned long excl;/* Exclusion bits                             */
-} gmx_nbl_si_t;
+    int sj[4];                /* The 4 j-subcells                            */
+    unsigned imask[2];        /* The i-subcell interactions mask for 2 warps */
+    unsigned excl[2][32];     /* Exclusion bits for the two warps,           *
+                               * each unsigned has bit for 4*8 i sub-cells   */ 
+} gmx_nbl_sj4_t;
 
 typedef struct {
     gmx_nbat_alloc_t *alloc;
@@ -87,12 +83,10 @@ typedef struct {
     int      nci;          /* The number of i super cells in the list  */
     gmx_nbl_ci_t *ci;      /* The i super cell list                    */
     int      ci_nalloc;    /* The allocation size of ci                */
-    int      nsj;          /* The total number of j sub cell           */
-    gmx_nbl_sj_t *sj;      /* The j super cell list (size nsj+1)       */
-    int      sj_nalloc;    /* The allocation isze of sj                */
+    int      nsj4;         /* The total number of 4*j sub cells        */
+    gmx_nbl_sj4_t *sj4;    /* The 4*j sub cell list (size nsj4)        */
+    int      sj4_nalloc;   /* The allocation isze of sj                */
     int      nsi;          /* The total number of i sub cells          */
-    gmx_nbl_si_t *si;      /* Array of i sub-cells (in pairs with j)   */
-    int      si_nalloc;    /* Allocation size of ii                    */
 
     struct gmx_nbl_work *work;
 } gmx_nblist_t;
