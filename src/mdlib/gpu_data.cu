@@ -16,6 +16,28 @@
 #define TWO_OVER_SQRT_PI    (2.0f/sqrt(MY_PI))
     
 #define TIME_GPU_TRANSFERS 1
+
+#define NUM_NB_KERNELS 6
+
+static const char * const nb_k1_names[NUM_NB_KERNELS] = 
+{
+    "_Z21k_calc_nb_RF_forces_1PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_",
+    "_Z24k_calc_nb_ewald_forces_1PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_",
+    "_Z25k_calc_nb_cutoff_forces_1PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_",
+    "_Z30k_calc_nb_RF_forces_energies_1PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffffPfSI_PSA_",
+    "_Z33k_calc_nb_ewald_forces_energies_1PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffffPfSI_PSA_",
+    "_Z34k_calc_nb_cutoff_forces_energies_1PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffffPfSI_PSA_",
+};
+
+static const char * const nb_k2_names[NUM_NB_KERNELS] = 
+{
+    "_Z21k_calc_nb_RF_forces_2PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_",
+    "_Z24k_calc_nb_ewald_forces_2PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_",
+    "_Z25k_calc_nb_cutoff_forces_2PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_",
+    "_Z30k_calc_nb_RF_forces_energies_2PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffffPfSI_PSA_",
+    "_Z33k_calc_nb_ewald_forces_energies_2PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffffPfSI_PSA_",
+    "_Z34k_calc_nb_cutoff_forces_energies_2PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffffPfSI_PSA_",
+};
         
 __device__ __global__ void k_empty(){}
 
@@ -102,7 +124,7 @@ void init_cudata_ff(FILE *fplog,
     d_data->ewald_beta  = fr->ewaldcoeff;
     d_data->eps_r       = fr->epsilon_r;
     d_data->two_k_rf    = 2.0 * fr->k_rf;   
-    d_data->cutoff_sq   = fr->rlist * fr->rlist;
+    d_data->cutoff_sq   = fr->rlist * fr->rlist; /** TODO replace rlist with rcut_nsbox */
     
     if (fr->eeltype == eelCUT)
     {
@@ -211,35 +233,19 @@ void init_cudata_ff(FILE *fplog,
         printf("Initialized CUDA data structures.\n");
         fflush(stdout);
     }
-    /* 
-       k_calc_nb_*_1 48/16 kB Shared/L1 
-     */
-    stat = cudaFuncSetCacheConfig(
-            "_Z25k_calc_nb_cutoff_forces_1PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_",
-            cudaFuncCachePreferShared);
-    CU_RET_ERR(stat, "cudaFuncSetCacheConfig failed");
-    stat = cudaFuncSetCacheConfig(
-            "_Z21k_calc_nb_RF_forces_1PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_",
-            cudaFuncCachePreferShared);
-    CU_RET_ERR(stat, "cudaFuncSetCacheConfig failed");
-    stat = cudaFuncSetCacheConfig(
-            "_Z24k_calc_nb_ewald_forces_1PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_",
-            cudaFuncCachePreferShared);
-    CU_RET_ERR(stat, "cudaFuncSetCacheConfig failed");
-    /* 
-      k_calc_nb_*_2 16/48 kB Shared/L1
-     */
-    stat = cudaFuncSetCacheConfig(
-            "_Z25k_calc_nb_cutoff_forces_2PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_", 
-            cudaFuncCachePreferL1);
-    CU_RET_ERR(stat, "cudaFuncSetCacheConfig failed");
-    stat = cudaFuncSetCacheConfig(
-            "_Z21k_calc_nb_RF_forces_2PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_", 
-            cudaFuncCachePreferL1);
-     stat = cudaFuncSetCacheConfig(
-            "_Z24k_calc_nb_ewald_forces_2PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_", 
-            cudaFuncCachePreferL1);   
-    CU_RET_ERR(stat, "cudaFuncSetCacheConfig failed");
+
+    /* k_calc_nb_*_1 48/16 kB Shared/L1 */
+    for (int i = 0; i < NUM_NB_KERNELS; i++)
+    {
+        stat = cudaFuncSetCacheConfig(nb_k1_names[i],  cudaFuncCachePreferShared);
+        CU_RET_ERR(stat, "cudaFuncSetCacheConfig failed");
+    }
+    /* k_calc_nb_*_2 16/48 kB Shared/L1 */
+    for (int i = 0; i < NUM_NB_KERNELS; i++)
+    {
+        stat = cudaFuncSetCacheConfig(nb_k2_names[i], cudaFuncCachePreferL1);
+        CU_RET_ERR(stat, "cudaFuncSetCacheConfig failed");
+    }
 
     k_empty<<<1, 512>>>();
 }
