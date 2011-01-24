@@ -45,10 +45,10 @@ struct cudata
     float   two_k_rf;
     float   ewald_beta;
     float   cutoff_sq;
+    float   rlist_sq;   /* neighborlist cut-off */
     float   *nbfp;      /* nonbonded parameters C12, C6 */
 
     int  eeltype;       /* type of electrostatics */ 
-    gmx_bool shift_vec_copied; /* indicates whether shift vector has already been transfered */
 
     /* Ewald Coulomb tabulated force */
     int     coulomb_tab_size;
@@ -72,17 +72,16 @@ struct cudata
     int             ci_nalloc;  /* allocation size for ci                       */
     gmx_nbl_ci_t     *ci;       /* list of i-cells ("supercells")               */
 
-    int             nsj_1;      /* total # of i-j cell subcell pairs 
-                                   +1 element for closing the list              */
-    int             sj_nalloc;  /* allocation size for sj                       */
-    gmx_nbl_sj_t    *sj;        /* j subcell list, contains j subcell number and 
-                                   index into the i subcell list                */
+    int             nsj4;        /* total # of i-j cell subcell pairs           */
+    int             sj4_nalloc;  /* allocation size for sj                      */
+    gmx_nbl_sj4_t   *sj4;        /* j subcell list, contains j subcell number 
+                                    and index into the i subcell list           */
 
-    int             nsi;        /* The total number of i subcells               */
-    gmx_nbl_si_t    *si;        /* Array of i sub-cells (in pairs with j)       */
-    int             si_nalloc;  /* Allocation size of ii                        */
+    gmx_bool        prune_nbl;  /* true if neighbor list pruning needs to be 
+                                   done during the  current step                */
 
-    float3          *shift_vec;  /* shifts */    
+    float3          *shift_vec;     /* shifts */    
+    gmx_bool    shift_vec_copied;   /* indicates whether shift vector has already been transfered */
 
     gpu_tmp_data_t  tmpdata;    
     gpu_times_t     timings;

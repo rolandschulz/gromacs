@@ -384,7 +384,7 @@ static gmx_bool subdivision(int ewc)
 void wallcycle_print(FILE *fplog, int nnodes, int npme, double realtime,
 		     gmx_wallcycle_t wc, double cycles[], gpu_times_t *gputimes)
 {
-    double c2t,tot,tot_gpu,tot_cpu_overlap,sum;
+    double c2t,tot,tot_gpu,tot_cpu_overlap,sum,tot_k;
     int    i,j,npp;
     char   buf[STRLEN];
     const char *myline = "-----------------------------------------------------------------------";
@@ -470,7 +470,20 @@ void wallcycle_print(FILE *fplog, int nnodes, int npme, double realtime,
     /* print GPU timing summary */
     if (gputimes)
     {
-        tot_gpu = gputimes->atomdt_h2d_total_time + gputimes->nb_total_time;
+        tot_gpu = gputimes->atomdt_h2d_total_time + 
+                  gputimes->nb_h2d_time + 
+                  gputimes->nb_d2h_time;
+
+        /* add up the kernel timings */
+        tot_k = 0.0;
+        for (i = 0; i < 2; i++)
+        {
+            for(j = 0; j < 2; j++)
+            {
+                tot_k += gputimes->k_time[i][j].t;
+            }
+        }
+        tot_gpu += tot_k;
     
         tot_cpu_overlap = wc->wcc[ewcFORCE].c;
         if (wc->wcc[ewcPMEMESH].n > 0)
@@ -487,10 +500,24 @@ void wallcycle_print(FILE *fplog, int nnodes, int npme, double realtime,
                 gputimes->atomdt_count, gputimes->atomdt_h2d_total_time, tot_gpu);
          print_gputimes(fplog, "Nonbonded H2D", 
                 gputimes->nb_count, gputimes->nb_h2d_time, tot_gpu);
-        print_gputimes(fplog, "Nonbonded calc.",
-                 gputimes->nb_count,
-                 gputimes->nb_total_time - gputimes->nb_h2d_time - gputimes->nb_d2h_time, 
-                 tot_gpu);
+
+        char *k_log_str[2][2] = {
+                {"Nonbonded k.", "Nonbonded k.+ene"}, 
+                {"Nonbonded k.+prune", "Nonbonded k.+ene+prune"}};
+        for (i = 0; i < 2; i++)
+        {
+            for(j = 0; j < 2; j++)
+            {
+                if (gputimes->k_time[i][j].c)
+                {
+                    print_gputimes(fplog, k_log_str[i][j],
+                            gputimes->k_time[i][j].c,
+                            gputimes->k_time[i][j].t,                            
+                            tot_gpu);
+                }
+            }
+        }        
+
         print_gputimes(fplog, "Nonbonded D2H",
                    gputimes->nb_count, gputimes->nb_d2h_time, tot_gpu);
         fprintf(fplog, "%s\n", myline);

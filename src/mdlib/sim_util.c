@@ -844,17 +844,17 @@ void do_force(FILE *fplog,t_commrec *cr,
             {
                 if (gpu_t->nb_h2d_time > 0)
                 {
-                    printf("NB time [%4d (%4d)]:\t%5.3f ms | H2D: %5.3f  D2H: %5.3f\n", 
-                            gpu_t->nb_count, gpu_t->nb_count_ene, 
-                            gpu_t->nb_total_time/gpu_t->nb_count,
+                    printf("NB time [%4d]:\t%5.3f ms | H2D: %5.3f  D2H: %5.3f\n", 
+                            gpu_t->nb_count,
+                            gpu_t->k_time[0][0].t/gpu_t->k_time[0][0].c,
                             gpu_t->nb_h2d_time/gpu_t->nb_count,
                             gpu_t->nb_d2h_time/gpu_t->nb_count);
                 }
                 else 
                 {
-                    printf("NB time [%4d (%4d)]:\t%5.3f ms\n", 
-                            gpu_t->nb_count, gpu_t->nb_count_ene, 
-                            gpu_t->nb_total_time/gpu_t->nb_count);
+                    printf("NB time [%4d]:\t%5.3f ms\n", 
+                            gpu_t->nb_count,
+                            gpu_t->k_time[0][0].t/gpu_t->k_time[0][0].c);
                 }
             }
 #endif  /* GMX_GPU */

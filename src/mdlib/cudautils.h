@@ -7,6 +7,15 @@
 
 #include "cuda.h"
 
+/*
+   CUDA library and hardware related defines
+ */
+
+
+#define GRID_MAX_DIM        65535
+#define WARP_SIZE           32
+
+
 /* TODO error checking needs to be rewritten. We have 2 types of error checks needed 
    based on where they occur in the code: 
    - non performance-critical: these errors are unsafe to be ignored and must be 
@@ -62,9 +71,6 @@
 #define CU_LAUNCH_ERR_SYNC(msg) do { } while (0)
 
 #endif /* CHECK_CUDA_ERRORS */ 
-
-
-#define GRID_MAX_DIM        65535
 
 
 #ifdef __cplusplus

@@ -55,6 +55,43 @@
 
 #undef CALC_ENERGIES
 
+/* TODO clean this up! */
+/****** Prune neighborlist ******/
+#define PRUNE_NBL
+/*** Force only kernels ***/
+/* Cut-Off */
+#define EL_CUTOFF
+#define FUNCTION_NAME(x, y) x##_cutoff_##y
+#include "gpu_nb_kernels.h"
+/* Reaction-Field */
+#define EL_RF
+#define FUNCTION_NAME(x, y) x##_RF_##y
+#include "gpu_nb_kernels.h"
+/* Ewald */
+#define EL_EWALD
+#define FUNCTION_NAME(x, y) x##_ewald_##y
+#include "gpu_nb_kernels.h"
+
+/*** Force & energy kernels ***/
+#define CALC_ENERGIES
+
+/* Cut-Off */
+#define EL_CUTOFF
+#define FUNCTION_NAME(x, y) x##_cutoff_##y
+#include "gpu_nb_kernels.h"
+/* Reaction-Field */
+#define EL_RF
+#define FUNCTION_NAME(x, y) x##_RF_##y
+#include "gpu_nb_kernels.h"
+/* Ewald */
+#define EL_EWALD
+#define FUNCTION_NAME(x, y) x##_ewald_##y
+#include "gpu_nb_kernels.h"
+
+#undef CALC_ENERGIES
+#undef PRUNE_NBL
+
+
 /* XXX
     if GMX_GPU_ENE env var set it always runs the energy kernel unless the 
     GMX_GPU_NO_ENE env var is set, case in which it never runs the energy kernel.     
@@ -101,8 +138,7 @@ void cu_stream_nb(t_cudata d_data,
     /* force-only */
     void    (*p_k_calc_nb_f)(
                 const gmx_nbl_ci_t * /*nbl_ci*/,
-                const gmx_nbl_sj_t * /*nbl_sj*/,
-                const gmx_nbl_si_t * /*nbl_si*/,
+                const gmx_nbl_sj4_t * /*nbl_sj4*/,
                 const int * /*atom_types*/,
                 int /*ntypes*/,
                 const float4 * /*xq*/,
@@ -115,8 +151,7 @@ void cu_stream_nb(t_cudata d_data,
     /* force & energy */
     void    (*p_k_calc_nb_fe)(
                 const gmx_nbl_ci_t * /*nbl_ci*/,
-                const gmx_nbl_sj_t * /*nbl_sj*/,
-                const gmx_nbl_si_t * /*nbl_si*/,
+                const gmx_nbl_sj4_t * /*nbl_sj4*/,
                 const int * /*atom_types*/,
                 int /*ntypes*/,
                 const float4 * /*xq*/,
@@ -131,7 +166,44 @@ void cu_stream_nb(t_cudata d_data,
                 float * /*e_el*/,
                 float4 * /*f*/) = NULL;
 
+    /* TODO clean this up! */
+    /****** Prune neighborlist ******/
+    /* force-only */
+    void    (*p_k_calc_nb_f_pnbl)(
+                const gmx_nbl_ci_t * /*nbl_ci*/,
+                gmx_nbl_sj4_t * /*nbl_sj4*/,
+                const int * /*atom_types*/,
+                int /*ntypes*/,
+                const float4 * /*xq*/,
+                const float * /*nbfp*/,
+                const float3 * /*shift_vec*/,
+                float /*two_k_rf*/,
+                float /*cutoff_sq*/,
+                float /*coulomb_tab_scale*/,
+                float /*rlist_sq*/,
+                float4 * /*f*/) = NULL;
+    /* force & energy */
+    void    (*p_k_calc_nb_fe_pnbl)(
+                const gmx_nbl_ci_t * /*nbl_ci*/,
+                gmx_nbl_sj4_t * /*nbl_sj4*/,
+                const int * /*atom_types*/,
+                int /*ntypes*/,
+                const float4 * /*xq*/,
+                const float * /*nbfp*/,
+                const float3 * /*shift_vec*/,
+                float /*two_k_rf*/,
+                float /*cutoff_sq*/,
+                float /*coulomb_tab_scale*/,                
+                float /*rlist_sq*/,
+                float /*beta*/,
+                float /*c_rf*/,
+                float * /*e_lj*/,
+                float * /*e_el*/,
+                float4 * /*f*/) = NULL;
+
+
     static gmx_bool doKernel2 = (getenv("GMX_NB_K2") != NULL);        
+    static gmx_bool doAlwaysNsPrune = (getenv("GMX_GPU_ALWAYS_NS_PRUNE") != NULL);
     
     /* XXX debugging code, remove this */
     calc_ene = (calc_ene || alwaysE) && !neverE; 
@@ -142,7 +214,8 @@ void cu_stream_nb(t_cudata d_data,
         shmem =  (1 + NSUBCELL) * CELL_SIZE * CELL_SIZE * 3 * sizeof(float);
     }
     else 
-    {
+    {    
+        gmx_fatal(FARGS, "Kernel 2 codepath is not done yet!");
         shmem =  CELL_SIZE * CELL_SIZE * 3 * sizeof(float);
     }
 
@@ -152,37 +225,49 @@ void cu_stream_nb(t_cudata d_data,
         case cu_eelCUT:
             if (!doKernel2)
             {
-                p_k_calc_nb_f   = k_calc_nb_cutoff_forces_1;
-                p_k_calc_nb_fe  = k_calc_nb_cutoff_forces_energies_1;  
+                p_k_calc_nb_f   = k_calc_nb_cutoff_forces_1n;
+                p_k_calc_nb_fe  = k_calc_nb_cutoff_forces_energies_1n;
+                p_k_calc_nb_f_pnbl  = k_calc_nb_cutoff_forces_prunenbl_1n;
+                p_k_calc_nb_fe_pnbl = k_calc_nb_cutoff_forces_energies_prunenbl_1n;
             }
             else 
             {
-                p_k_calc_nb_f   = k_calc_nb_cutoff_forces_2;
-                p_k_calc_nb_fe  = k_calc_nb_cutoff_forces_energies_2;
+                p_k_calc_nb_f   = k_calc_nb_cutoff_forces_2n;
+                p_k_calc_nb_fe  = k_calc_nb_cutoff_forces_energies_2n;
+                p_k_calc_nb_f_pnbl  = k_calc_nb_cutoff_forces_prunenbl_2n;
+                p_k_calc_nb_fe_pnbl = k_calc_nb_cutoff_forces_energies_prunenbl_2n;
             }
             break;
         case cu_eelRF:
             if (!doKernel2)
             {
-                p_k_calc_nb_f   = k_calc_nb_RF_forces_1;
-                p_k_calc_nb_fe  = k_calc_nb_RF_forces_energies_1;
+                p_k_calc_nb_f   = k_calc_nb_RF_forces_1n;
+                p_k_calc_nb_fe  = k_calc_nb_RF_forces_energies_1n;
+                p_k_calc_nb_f_pnbl  = k_calc_nb_RF_forces_prunenbl_1n;
+                p_k_calc_nb_fe_pnbl = k_calc_nb_RF_forces_energies_prunenbl_1n;
             }
             else 
             {
-                p_k_calc_nb_f   = k_calc_nb_RF_forces_2;
-                p_k_calc_nb_fe  = k_calc_nb_RF_forces_energies_2;
+                p_k_calc_nb_f   = k_calc_nb_RF_forces_2n;
+                p_k_calc_nb_fe  = k_calc_nb_RF_forces_energies_2n;
+                p_k_calc_nb_f_pnbl  = k_calc_nb_RF_forces_prunenbl_2n;
+                p_k_calc_nb_fe_pnbl = k_calc_nb_RF_forces_energies_prunenbl_2n;
             }
             break;
         case cu_eelEWALD:
             if (!doKernel2)
             {
-                p_k_calc_nb_f   = k_calc_nb_ewald_forces_1;
-                p_k_calc_nb_fe  = k_calc_nb_ewald_forces_energies_1;
+                p_k_calc_nb_f   = k_calc_nb_ewald_forces_1n;
+                p_k_calc_nb_fe  = k_calc_nb_ewald_forces_energies_1n;
+                p_k_calc_nb_f_pnbl  = k_calc_nb_ewald_forces_prunenbl_1n;
+                p_k_calc_nb_fe_pnbl = k_calc_nb_ewald_forces_energies_prunenbl_1n;
             }
             else 
             {
-                p_k_calc_nb_f   = k_calc_nb_ewald_forces_2;
-                p_k_calc_nb_fe  = k_calc_nb_ewald_forces_energies_2; 
+                p_k_calc_nb_f   = k_calc_nb_ewald_forces_2n;
+                p_k_calc_nb_fe  = k_calc_nb_ewald_forces_energies_2n; 
+                p_k_calc_nb_f_pnbl  = k_calc_nb_ewald_forces_prunenbl_2n;
+                p_k_calc_nb_fe_pnbl = k_calc_nb_ewald_forces_energies_prunenbl_2n;
             }
             break;
         default: 
@@ -194,7 +279,7 @@ void cu_stream_nb(t_cudata d_data,
     if (debug)
     {
         fprintf(debug, "GPU launch configuration:\n\tThread block: %dx%dx%d\n\tGrid: %dx%d\n\t#Cells/Subcells: %d/%d (%d)\n",         
-        dim_block.x, dim_block.y, dim_block.z, dim_grid.x, dim_grid.y, d_data->nsi, 
+        dim_block.x, dim_block.y, dim_block.z, dim_grid.x, dim_grid.y, d_data->nci*NSUBCELL, 
         NSUBCELL, d_data->naps);
     }
     
@@ -228,41 +313,83 @@ void cu_stream_nb(t_cudata d_data,
     /* launch async nonbonded calculations */        
     if (!calc_ene)
     {
-        p_k_calc_nb_f<<<dim_grid, dim_block, shmem, 0>>>(d_data->ci,
-                                                        d_data->sj,
-                                                        d_data->si,
-                                                        d_data->atom_types,
-                                                        d_data->ntypes,
-                                                        d_data->xq,
-                                                        d_data->nbfp,
-                                                        d_data->shift_vec,
-                                                        d_data->two_k_rf,
-                                                        d_data->cutoff_sq,
-                                                        d_data->coulomb_tab_scale,
-                                                        d_data->f);
+        if (!(d_data->prune_nbl || doAlwaysNsPrune))
+        {
+            // printf("--- no prune no ene\n");
+            p_k_calc_nb_f<<<dim_grid, dim_block, shmem, 0>>>(d_data->ci,
+                    d_data->sj4,
+                    d_data->atom_types,
+                    d_data->ntypes,
+                    d_data->xq,
+                    d_data->nbfp,
+                    d_data->shift_vec,
+                    d_data->two_k_rf,
+                    d_data->cutoff_sq,
+                    d_data->coulomb_tab_scale,
+                    d_data->f);
+        } 
+        else 
+        {
+            p_k_calc_nb_f_pnbl<<<dim_grid, dim_block, shmem, 0>>>(d_data->ci,
+                    d_data->sj4,
+                    d_data->atom_types,
+                    d_data->ntypes,
+                    d_data->xq,
+                    d_data->nbfp,
+                    d_data->shift_vec,
+                    d_data->two_k_rf,
+                    d_data->cutoff_sq,
+                    d_data->coulomb_tab_scale,
+                    d_data->rlist_sq,
+                    d_data->f);
+
+        }
     } 
     else 
     {
         /* set energy outputs to 0 */
         cudaMemsetAsync(d_data->e_lj, 0.0f, sizeof(*d_data->e_lj), 0);
         cudaMemsetAsync(d_data->e_el, 0.0f, sizeof(*d_data->e_el), 0);
-   
-        p_k_calc_nb_fe<<<dim_grid, dim_block, shmem, 0>>>(d_data->ci,
-                                                        d_data->sj,
-                                                        d_data->si,
-                                                        d_data->atom_types,
-                                                        d_data->ntypes,
-                                                        d_data->xq,
-                                                        d_data->nbfp,
-                                                        d_data->shift_vec,
-                                                        d_data->two_k_rf,
-                                                        d_data->cutoff_sq,
-                                                        d_data->coulomb_tab_scale,
-                                                        d_data->ewald_beta,
-                                                        d_data->c_rf,
-                                                        d_data->e_lj, 
-                                                        d_data->e_el,
-                                                        d_data->f);       
+        if (!(d_data->prune_nbl /*|| doAlwaysNsPrune */))
+        {  
+            p_k_calc_nb_fe<<<dim_grid, dim_block, shmem, 0>>>(
+                    d_data->ci,
+                    d_data->sj4,
+                    d_data->atom_types,
+                    d_data->ntypes,
+                    d_data->xq,
+                    d_data->nbfp,
+                    d_data->shift_vec,
+                    d_data->two_k_rf,
+                    d_data->cutoff_sq,
+                    d_data->coulomb_tab_scale,
+                    d_data->ewald_beta,
+                    d_data->c_rf,
+                    d_data->e_lj, 
+                    d_data->e_el,
+                    d_data->f);       
+        }
+        else 
+        {
+            p_k_calc_nb_fe_pnbl<<<dim_grid, dim_block, shmem, 0>>>(
+                    d_data->ci,
+                    d_data->sj4,
+                    d_data->atom_types,
+                    d_data->ntypes,
+                    d_data->xq,
+                    d_data->nbfp,
+                    d_data->shift_vec,
+                    d_data->two_k_rf,
+                    d_data->cutoff_sq,
+                    d_data->coulomb_tab_scale,
+                    d_data->rlist_sq,
+                    d_data->ewald_beta,
+                    d_data->c_rf,
+                    d_data->e_lj, 
+                    d_data->e_el,
+                    d_data->f);
+
+        }
     }
 
     if (sync)
@@ -287,7 +414,6 @@ void cu_stream_nb(t_cudata d_data,
     {
         download_cudata_async(d_data->tmpdata.e_lj, d_data->e_lj, sizeof(*d_data->e_lj), 0);
         download_cudata_async(d_data->tmpdata.e_el, d_data->e_el, sizeof(*d_data->e_el), 0);
-        d_data->timings.nb_count_ene++; 
     }
 
     if (time_trans)
@@ -297,7 +423,8 @@ void cu_stream_nb(t_cudata d_data,
 
     cudaEventRecord(d_data->stop_nb, 0);
 
-    d_data->timings.nb_count++; 
+    /* turn off neighborlist pruning */
+    // d_data->prune_nbl = FALSE;
 }
 
 /* Blocking wait for the asynchrounously launched nonbonded calculations to finish. */
@@ -305,20 +432,30 @@ void cu_blockwait_nb(t_cudata d_data, gmx_bool calc_ene,
                      float *e_lj, float *e_el)
 {    
     cudaError_t s;
-    float t;
+    float t_tot, t;
 
-    cu_blockwait_event(d_data->stop_nb, d_data->start_nb, &t);
-    d_data->timings.nb_total_time += t;
+    cu_blockwait_event(d_data->stop_nb, d_data->start_nb, &t_tot);
+    d_data->timings.nb_count++;
     
     if (d_data->time_transfers)
-    {
+    {        
         s = cudaEventElapsedTime(&t, d_data->start_nb_h2d, d_data->stop_nb_h2d);
         CU_RET_ERR(s, "cudaEventElapsedTime failed in cu_blockwait_nb");
         d_data->timings.nb_h2d_time += t;
+        t_tot -= t;
         
         s = cudaEventElapsedTime(&t, d_data->start_nb_d2h, d_data->stop_nb_d2h);
-        CU_RET_ERR(s, "cudaEventElapsedTime failed in cu_blockwait_nb");
-        d_data->timings.nb_d2h_time += t;        
+        CU_RET_ERR(s, "cudaEventElapsedTime failed in cu_blockwait_nb");    
+        d_data->timings.nb_d2h_time += t;
+        t_tot -= t;
+    }
+
+    d_data->timings.k_time[d_data->prune_nbl ? 1 : 0][calc_ene ? 1 : 0].t += t_tot;
+    d_data->timings.k_time[d_data->prune_nbl ? 1 : 0][calc_ene ? 1 : 0].c += 1;
+   
+    if (d_data->prune_nbl)
+    {
+        d_data->prune_nbl = FALSE;
     }
 
     /* XXX debugging code, remove this */

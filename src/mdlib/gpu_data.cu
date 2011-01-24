@@ -17,28 +17,40 @@
     
 #define TIME_GPU_TRANSFERS 1
 
-#define NUM_NB_KERNELS 6
+#define NUM_NB_KERNELS 12
 
 static const char * const nb_k1_names[NUM_NB_KERNELS] = 
 {
-    "_Z21k_calc_nb_RF_forces_1PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_",
-    "_Z24k_calc_nb_ewald_forces_1PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_",
-    "_Z25k_calc_nb_cutoff_forces_1PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_",
-    "_Z30k_calc_nb_RF_forces_energies_1PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffffPfSI_PSA_",
-    "_Z33k_calc_nb_ewald_forces_energies_1PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffffPfSI_PSA_",
-    "_Z34k_calc_nb_cutoff_forces_energies_1PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffffPfSI_PSA_",
+    "_Z22k_calc_nb_RF_forces_1nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3fffPS7_",
+    "_Z25k_calc_nb_ewald_forces_1nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3fffPS7_",
+    "_Z26k_calc_nb_cutoff_forces_1nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3fffPS7_",
+    "_Z31k_calc_nb_RF_forces_energies_1nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3fffffPfSF_PS7_",
+    "_Z31k_calc_nb_RF_forces_prunenbl_1nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3ffffPS6_",
+    "_Z34k_calc_nb_ewald_forces_energies_1nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3fffffPfSF_PS7_",
+    "_Z34k_calc_nb_ewald_forces_prunenbl_1nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3ffffPS6_",
+    "_Z35k_calc_nb_cutoff_forces_energies_1nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3fffffPfSF_PS7_",
+    "_Z35k_calc_nb_cutoff_forces_prunenbl_1nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3ffffPS6_",
+    "_Z40k_calc_nb_RF_forces_energies_prunenbl_1nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3ffffffPfSE_PS6_",
+    "_Z43k_calc_nb_ewald_forces_energies_prunenbl_1nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3ffffffPfSE_PS6_",
+    "_Z44k_calc_nb_cutoff_forces_energies_prunenbl_1nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3ffffffPfSE_PS6_",
 };
 
 static const char * const nb_k2_names[NUM_NB_KERNELS] = 
 {
-    "_Z21k_calc_nb_RF_forces_2PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_",
-    "_Z24k_calc_nb_ewald_forces_2PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_",
-    "_Z25k_calc_nb_cutoff_forces_2PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffPSA_",
-    "_Z30k_calc_nb_RF_forces_energies_2PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffffPfSI_PSA_",
-    "_Z33k_calc_nb_ewald_forces_energies_2PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffffPfSI_PSA_",
-    "_Z34k_calc_nb_cutoff_forces_energies_2PK12gmx_nbl_ci_tPK12gmx_nbl_sj_tPK12gmx_nbl_si_tPKiiPK6float4PKfPK6float3fffffPfSI_PSA_",
+    "_Z22k_calc_nb_RF_forces_2nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3fffPS7_",
+    "_Z25k_calc_nb_ewald_forces_2nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3fffPS7_",
+    "_Z26k_calc_nb_cutoff_forces_2nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3fffPS7_",
+    "_Z31k_calc_nb_RF_forces_energies_2nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3fffffPfSF_PS7_",
+    "_Z31k_calc_nb_RF_forces_prunenbl_2nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3ffffPS6_",
+    "_Z34k_calc_nb_ewald_forces_energies_2nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3fffffPfSF_PS7_",
+    "_Z34k_calc_nb_ewald_forces_prunenbl_2nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3ffffPS6_",
+    "_Z35k_calc_nb_cutoff_forces_energies_2nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3fffffPfSF_PS7_",
+    "_Z35k_calc_nb_cutoff_forces_prunenbl_2nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3ffffPS6_",
+    "_Z40k_calc_nb_RF_forces_energies_prunenbl_2nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3ffffffPfSE_PS6_",
+    "_Z43k_calc_nb_ewald_forces_energies_prunenbl_2nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3ffffffPfSE_PS6_",
+    "_Z44k_calc_nb_cutoff_forces_energies_prunenbl_2nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3ffffffPfSE_PS6_"    
 };
-        
+
 __device__ __global__ void k_empty(){}
 
 /*** CUDA Data operations ***/
@@ -107,8 +119,11 @@ void init_cudata_ff(FILE *fplog,
 {
     t_cudata            d_data = NULL;    
     cudaError_t         stat;
-    gmx_nb_atomdata_t   *nbat = fr->nbat;
-    int                 ntypes = nbat->ntype;
+    gmx_nb_atomdata_t   *nbat;
+    int                 ntypes, i, j;
+
+    nbat = fr->nbat;
+    ntypes = nbat->ntype;
 
     cudaChannelFormatDesc   cd;
     const textureReference  *tex_nbfp;
@@ -125,6 +140,7 @@ void init_cudata_ff(FILE *fplog,
     d_data->eps_r       = fr->epsilon_r;
     d_data->two_k_rf    = 2.0 * fr->k_rf;   
     d_data->cutoff_sq   = fr->rcut_nsbox * fr->rcut_nsbox;
+    d_data->rlist_sq    = fr->rlist_nsbox * fr->rlist_nsbox;
     
     if (fr->eeltype == eelCUT)
     {
@@ -197,31 +213,34 @@ void init_cudata_ff(FILE *fplog,
     pmalloc((void**)&d_data->tmpdata.e_el, sizeof(*d_data->tmpdata.e_el));
 
     /* initilize timing structure */
-    d_data->timings.nb_total_time = 0.0;
     d_data->timings.nb_h2d_time = 0.0;
     d_data->timings.nb_d2h_time = 0.0;
     d_data->timings.nb_count = 0;
-    d_data->timings.nb_count_ene = 0;
     d_data->timings.atomdt_h2d_total_time = 0.0;
     d_data->timings.atomdt_count = 0;
+    for (i = 0; i < 2; i++)
+    {
+        for(j = 0; j < 2; j++)
+        {
+            d_data->timings.k_time[i][j].t = 0.0;
+            d_data->timings.k_time[i][j].c = 0;
+        }
+    }
 
     /* initilize to NULL all data structures that might need reallocation 
        in init_cudata_atoms */
     d_data->xq      = NULL;
     d_data->f       = NULL;
     d_data->ci      = NULL;
-    d_data->sj      = NULL;
-    d_data->si      = NULL;
+    d_data->sj4     = NULL;
 
     /* size -1 just means that it has not been initialized yet */
     d_data->natoms      = -1;
     d_data->nalloc      = -1;
     d_data->nci         = -1;
     d_data->ci_nalloc   = -1;
-    d_data->nsj_1       = -1;
-    d_data->sj_nalloc   = -1;
-    d_data->nsi         = -1;
-    d_data->si_nalloc   = -1;
+    d_data->nsj4        = -1;
+    d_data->sj4_nalloc  = -1;
     d_data->naps        = -1;
 
     *dp_data = d_data;
@@ -240,12 +259,14 @@ void init_cudata_ff(FILE *fplog,
         stat = cudaFuncSetCacheConfig(nb_k1_names[i],  cudaFuncCachePreferShared);
         CU_RET_ERR(stat, "cudaFuncSetCacheConfig failed");
     }
-    /* k_calc_nb_*_2 16/48 kB Shared/L1 */
+
+    /* k_calc_nb_*_2 16/48 kB Shared/L1 * /
     for (int i = 0; i < NUM_NB_KERNELS; i++)
     {
         stat = cudaFuncSetCacheConfig(nb_k2_names[i], cudaFuncCachePreferL1);
         CU_RET_ERR(stat, "cudaFuncSetCacheConfig failed");
     }
+    */
 
     k_empty<<<1, 512>>>();
 }
@@ -323,20 +344,17 @@ void init_cudata_atoms(t_cudata d_data,
                          &d_data->nci, &d_data->ci_nalloc,
                          nblist->nci, doStream);
 
-    realloc_cudata_array((void **)&d_data->sj, nblist->sj, sizeof(*(d_data->sj)),
-                         &d_data->nsj_1, &d_data->sj_nalloc,
-                         nblist->nsj + 1, doStream);
-
-
-    realloc_cudata_array((void **)&d_data->si, nblist->si, sizeof(*(d_data->si)),
-                         &d_data->nsi, &d_data->si_nalloc,
-                         nblist->nsi, doStream);
-
+    realloc_cudata_array((void **)&d_data->sj4, nblist->sj4, sizeof(*(d_data->sj4)),
+                         &d_data->nsj4, &d_data->sj4_nalloc,
+                         nblist->nsj4, doStream);
 
     stat = cudaEventRecord(d_data->stop_atdat, 0);
     CU_RET_ERR(stat, "cudaEventRecord failed on d_data->stop_atdat");
 
     d_data->timings.atomdt_count++;    
+
+    /* pruning of the neighbor list needs to be done when a new list get uploaded */
+    d_data->prune_nbl = TRUE;
 }
 
 void destroy_cudata(FILE *fplog, t_cudata d_data)
@@ -397,8 +415,7 @@ void destroy_cudata(FILE *fplog, t_cudata d_data)
     destroy_cudata_array(d_data->atom_types, &d_data->ntypes);            
 
     destroy_cudata_array(d_data->ci, &d_data->nci, &d_data->ci_nalloc);
-    destroy_cudata_array(d_data->sj, &d_data->nsj_1, &d_data->sj_nalloc);
-    destroy_cudata_array(d_data->si, &d_data->nsi, &d_data->si_nalloc);
+    destroy_cudata_array(d_data->sj4, &d_data->nsj4, &d_data->sj4_nalloc);
 
     stat = cudaThreadExit();
     CU_RET_ERR(stat, "cudaThreadExit failed");
