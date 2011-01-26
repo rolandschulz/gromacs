@@ -119,6 +119,10 @@ int allocate_dd_buf(gmx_domdec_t ***dd_buf, t_commrec *cr);// Allocates dd and s
 void dd_collect_vec(gmx_domdec_t *dd,
                            t_state *state_local,rvec *lv,rvec *v);
 
+//This is used only when frames will be buffered and is used inplace of dd_collect_vec.
+//It takes information stored in the t_write_buffer and moves it to the appropriate core for writing
+void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, int bufferStep);
+
 //This collects buffered frames from all nodes and stores them on the dd->ma ncg, nat, and index
 //of all the IOnodes
 void dd_collect_cg_buffered (t_write_buffer *write_buf, t_commrec *cr, int bufferStep);

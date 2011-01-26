@@ -583,7 +583,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
     rvec *global_v;
     
     int bufferStep = 0;
-    gmx_bool bBuffer = cr->nionodes > 1  && ir->nstxtcout>0; // Used to determine if buffers will be used.
+    gmx_bool bBuffer = cr->nionodes > 1  && ir->nstxtcout>0; //Used to determine if buffers will be used.
     gmx_bool writeXTCNow = (mdof_flags & MDOF_XTC);
 
     if (bBuffer)// If buffering will be used
@@ -654,19 +654,22 @@ void write_traj(FILE *fplog,t_commrec *cr,
 
             if (writeXTCNow)
             {
-                /*
-                //rj: replace this for loop with new collect calls
-                for (i = 0; i <= bufferStep; i++)//Collect each buffered frame to one of the IO nodes. The data is collected to the node with rank write_buf->dd[i]->masterrank.
+                //If the computer running the system is non-homogeneous, then it will revert back to this unoptimized collection method
+                if (write_buf->heteroSys)
                 {
-                    write_buf->dd[i]->masterrank = cr->dd->iorank2ddrank[i];
-                    if (!(i==bufferStep && ((mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X))))
+                    for (i = 0; i <= bufferStep; i++)//Collect each buffered frame to one of the IO nodes. The data is collected to the node with rank write_buf->dd[i]->masterrank.
                     {
-                        dd_collect_vec(write_buf->dd[i],write_buf->state_local[i],write_buf->state_local[i]->x,state_global->x);
+                        write_buf->dd[i]->masterrank = cr->dd->iorank2ddrank[i];
+                        if (!(i==bufferStep && ((mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X))))
+                        {
+                            dd_collect_vec(write_buf->dd[i],write_buf->state_local[i],write_buf->state_local[i]->x,state_global->x);
+                        }
                     }
                 }
-                */
-                //RJ: New collect call: dd_collect_vec_buffered(write_buf, state_global->x, cr, bufferStep);
-                dd_collect_vec_buffered(write_buf, state_global->x, cr, bufferStep);
+                else
+                {
+                    dd_collect_vec_buffered(write_buf, state_global->x, cr, bufferStep);
+                }
             }
         }
     }

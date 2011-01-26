@@ -1465,7 +1465,7 @@ void init_md(FILE *fplog,
              tensor force_vir,tensor shake_vir,rvec mu_tot,
              gmx_bool *bSimAnn,t_vcm **vcm, t_state *state, unsigned long Flags, t_write_buffer* write_buf)
 {
-    int  i,j,n;
+    int  i,j,n, totalCommSize, interCommSize, intraCommSize, *rbuf;
     real tmpt,mod;
 	
     /* Initial values */
@@ -1530,10 +1530,54 @@ void init_md(FILE *fplog,
 			snew(write_buf->state_local[i]->cg_gl,state->cg_gl_nalloc);
 			snew(write_buf->state_local[i]->x,state->nalloc);
 		}
-	    MPI_Comm_rank(cr->dd->mpi_comm_all,&(write_buf->globalRank));
-	    MPI_Comm_split (cr->dd->mpi_comm_all, write_buf->globalRank/write_buf->coresPerNode, write_buf->globalRank, &(write_buf->gather_comm));//TODO RJ:Define coresPerNode!
-	    MPI_Comm_split (cr->dd->mpi_comm_all, write_buf->globalRank%write_buf->coresPerNode, write_buf->globalRank, &(write_buf->alltoall_comm));//TODO RJ:Define coresPerNode!
-	}
+		//knowing how many cores per node on every node there are, is necessary because when transferring
+                //data from one node to another the number of cores is needed for setting up the receive buffer
+
+	        //Note: mpi_comm_all is the same comm as mpi_comm_mygroup that is used to create both comm_inter and comm_intra
+		//MPI_Comm_rank (cr->mpi_comm_mygroup, &(write_buf->globalRank));//TODO RJ: may be incorrect
+		//MPI_Comm_size (cr->mpi_comm_mygroup, &totalCommSize);
+		if (cr->dd->mpi_comm_all)
+		{
+		    MPI_Comm_rank (cr->dd->mpi_comm_all, &(write_buf->globalRank));
+		    MPI_Comm_size (cr->dd->mpi_comm_all, &totalCommSize);
+		}
+		if (cr->nc.comm_inter)
+		{
+		    MPI_Comm_rank (cr->nc.comm_inter, &(write_buf->interCommRank));
+		    MPI_Comm_size (cr->nc.comm_inter, &(write_buf->nNetworkCores));
+		    snew (write_buf->coresOnNode, write_buf->nNetworkCores);//TODO RJ: when error detecting this is a line to look out for!
+		}
+		if (cr->nc.comm_intra)
+		{
+		    MPI_Comm_size (cr->nc.comm_intra, &intraCommSize);
+		}
+
+        if (cr->nc.rank_intra == 0)//Note: I checked that is a valid idea
+        {
+            MPI_Alltoall (&intraCommSize, 1, MPI_INT, write_buf->coresOnNode, 1, MPI_INT, cr->nc.comm_inter);
+            write_buf->heteroSys = FALSE;
+            for (i=0; i<totalCommSize; i++)
+            {
+                if (i != 0 && write_buf->coresOnNode[i-1] != write_buf->coresOnNode[i])
+                {
+                    write_buf->heteroSys = TRUE;
+                }
+            }
+        }
+
+        if(write_buf->heteroSys)
+        {
+            MPI_Comm_split (cr->dd->mpi_comm_all, write_buf->globalRank/write_buf->coresOnNode[write_buf->globalRank], write_buf->globalRank, &(write_buf->gather_comm));//TODO RJ: Check
+            MPI_Comm_split (cr->dd->mpi_comm_all, write_buf->globalRank%write_buf->coresOnNode[write_buf->globalRank], write_buf->globalRank, &(write_buf->alltoall_comm));
+        }
+        else
+        {
+            MPI_Comm_split (cr->dd->mpi_comm_all, write_buf->globalRank/write_buf->coresPerNode, write_buf->globalRank, &(write_buf->gather_comm));
+            MPI_Comm_split (cr->dd->mpi_comm_all, write_buf->globalRank%write_buf->coresPerNode, write_buf->globalRank, &(write_buf->alltoall_comm));
+        }
+	    MPI_Comm_size (write_buf->gather_comm, &(write_buf->gather_comm_size));
+	    MPI_Comm_size (write_buf->alltoall_comm, &(write_buf->alltoall_comm_size));
+    }
 
     if (nfile != -1)
     {
