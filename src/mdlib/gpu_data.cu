@@ -124,7 +124,7 @@ void init_cudata_ff(FILE *fplog,
     d_data->ewald_beta  = fr->ewaldcoeff;
     d_data->eps_r       = fr->epsilon_r;
     d_data->two_k_rf    = 2.0 * fr->k_rf;   
-    d_data->cutoff_sq   = fr->rlist * fr->rlist; /** TODO replace rlist with rcut_nsbox */
+    d_data->cutoff_sq   = fr->rcut_nsbox * fr->rcut_nsbox;
     
     if (fr->eeltype == eelCUT)
     {
