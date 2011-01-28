@@ -1493,8 +1493,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
     recvBufSize=0,
     unloadDisp=0;
     real *sendBuf,     //Contains: First frame on first core , cg then atoms. Then it moves turns into second frame on first core...then turns into first frame on second core on this node
-         *recvBuf,
-         *sortBuf;
+         *recvBuf;
 
     snew (sendCount, write_buf->alltoall_comm_size);
     snew (recvCount, write_buf->alltoall_comm_size);
@@ -1505,7 +1504,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
     snew (ncg_nat_disp, cr->nnodes * bufferStep);
 
     dd_collect_cg_buffered(write_buf, cr, bufferStep);//TODO RJ: Check //This could/should be made static as it isn't used anywhere else. Also it is only used once right here so really it could just be removed all together and just drop the code directly into this function.
-
+    fprintf(stderr,"TODO RJ: 6\n");//TODO RJ: delete this code
     //------------------------The Gather Comm start-----------------------------------------------------------------------
 
     //This loop will be used to create information used for both the gather and alltoall comms
@@ -1563,10 +1562,12 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         }
     }
 
+    //fprintf(stderr,"TODO RJ: 6.5\n");//TODO RJ: delete this code
     MPI_Gatherv (sendBuf, ncgSendTotal*sizeof(int) + natSendTotal*sizeof(real)*3, MPI_BYTE,
                  recvBuf, recvCount, recvDisp, MPI_BYTE,
                  0, write_buf->gather_comm);
     //------------------------The Gather Comm end-------------------------------------------------------------------------
+    //fprintf(stderr,"TODO RJ: 7\n");//TODO RJ: delete this code
     //------------------------The Alltoall Comm start---------------------------------------------------------------------
     //if (IONODE(cr))//TODO RJ: non-IO nodes still need to transfer data as they are still part of the Alltoall comm
     //{
@@ -1622,6 +1623,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         MPI_Alltoallv(sendBuf, sendCount, sendDisp, MPI_BYTE, recvBuf, recvCount, recvDisp, MPI_BYTE, write_buf->alltoall_comm);
         //------------------------The Alltoall Comm end-----------------------------------------------------------------------
     }
+    //fprintf(stderr,"TODO RJ: 8\n");//TODO RJ: delete this code
     if (IONODE(cr))
     {
         //Looks correct, BUT the original call was a rather confusing one...

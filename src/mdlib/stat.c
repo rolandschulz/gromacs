@@ -586,8 +586,10 @@ void write_traj(FILE *fplog,t_commrec *cr,
     gmx_bool bBuffer = cr->nionodes > 1  && ir->nstxtcout>0; //Used to determine if buffers will be used.
     gmx_bool writeXTCNow = (mdof_flags & MDOF_XTC);
 
+    fprintf(stderr,"TODO RJ: 2\n");//TODO RJ: delete this code
     if (bBuffer)// If buffering will be used
     {
+        fprintf(stderr,"TODO RJ: 3\n");//TODO RJ: delete this code
         //If in the future we want to buffer also uncompressed trajectory. Each needs its own bufferStep.
         bufferStep = (step/ir->nstxtcout - (int)ceil((double)write_buf->step_after_checkpoint/ir->nstxtcout)) % cr->nionodes;// bufferStep = step/(how often to write) - (round up) step_at_checkpoint/(how often to write)  MOD (how often we actually do write)
         writeXTCNow = ((mdof_flags & MDOF_XTC) && bufferStep == cr->nionodes-1)   //write XTC in this step and buffer is full
@@ -654,6 +656,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
 
             if (writeXTCNow)
             {
+                fprintf(stderr,"TODO RJ: 4\n");//TODO RJ: delete this code
                 //If the computer running the system is non-homogeneous, then it will revert back to this unoptimized collection method
                 if (write_buf->heteroSys)
                 {
@@ -668,6 +671,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
                 }
                 else
                 {
+                    fprintf(stderr,"TODO RJ: 5\n");//TODO RJ: delete this code
                     dd_collect_vec_buffered(write_buf, state_global->x, cr, bufferStep);
                 }
             }
