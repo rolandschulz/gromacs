@@ -38,6 +38,15 @@
 extern "C" {
 #endif
 
+/* A buffer data structure of 128 bits
+ * to be placed at the beginning and end of structs
+ * to avoid cache invalidation of the real contents
+ * of the struct by writes to neighboring memory.
+ */
+typedef struct {
+    int dummy[4];
+} gmx_cache_protect_t;
+
 #define NSUBCELL_Z 2
 #define NSUBCELL_Y 2
 #define NSUBCELL_X 2
@@ -66,13 +75,23 @@ typedef struct {
 } gmx_nbl_ci_t;
 
 typedef struct {
-    int sj[4];                /* The 4 j-subcells                            */
-    unsigned imask[2];        /* The i-subcell interactions mask for 2 warps */
-    unsigned excl[2][32];     /* Exclusion bits for the two warps,           *
-                               * each unsigned has bit for 4*8 i sub-cells   */ 
+    unsigned imask;        /* The i-subcell interactions mask for 1 warp  */
+    int excl_ind;          /* Index into the exclusion array for 1 warp   */
+} gmx_nbl_im_ei_t;
+
+typedef struct {
+    int sj[4];               /* The 4 j-subcells                          */
+    gmx_nbl_im_ei_t imei[2]; /* The i-subcell mask data       for 2 warps */
 } gmx_nbl_sj4_t;
 
 typedef struct {
+    unsigned pair[32];     /* Exclusion bits for one warp,                *
+                            * each unsigned has bit for 4*8 i sub-cells   */ 
+} gmx_nbl_excl_t;
+
+typedef struct {
+    gmx_cache_protect_t cp0;
+
     gmx_nbat_alloc_t *alloc;
     gmx_nbat_free_t  *free;
     int      napc;         /* The number of atoms per super cell       */
@@ -85,10 +104,15 @@ typedef struct {
     int      ci_nalloc;    /* The allocation size of ci                */
     int      nsj4;         /* The total number of 4*j sub cells        */
     gmx_nbl_sj4_t *sj4;    /* The 4*j sub cell list (size nsj4)        */
-    int      sj4_nalloc;   /* The allocation isze of sj                */
+    int      nexcl;        /* The count for excl                       */
+    gmx_nbl_excl_t *excl;  /* Exclusions                               */
+    int      excl_nalloc;  /* The allocation size for excl             */
+    int      sj4_nalloc;   /* The allocation size of sj                */
     int      nsi;          /* The total number of i sub cells          */
 
     struct gmx_nbl_work *work;
+
+    gmx_cache_protect_t cp1;
 } gmx_nblist_t;
 
 enum { nbatXYZ, nbatXYZQ };

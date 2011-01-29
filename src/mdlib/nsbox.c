@@ -48,6 +48,9 @@
 #include "vec.h"
 #include "pbc.h"
 #include "nsbox.h"
+#ifdef NBL_CC
+#include "gmx_cyclecounter.h"
+#endif
 
 #ifdef GMX_OPENMP
 #include <omp.h>
@@ -58,6 +61,7 @@
 
 #include <xmmintrin.h>
 #include <emmintrin.h>
+// #define GMX_SSE4_1
 #ifdef GMX_SSE4_1
 #include <smmintrin.h>
 #endif
@@ -82,10 +86,14 @@
 /* Working data for the actual i-supercell during neighbor searching */
 
 typedef struct gmx_nbl_work {
+    gmx_cache_protect_t cp0;
+
     real *bb_ci;       /* The bounding boxes, pbc shifted, for each subcell */
     real *x_ci;        /* The coordinates, pbc shifted, for each atom       */
     int  sj_ind;       /* The current sj_ind index for the current list     */
     int  sj4_init;     /* The first unitialized sj4 block                   */
+
+    gmx_cache_protect_t cp1;
 } gmx_nbl_work_t;
 
 typedef void
@@ -107,10 +115,14 @@ static gmx_subcell_in_range_t subc_in_range_x;
 static gmx_subcell_in_range_t subc_in_range_sse8;
 
 typedef struct {
+    gmx_cache_protect_t cp0;
+
     int *cxy_na;
 
     int  *sort_work;
     int  sort_work_nalloc;
+
+    gmx_cache_protect_t cp1;
 } gmx_nbs_work_t;
 
 typedef struct gmx_nbsearch {
@@ -426,6 +438,31 @@ static void calc_bounding_box(int na,int stride,const real *x,real *bb)
     bb[6] = zh;
 }
 
+#if ( !defined(GMX_DOUBLE) && ( defined(GMX_IA32_SSE) || defined(GMX_X86_64_SSE) || defined(GMX_X86_64_SSE2) ) )
+
+static void calc_bounding_box_sse(int na,const real *x,real *bb)
+{
+    __m128 bb_0_SSE,bb_1_SSE;
+    __m128 x_SSE;
+
+    int  i;
+
+    bb_0_SSE = _mm_load_ps(x);
+    bb_1_SSE = bb_0_SSE;
+
+    for(i=1; i<na; i++)
+    {
+        x_SSE    = _mm_load_ps(x+i*4);
+        bb_0_SSE = _mm_min_ps(bb_0_SSE,x_SSE);
+        bb_1_SSE = _mm_max_ps(bb_1_SSE,x_SSE);
+    }
+
+    _mm_store_ps(bb  ,bb_0_SSE);
+    _mm_store_ps(bb+4,bb_1_SSE);
+}
+
+#endif
+
 static void print_bbsizes(FILE *fp,const gmx_nbsearch_t nbs)
 {
     int  ns,c,s,cs,d;
@@ -640,8 +677,18 @@ static void sort_columns(gmx_nbsearch_t nbs,
                                                nbs->naps*(cy*NSUBCELL_Y+sub_y),
                                                nbs->naps*sub_z);
 
+#if ( !defined(GMX_DOUBLE) && ( defined(GMX_IA32_SSE) || defined(GMX_X86_64_SSE) || defined(GMX_X86_64_SSE2) ) )
+                        if (nbat->XFormat == nbatXYZQ)
+                        {
+                            calc_bounding_box_sse(na_x,xnb,
+                                                  nbs->bb+(ash_x>>nbs->naps2log)*NNBSBB_B);
+                        }
+                        else
+#endif
+                        {
                         calc_bounding_box(na_x,nbat->xstride,xnb,
-                                          nbs->bb+(ash_x/nbs->naps)*NNBSBB_B);
+                                          nbs->bb+(ash_x>>nbs->naps2log)*NNBSBB_B);
+                        }
 
                         if (gmx_debug_at)
                         {
@@ -1209,7 +1256,19 @@ static int nbl_sj(const gmx_nblist_t *nbl,int sj_ind)
 
 static unsigned nbl_imask0(const gmx_nblist_t *nbl,int sj_ind)
 {
-    return nbl->sj4[sj_ind>>2].imask[0];
+    return nbl->sj4[sj_ind>>2].imei[0].imask;
+}
+
+static void check_excl_space(gmx_nblist_t *nbl,int extra)
+{
+    if (nbl->nexcl+extra > nbl->excl_nalloc)
+    {
+        nbl->excl_nalloc = over_alloc_small(nbl->nexcl+extra);
+        nb_realloc_void((void **)&nbl->excl,
+                        nbl->nexcl*sizeof(*nbl->excl),
+                        nbl->excl_nalloc*sizeof(*nbl->excl),
+                        nbl->alloc,nbl->free);
+    }
 }
 
 static void check_subcell_list_space(gmx_nblist_t *nbl,int nsupercell)
@@ -1238,22 +1297,12 @@ static void check_subcell_list_space(gmx_nblist_t *nbl,int nsupercell)
     {
         for(j4=nbl->work->sj4_init; j4<nsj4_max; j4++)
         {
-            /* No i-subcells in the list initially */
+            /* No i-subcells and no excl's in the list initially */
             for(w=0; w<NWARP; w++)
             {
-                nbl->sj4[j4].imask[w] = 0;
-            }
+                nbl->sj4[j4].imei[w].imask    = 0U;
+                nbl->sj4[j4].imei[w].excl_ind = 0;
 
-            /* Initialize the exclusion flags for the maximum possible
-             * number sub cell pairs.
-             */
-            for(w=0; w<NWARP; w++)
-            {
-                for(t=0; t<WARP_SIZE; t++)
-                {
-                    /* Turn all interaction bits on */
-                    nbl->sj4[j4].excl[w][t] = 0xffffffff;
-                }
             }
         }
         nbl->work->sj4_init = nsj4_max;
@@ -1268,6 +1317,17 @@ static void nblist_alloc_aligned(void **ptr,size_t nbytes)
 static void nblist_free_aligned(void *ptr)
 {
     sfree_aligned(ptr);
+}
+
+static void set_no_excls(gmx_nbl_excl_t *excl)
+{
+    int t;
+
+    for(t=0; t<WARP_SIZE; t++)
+    {
+        /* Turn all interaction bits on */
+        excl->pair[t] = 0xffffffffU;
+    }
 }
 
 void gmx_nblist_init(gmx_nblist_t *nbl,
@@ -1302,6 +1362,12 @@ void gmx_nblist_init(gmx_nblist_t *nbl,
     nbl->sj4         = NULL;
     nbl->nsi         = 0;
 
+    nbl->excl_nalloc = 0;
+    nbl->nexcl       = 0;
+    check_excl_space(nbl,1);
+    nbl->nexcl       = 1;
+    set_no_excls(&nbl->excl[0]);
+
     snew(nbl->work,1);
     snew_aligned(nbl->work->bb_ci,NSUBCELL*NNBSBB_B,16);
     snew_aligned(nbl->work->x_ci,NBL_NAPC_MAX*DIM,16);
@@ -1313,7 +1379,8 @@ static void print_nblist_statistics(FILE *fp,const gmx_nblist_t *nbl,
     int i,j4,j,si,b;
     int c[NSUBCELL+1];
 
-    fprintf(fp,"nbl nci %d nsj4 %d nsi %d\n",nbl->nci,nbl->nsj4,nbl->nsi);
+    fprintf(fp,"nbl nci %d nsj4 %d nsi %d excl4 %d\n",
+            nbl->nci,nbl->nsj4,nbl->nsi,nbl->nexcl);
     fprintf(fp,"nbl naps %d rl %g ncp %d per cell %.1f atoms %.1f ratio %.2f\n",
             nbl->naps,rl,nbl->nsi,nbl->nsi/(double)nbs->nsubc_tot,
             nbl->nsi/(double)nbs->nsubc_tot*nbs->naps,
@@ -1337,7 +1404,7 @@ static void print_nblist_statistics(FILE *fp,const gmx_nblist_t *nbl,
                 b = 0;
                 for(si=0; si<NSUBCELL; si++)
                 {
-                    if (nbl->sj4[j4].imask[0] & (1U << (j*NSUBCELL + si)))
+                    if (nbl->sj4[j4].imei[0].imask & (1U << (j*NSUBCELL + si)))
                     {
                         b++;
                     }
@@ -1351,6 +1418,28 @@ static void print_nblist_statistics(FILE *fp,const gmx_nblist_t *nbl,
         fprintf(fp,"nbl j-list #i-subcell %d %7d %4.1f\n",
                 b,c[b],100.0*c[b]/(double)(nbl->nsj4*4));
     }
+}
+
+static gmx_nbl_excl_t *get_nbl_exclusions(gmx_nblist_t *nbl,int sj4,int warp)
+{
+    gmx_nbl_excl_t *excl;
+
+    if (nbl->sj4[sj4].imei[warp].excl_ind == 0)
+    {
+        /* No exclusions set, make a new list entry */
+        check_excl_space(nbl,1);
+        nbl->sj4[sj4].imei[warp].excl_ind = nbl->nexcl;
+        nbl->nexcl++;
+        excl = &nbl->excl[nbl->sj4[sj4].imei[warp].excl_ind];
+        set_no_excls(excl);
+    }
+    else
+    {
+        /* We already have some exclusions, new ones can be added to the list */
+        excl = &nbl->excl[nbl->sj4[sj4].imei[warp].excl_ind];
+    }
+
+    return excl;
 }
 
 static void make_subcell_list(const gmx_nbsearch_t nbs,
@@ -1370,11 +1459,11 @@ static void make_subcell_list(const gmx_nbsearch_t nbs,
     real d2;
     int  jas,ja,ias,iac2,e;
     int  ei,ej,w;
-#define GMX_PRUNE_NBL_CPU_TWO
-#ifdef GMX_PRUNE_NBL_CPU_TWO
-    int  si_check[2];
-    real d2_check[2];
-    int  npair_check,pair;
+    gmx_nbl_excl_t *excl[2];
+#define GMX_PRUNE_NBL_CPU_ONE
+#ifdef GMX_PRUNE_NBL_CPU_ONE
+    int  si_last;
+    real d2_last;
 #endif
 
     bb_ci = nbl->work->bb_ci;
@@ -1442,13 +1531,16 @@ static void make_subcell_list(const gmx_nbsearch_t nbs,
                 /* Here we only set the set self and double pair exclusions */
                 if (ci_equals_cj && si == sj)
                 {
+                    excl[0] = get_nbl_exclusions(nbl,sj4_ind,0);
+                    excl[1] = get_nbl_exclusions(nbl,sj4_ind,1);
+
                     if (nbl->TwoWay)
                     {
                         /* Only minor != major bits set */
                         for(ej=0; ej<nbl->naps; ej++)
                         {
                             w = (ej>>2);
-                            sj4->excl[w][(ej&(4-1))*nbl->naps+ej] &=
+                            excl[w]->pair[(ej&(4-1))*nbl->naps+ej] &=
                                 ~(1U << (sj_offset*NSUBCELL+si));
                         }
                     }
@@ -1460,45 +1552,37 @@ static void make_subcell_list(const gmx_nbsearch_t nbs,
                             w = (ej>>2);
                             for(ei=ej; ei<nbl->naps; ei++)
                             {
-                                sj4->excl[w][(ej&(4-1))*nbl->naps+ei] &=
+                                excl[w]->pair[(ej&(4-1))*nbl->naps+ei] &=
                                     ~(1U << (sj_offset*NSUBCELL+si));
                             }
                         }
                     }
                 }
 
-#ifdef GMX_PRUNE_NBL_CPU_TWO
-                if (npair < 2)
-                {
-                    si_check[npair] = si;
-                    d2_check[npair] = d2;
-                }
+#ifdef GMX_PRUNE_NBL_CPU_ONE
+                si_last = si;
+                d2_last = d2;
 #endif
 
                 npair++;
             }
         }
 
-#ifdef GMX_PRUNE_NBL_CPU_TWO
+#ifdef GMX_PRUNE_NBL_CPU_ONE
         /* If we only found 1 or 2 pairs, check if any atoms are actually
          * within the cut-off, so we could get rid of it.
          * We don't want to mess with exclusions, so we check if
          * the i and j subcells are not identical
          * (unlikely to be outside the cut-off then, but check anyhow).
          */
-        if (npair > 0 && npair <= 2 &&
-            !(ci_equals_cj && si == sj) &&
-            d2_check[0] >= rbb2 &&
-            (npair == 1 || d2_check[1] >= rbb2))
+        if (npair == 1 &&
+            !(ci_equals_cj && si_last == sj) &&
+            d2_last >= rbb2)
         {
-            npair_check = npair;
-            for(pair=0; pair<npair_check; pair++)
+            if (!nbs->subc_dc(naps,si_last,x_ci,csj,stride,x,rl2))
             {
-                if (!nbs->subc_dc(naps,si_check[pair],x_ci,csj,stride,x,rl2))
-                {
-                    imask &= ~(1U << (sj_offset*NSUBCELL+si_check[pair]));
-                    npair--;
-                }
+                imask &= ~(1U << (sj_offset*NSUBCELL+si_last));
+                npair--;
             }
         }
 #endif
@@ -1510,7 +1594,7 @@ static void make_subcell_list(const gmx_nbsearch_t nbs,
              */
             for(w=0; w<NWARP; w++)
             {
-                sj4->imask[w] |= imask;
+                sj4->imei[w].imask |= imask;
             }
 
             nbl->work->sj_ind++;
@@ -1540,6 +1624,7 @@ static void set_ci_excls(const gmx_nbsearch_t nbs,
     int sj_m;
     gmx_bool Found_si;
     int si_ind;
+    gmx_nbl_excl_t *nbl_excl;
     int inner_i,inner_e,w;
 
     cell = nbs->cell;
@@ -1639,8 +1724,10 @@ static void set_ci_excls(const gmx_nbsearch_t nbs,
                         inner_i = i  - si*naps;
                         inner_e = ge - se*naps;
                         w       = (inner_e >> 2);
-                        
-                        nbl->sj4[found>>2].excl[w][(inner_e & 3)*nbl->naps+inner_i] &=
+
+                        nbl_excl = get_nbl_exclusions(nbl,found>>2,w);
+
+                        nbl_excl->pair[(inner_e & 3)*nbl->naps+inner_i] &=
                             ~(1U << ((found & 3)*NSUBCELL + si));
                     }
                 }
@@ -1736,6 +1823,7 @@ static void clear_nblist(gmx_nblist_t *nbl)
     nbl->nsj4         = 0;
     nbl->work->sj_ind = nbl->nsj4*4;
     nbl->nsi          = 0;
+    nbl->nexcl        = 1;
 
     nbl->work->sj4_init = 0;
 }
@@ -1861,7 +1949,7 @@ static void print_nblist_ci_sj(FILE *fp,const gmx_nblist_t *nbl)
             {
                 fprintf(fp,"  sj %5d  imask %x\n",
                         nbl->sj4[j4].sj[j],
-                        nbl->sj4[j4].imask[0]);
+                        nbl->sj4[j4].imei[0].imask);
             }
         }
     }
@@ -1870,20 +1958,22 @@ static void print_nblist_ci_sj(FILE *fp,const gmx_nblist_t *nbl)
 static void combine_nblists(int nnbl,const gmx_nblist_t *nbl,
                             gmx_nblist_t *nblc)
 {
-    int nci,nsj4,nsi;
+    int nci,nsj4,nsi,nexcl;
     int n,i,j4,j0,j1;
-    int sj4_offset,si_offset;
+    int sj4_offset,si_offset,excl_offset;
     const gmx_nblist_t *nbli;
     int nth,th;
 
-    nci  = nblc->nci;
-    nsj4 = nblc->nsj4;
-    nsi  = nblc->nsi;
+    nci   = nblc->nci;
+    nsj4  = nblc->nsj4;
+    nsi   = nblc->nsi;
+    nexcl = nblc->nexcl;
     for(i=0; i<nnbl; i++)
     {
-        nci  += nbl[i].nci;
-        nsj4 += nbl[i].nsj4;
-        nsi  += nbl[i].nsi;
+        nci   += nbl[i].nci;
+        nsj4  += nbl[i].nsj4;
+        nsi   += nbl[i].nsi;
+        nexcl += nbl[i].nexcl;
     }
 
     if (nci > nblc->ci_nalloc)
@@ -1898,13 +1988,22 @@ static void combine_nblists(int nnbl,const gmx_nblist_t *nbl,
                         nblc->sj4_nalloc*sizeof(*nblc->sj4),
                         nblc->alloc,nblc->free);
     }
+    if (nexcl > nblc->nexcl)
+    {
+        nblc->excl_nalloc = over_alloc_small(nexcl);
+        nb_realloc_void((void **)&nblc->excl,
+                        nblc->nexcl*sizeof(*nblc->excl),
+                        nblc->excl_nalloc*sizeof(*nblc->excl),
+                        nblc->alloc,nblc->free);
+    }
 
     nth = omp_get_max_threads();
 
     for(n=0; n<nnbl; n++)
     {
-        sj4_offset = nblc->nsj4;
-        si_offset  = nblc->nsi;
+        sj4_offset  = nblc->nsj4;
+        si_offset   = nblc->nsi;
+        excl_offset = nblc->nexcl;
 
         nbli = &nbl[n];
 
@@ -1929,10 +2028,22 @@ static void combine_nblists(int nnbl,const gmx_nblist_t *nbl,
             for(j4=j0; j4<j1; j4++)
             {
                 nblc->sj4[nblc->nsj4+j4] = nbli->sj4[j4];
+                nblc->sj4[nblc->nsj4+j4].imei[0].excl_ind += excl_offset;
+                nblc->sj4[nblc->nsj4+j4].imei[1].excl_ind += excl_offset;
             }
+
+            j0 = (nbli->nexcl*(th+0))/nth;
+            j1 = (nbli->nexcl*(th+1))/nth;
+            for(j4=j0; j4<j1; j4++)
+            {
+                nblc->excl[nblc->nexcl+j4] = nbli->excl[j4];
+            }
+            //memcpy(nbli->excl,nblc->excl+nblc->nexcl+j0,(j1-j0)*sizeof(*nblc->excl));
         }
-        nblc->nsj4 += nbli->nsj4;
-        nblc->nsi  += nbli->nsi;
+
+        nblc->nsj4  += nbli->nsj4;
+        nblc->nsi   += nbli->nsi;
+        nblc->nexcl += nbli->nexcl;
     }
 }
 
@@ -1962,6 +2073,11 @@ static void gmx_nbsearch_make_nblist_part(const gmx_nbsearch_t nbs,
     int  cxf,cxl,cyf,cyf_x,cyl;
     int  cx,cy;
     int  c0,c1,cs,cf,cl;
+#ifdef NBL_CC
+    gmx_cycles_t cyc;
+
+    cyc = gmx_cycles_read();
+#endif
 
     bDomDec = FALSE;
 
@@ -2272,6 +2388,11 @@ static void gmx_nbsearch_make_nblist_part(const gmx_nbsearch_t nbs,
             }
         }
     }
+
+#ifdef NBL_CC
+    cyc = gmx_cycles_read() - cyc;
+    printf("cyc %4.1f\n",(double)cyc*1e-6);
+#endif
     
     if (debug)
     {

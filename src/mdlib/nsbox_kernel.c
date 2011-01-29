@@ -88,6 +88,7 @@ nsbox_generic_kernel(const gmx_nblist_t         *nbl,
     real *        vdwparam;
     int *         shift;
     int *         type;
+    const gmx_nbl_excl_t *excl[2];
 
     int           npair;
 
@@ -150,6 +151,9 @@ nsbox_generic_kernel(const gmx_nblist_t         *nbl,
         
         for(sj4_ind=sj4_ind0; (sj4_ind<sj4_ind1); sj4_ind++)
         {
+            excl[0]           = &nbl->excl[nbl->sj4[sj4_ind].imei[0].excl_ind];
+            excl[1]           = &nbl->excl[nbl->sj4[sj4_ind].imei[1].excl_ind];
+
             for(jm=0; jm<4; jm++)
             {
                 sj               = nbl->sj4[sj4_ind].sj[jm];
@@ -157,9 +161,9 @@ nsbox_generic_kernel(const gmx_nblist_t         *nbl,
                 for(im=0; im<NSUBCELL; im++)
                 {
                     /* We're only using the first imask,
-                     * but here imask[1] is identical.
+                     * but here imei[1].imask is identical.
                      */
-                    if ((nbl->sj4[sj4_ind].imask[0] >> (jm*NSUBCELL+im)) & 1)
+                    if ((nbl->sj4[sj4_ind].imei[0].imask >> (jm*NSUBCELL+im)) & 1)
                     {
                         si               = ci*NSUBCELL + im;
 
@@ -182,7 +186,7 @@ nsbox_generic_kernel(const gmx_nblist_t         *nbl,
                             {
                                 ja               = sj*nbl->naps + jc;
                         
-                                if (!((nbl->sj4[sj4_ind].excl[(jc>>2)][(jc & 3)*nbl->naps+ic] >> (jm*NSUBCELL+im)) & 1))
+                                if (!((excl[jc>>2]->pair[(jc & 3)*nbl->naps+ic] >> (jm*NSUBCELL+im)) & 1))
                                 {
                                     continue;
                                 }
