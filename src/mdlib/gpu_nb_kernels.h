@@ -27,6 +27,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1n)
                             const
 #endif
                             gmx_nbl_sj4_t *nbl_sj4,
+                            const gmx_nbl_excl_t *excl,
                             const int *atom_types,
                             int ntypes,
                             const float4 *xq,
@@ -56,7 +57,8 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1n)
         ai, aj,
         cij4_start, cij4_end,
         typei, typej,
-        i, jm, j4; 
+        i, sii, jm, j4,
+        nsubi;
     float qi, qj_f,
           r2, inv_r, inv_r2, inv_r6,
           c6, c12,
@@ -69,8 +71,9 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1n)
     float3  shift;
     float3  f_ij, fsj_buf;
     gmx_nbl_ci_t nb_ci;
-    unsigned int excl, excl_bit;
-    unsigned imask;
+    unsigned int wexcl, excl_bit;
+    int wexcl_idx;
+    unsigned imask, imask_j;
 #ifdef PRUNE_NBL
     unsigned imask_prune;
 #endif
@@ -79,8 +82,8 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1n)
 
     nb_ci       = nbl_ci[bidx];         /* cell index */
     ci          = nb_ci.ci;             /* i cell index = current block index */
-    cij4_start  = nb_ci.sj4_ind_start;   /* first ...*/
-    cij4_end    = nb_ci.sj4_ind_end;     /* and last index of j cells */
+    cij4_start  = nb_ci.sj4_ind_start;  /* first ...*/
+    cij4_end    = nb_ci.sj4_ind_end;    /* and last index of j cells */
 
     shift       = shift_vec[nb_ci.shift];
 
@@ -99,20 +102,26 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1n)
     /* loop over the j sub-cells = seen by any of the atoms in the current cell */
     for (j4 = cij4_start; j4 < cij4_end; j4++)
     {
-        excl = nbl_sj4[j4].excl[widx][(tidx) & (WARP_SIZE - 1)];
+        wexcl_idx   = nbl_sj4[j4].imei[widx].excl_ind; /* TODO pull these two out together */
+        imask       = nbl_sj4[j4].imei[widx].imask;
+        wexcl       = excl[wexcl_idx].pair[(tidx) & (WARP_SIZE - 1)];
 
-        imask  = nbl_sj4[j4].imask[widx];
 #ifndef PRUNE_NBL
         if (imask)
 #endif
         {
 #ifdef PRUNE_NBL
             imask_prune = imask;
-#endif          
+#endif
+
+#pragma unroll 4
             for (jm = 0; jm < 4; jm++)
             {
-                if (imask & (255U << (jm * 8)))
+                imask_j = (imask >> (jm * 8)) & 255U;
+                if (imask_j)
                 {
+                    nsubi = __popc(imask_j);
+
                     sj      = nbl_sj4[j4].sj[jm];
                     aj      = sj * CELL_SIZE + tidxj;
 
@@ -126,84 +135,88 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1n)
                     fsj_buf = make_float3(0.0f);
 
                     /* loop over i sub-cells in ci */
-                    for (i = 0; i < NSUBCELL; i++)
+#pragma unroll 8
+                    for (sii = 0; sii < nsubi; sii++)
                     {
-                        if (imask & (1U << (jm * NSUBCELL + i)))
-                        {
-                            si_offset   = i;                       /* i force buffer offset */ 
-                            si          = ci * NSUBCELL + i;       /* i subcell index */
-                            ai          = si * CELL_SIZE + tidxi;  /* i atom index */
+                        i = __ffs(imask_j) - 1;
+                        imask_j &= ~(1U << i);
 
-                            /* all threads load an atom from i cell si into shmem! */
-                            xqbuf   = xq[ai];
-                            xi      = make_float3(xqbuf.x, xqbuf.y, xqbuf.z);
+                        si_offset   = i;                       /* i force buffer offset */ 
+                        si          = ci * NSUBCELL + i;       /* i subcell index */
+                        ai          = si * CELL_SIZE + tidxi;  /* i atom index */
 
-                            /* distance between i and j atoms */
-                            rv      = xi - xj;
-                            r2      = norm2(rv);
+                        /* all threads load an atom from i cell si into shmem! */
+                        xqbuf   = xq[ai];
+                        xi      = make_float3(xqbuf.x, xqbuf.y, xqbuf.z);
 
-                            excl_bit = ((excl >> (jm * NSUBCELL + i)) & 1);
+                        /* distance between i and j atoms */
+                        rv      = xi - xj;
+                        r2      = norm2(rv);
 
 #ifdef PRUNE_NBL
-                            /* XXX  */
-                            if (!__any(r2 < rlist_sq))
-                            {
-                                imask_prune &= ~(1U << (jm * NSUBCELL + i));
-                            }
+                        /* If _none_ of the atoms pairs are in cutoff range,
+                           the bit corresponding to the current sub-cell-pair 
+                           in imask gets set to 0.
+                         */
+                        if (!__any(r2 < rlist_sq))
+                        {
+                            imask_prune &= ~(1U << (jm * NSUBCELL + i));
+                        }
 #endif
 
-                            /* cutoff & exclusion check */
-                            if (r2 < cutoff_sq * excl_bit)
-                            {
-                                /* load the rest of the i-atom parameters */
-                                qi      = xqbuf.w;
-                                typei   = atom_types[ai];
+                        excl_bit = ((wexcl >> (jm * NSUBCELL + i)) & 1);
 
-                                /* LJ C6 and C12 */
-                                c6      = tex1Dfetch(tex_nbfp, 2 * (ntypes * typei + typej));
-                                c12     = tex1Dfetch(tex_nbfp, 2 * (ntypes * typei + typej) + 1);
+                        /* cutoff & exclusion check */
+                        if (r2 < cutoff_sq * excl_bit)
+                        {
+                            /* load the rest of the i-atom parameters */
+                            qi      = xqbuf.w;
+                            typei   = atom_types[ai];
 
-                                inv_r       = 1.0f / sqrt(r2);
-                                inv_r2      = inv_r * inv_r;
-                                inv_r6      = inv_r2 * inv_r2 * inv_r2;
+                            /* LJ C6 and C12 */
+                            c6      = tex1Dfetch(tex_nbfp, 2 * (ntypes * typei + typej));
+                            c12     = tex1Dfetch(tex_nbfp, 2 * (ntypes * typei + typej) + 1);
 
-                                F_invr      = inv_r6 * (12.0f * c12 * inv_r6 - 6.0f * c6) * inv_r2;
+                            inv_r       = 1.0f / sqrt(r2);
+                            inv_r2      = inv_r * inv_r;
+                            inv_r6      = inv_r2 * inv_r2 * inv_r2;
+
+                            F_invr      = inv_r6 * (12.0f * c12 * inv_r6 - 6.0f * c6) * inv_r2;
 
 #ifdef CALC_ENERGIES
-                                E_lj        += inv_r6 * (c12 * inv_r6 - c6);
+                            E_lj        += inv_r6 * (c12 * inv_r6 - c6);
 #endif
 
 #ifdef EL_CUTOFF
-                                F_invr      += qi * qj_f * inv_r2 * inv_r;
+                            F_invr      += qi * qj_f * inv_r2 * inv_r;
 #endif
 #ifdef EL_RF
-                                F_invr      += qi * qj_f * (inv_r2 * inv_r - two_k_rf);
+                            F_invr      += qi * qj_f * (inv_r2 * inv_r - two_k_rf);
 #endif
 #ifdef EL_EWALD
-                                F_invr      += qi * qj_f * interpolate_coulomb_force_r(r2 * inv_r, coulomb_tab_scale);
+                            F_invr      += qi * qj_f * interpolate_coulomb_force_r(r2 * inv_r, coulomb_tab_scale);
 #endif
 
 #ifdef CALC_ENERGIES
 #ifdef EL_CUTOFF                    
-                                E_el        += qi * qj_f * inv_r;           
+                            E_el        += qi * qj_f * inv_r;
 #endif
 #ifdef EL_RF
-                                E_el        += qi * qj_f * (inv_r + 0.5f * two_k_rf * r2 - c_rf);
+                            E_el        += qi * qj_f * (inv_r + 0.5f * two_k_rf * r2 - c_rf);
 #endif
 #ifdef EL_EWALD
-                                E_el        += qi * qj_f * inv_r * erfc(inv_r * beta);
+                            E_el        += qi * qj_f * inv_r * erfc(inv_r * beta);
 #endif
 #endif
-                                f_ij    = rv * F_invr;
+                            f_ij    = rv * F_invr;
 
-                                /* accumulate j forces in registers */
-                                fsj_buf -= f_ij;
+                            /* accumulate j forces in registers */
+                            fsj_buf -= f_ij;
 
-                                /* accumulate i forces in shmem */
-                                forcebuf[                 (1 + si_offset) * STRIDE_SI + tidx] += f_ij.x;
-                                forcebuf[    STRIDE_DIM + (1 + si_offset) * STRIDE_SI + tidx] += f_ij.y;
-                                forcebuf[2 * STRIDE_DIM + (1 + si_offset) * STRIDE_SI + tidx] += f_ij.z;
-                            }
+                            /* accumulate i forces in shmem */
+                            forcebuf[                 (1 + si_offset) * STRIDE_SI + tidx] += f_ij.x;
+                            forcebuf[    STRIDE_DIM + (1 + si_offset) * STRIDE_SI + tidx] += f_ij.y;
+                            forcebuf[2 * STRIDE_DIM + (1 + si_offset) * STRIDE_SI + tidx] += f_ij.z;
                         }
                     }
 
@@ -217,10 +230,11 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1n)
                 }   
             }    
 #ifdef PRUNE_NBL
-            /* XXX  */
+            /* Update the imask with the new one which does not contain the 
+               out of range sub-cells anymore. */
             // if (tidx & (WARP_SIZE - 1))
             {
-                nbl_sj4[j4].imask[widx] = imask_prune;
+                nbl_sj4[j4].imei[widx].imask = imask_prune;
             }        
 #endif
         }
@@ -269,6 +283,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2n)
                             const 
 #endif
                             gmx_nbl_sj4_t *nbl_sj,
+                            const gmx_nbl_excl_t *excl,
                             const int *atom_types,
                             int ntypes,
                             const float4 *xq,

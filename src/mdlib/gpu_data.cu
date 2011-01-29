@@ -21,34 +21,35 @@
 
 static const char * const nb_k1_names[NUM_NB_KERNELS] = 
 {
-    "_Z22k_calc_nb_RF_forces_1nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3fffPS7_",
-    "_Z25k_calc_nb_ewald_forces_1nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3fffPS7_",
-    "_Z26k_calc_nb_cutoff_forces_1nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3fffPS7_",
-    "_Z31k_calc_nb_RF_forces_energies_1nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3fffffPfSF_PS7_",
-    "_Z31k_calc_nb_RF_forces_prunenbl_1nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3ffffPS6_",
-    "_Z34k_calc_nb_ewald_forces_energies_1nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3fffffPfSF_PS7_",
-    "_Z34k_calc_nb_ewald_forces_prunenbl_1nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3ffffPS6_",
-    "_Z35k_calc_nb_cutoff_forces_energies_1nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3fffffPfSF_PS7_",
-    "_Z35k_calc_nb_cutoff_forces_prunenbl_1nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3ffffPS6_",
-    "_Z40k_calc_nb_RF_forces_energies_prunenbl_1nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3ffffffPfSE_PS6_",
-    "_Z43k_calc_nb_ewald_forces_energies_prunenbl_1nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3ffffffPfSE_PS6_",
-    "_Z44k_calc_nb_cutoff_forces_energies_prunenbl_1nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3ffffffPfSE_PS6_",
+"_Z22k_calc_nb_RF_forces_1nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3fffPSA_",
+"_Z25k_calc_nb_ewald_forces_1nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3fffPSA_",
+"_Z26k_calc_nb_cutoff_forces_1nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3fffPSA_",
+"_Z31k_calc_nb_RF_forces_energies_1nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3fffffPfSI_PSA_",
+"_Z31k_calc_nb_RF_forces_prunenbl_1nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3ffffPS9_",
+"_Z34k_calc_nb_ewald_forces_energies_1nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3fffffPfSI_PSA_",
+"_Z34k_calc_nb_ewald_forces_prunenbl_1nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3ffffPS9_",
+"_Z35k_calc_nb_cutoff_forces_energies_1nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3fffffPfSI_PSA_",
+"_Z35k_calc_nb_cutoff_forces_prunenbl_1nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3ffffPS9_",
+"_Z40k_calc_nb_RF_forces_energies_prunenbl_1nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3ffffffPfSH_PS9_",
+"_Z43k_calc_nb_ewald_forces_energies_prunenbl_1nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3ffffffPfSH_PS9_",
+"_Z44k_calc_nb_cutoff_forces_energies_prunenbl_1nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3ffffffPfSH_PS9_"
+
 };
 
 static const char * const nb_k2_names[NUM_NB_KERNELS] = 
 {
-    "_Z22k_calc_nb_RF_forces_2nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3fffPS7_",
-    "_Z25k_calc_nb_ewald_forces_2nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3fffPS7_",
-    "_Z26k_calc_nb_cutoff_forces_2nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3fffPS7_",
-    "_Z31k_calc_nb_RF_forces_energies_2nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3fffffPfSF_PS7_",
-    "_Z31k_calc_nb_RF_forces_prunenbl_2nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3ffffPS6_",
-    "_Z34k_calc_nb_ewald_forces_energies_2nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3fffffPfSF_PS7_",
-    "_Z34k_calc_nb_ewald_forces_prunenbl_2nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3ffffPS6_",
-    "_Z35k_calc_nb_cutoff_forces_energies_2nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3fffffPfSF_PS7_",
-    "_Z35k_calc_nb_cutoff_forces_prunenbl_2nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3ffffPS6_",
-    "_Z40k_calc_nb_RF_forces_energies_prunenbl_2nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3ffffffPfSE_PS6_",
-    "_Z43k_calc_nb_ewald_forces_energies_prunenbl_2nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3ffffffPfSE_PS6_",
-    "_Z44k_calc_nb_cutoff_forces_energies_prunenbl_2nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPKiiPK6float4PKfPK6float3ffffffPfSE_PS6_"    
+"_Z22k_calc_nb_RF_forces_2nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3fffPSA_",
+"_Z25k_calc_nb_ewald_forces_2nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3fffPSA_",
+"_Z26k_calc_nb_cutoff_forces_2nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3fffPSA_",
+"_Z31k_calc_nb_RF_forces_energies_2nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3fffffPfSI_PSA_",
+"_Z31k_calc_nb_RF_forces_prunenbl_2nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3ffffPS9_",
+"_Z34k_calc_nb_ewald_forces_energies_2nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3fffffPfSI_PSA_",
+"_Z34k_calc_nb_ewald_forces_prunenbl_2nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3ffffPS9_",
+"_Z35k_calc_nb_cutoff_forces_energies_2nPK12gmx_nbl_ci_tPK13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3fffffPfSI_PSA_",
+"_Z35k_calc_nb_cutoff_forces_prunenbl_2nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3ffffPS9_",
+"_Z40k_calc_nb_RF_forces_energies_prunenbl_2nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3ffffffPfSH_PS9_",
+"_Z43k_calc_nb_ewald_forces_energies_prunenbl_2nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3ffffffPfSH_PS9_",
+"_Z44k_calc_nb_cutoff_forces_energies_prunenbl_2nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3ffffffPfSH_PS9_"
 };
 
 __device__ __global__ void k_empty(){}
@@ -233,15 +234,20 @@ void init_cudata_ff(FILE *fplog,
     d_data->f       = NULL;
     d_data->ci      = NULL;
     d_data->sj4     = NULL;
+    d_data->excl    = NULL;
 
     /* size -1 just means that it has not been initialized yet */
+    d_data->naps        = -1;
     d_data->natoms      = -1;
     d_data->nalloc      = -1;
     d_data->nci         = -1;
     d_data->ci_nalloc   = -1;
     d_data->nsj4        = -1;
     d_data->sj4_nalloc  = -1;
-    d_data->naps        = -1;
+    d_data->nexcl       = -1;
+    d_data->excl_nalloc = -1;
+
+    d_data->prune_nbl = FALSE;
 
     *dp_data = d_data;
 
@@ -303,7 +309,7 @@ void init_cudata_atoms(t_cudata d_data,
     }
 
     /* need to reallocate if we have to copy more atoms than the amount of space
-       available and only allocate if we haven't initilzed yet, i.e d_data->natoms == -1 */
+       available and only allocate if we haven"t initilzed yet, i.e d_data->natoms == -1 */
     if (natoms > d_data->nalloc)
     {
         nalloc = natoms * 1.2 + 100;
@@ -327,7 +333,7 @@ void init_cudata_atoms(t_cudata d_data,
         d_data->nalloc = nalloc;
     }
     /* XXX for the moment we just set all 8 values to the same value... 
-       ATM not, we'll do that later */    
+       ATM not, we"ll do that later */    
     d_data->natoms = natoms;
 
     if(doStream)
@@ -347,6 +353,10 @@ void init_cudata_atoms(t_cudata d_data,
     realloc_cudata_array((void **)&d_data->sj4, nblist->sj4, sizeof(*(d_data->sj4)),
                          &d_data->nsj4, &d_data->sj4_nalloc,
                          nblist->nsj4, doStream);
+
+    realloc_cudata_array((void **)&d_data->excl, nblist->excl, sizeof(*(d_data->excl)),
+                         &d_data->nexcl, &d_data->excl_nalloc,
+                         nblist->nexcl, doStream);
 
     stat = cudaEventRecord(d_data->stop_atdat, 0);
     CU_RET_ERR(stat, "cudaEventRecord failed on d_data->stop_atdat");
@@ -416,6 +426,7 @@ void destroy_cudata(FILE *fplog, t_cudata d_data)
 
     destroy_cudata_array(d_data->ci, &d_data->nci, &d_data->ci_nalloc);
     destroy_cudata_array(d_data->sj4, &d_data->nsj4, &d_data->sj4_nalloc);
+    destroy_cudata_array(d_data->excl, &d_data->nexcl, &d_data->excl_nalloc);
 
     stat = cudaThreadExit();
     CU_RET_ERR(stat, "cudaThreadExit failed");

@@ -139,6 +139,7 @@ void cu_stream_nb(t_cudata d_data,
     void    (*p_k_calc_nb_f)(
                 const gmx_nbl_ci_t * /*nbl_ci*/,
                 const gmx_nbl_sj4_t * /*nbl_sj4*/,
+                const gmx_nbl_excl_t * /*excl*/,
                 const int * /*atom_types*/,
                 int /*ntypes*/,
                 const float4 * /*xq*/,
@@ -152,6 +153,7 @@ void cu_stream_nb(t_cudata d_data,
     void    (*p_k_calc_nb_fe)(
                 const gmx_nbl_ci_t * /*nbl_ci*/,
                 const gmx_nbl_sj4_t * /*nbl_sj4*/,
+                const gmx_nbl_excl_t * /*excl*/,
                 const int * /*atom_types*/,
                 int /*ntypes*/,
                 const float4 * /*xq*/,
@@ -172,6 +174,7 @@ void cu_stream_nb(t_cudata d_data,
     void    (*p_k_calc_nb_f_pnbl)(
                 const gmx_nbl_ci_t * /*nbl_ci*/,
                 gmx_nbl_sj4_t * /*nbl_sj4*/,
+                const gmx_nbl_excl_t * /*excl*/,
                 const int * /*atom_types*/,
                 int /*ntypes*/,
                 const float4 * /*xq*/,
@@ -186,6 +189,7 @@ void cu_stream_nb(t_cudata d_data,
     void    (*p_k_calc_nb_fe_pnbl)(
                 const gmx_nbl_ci_t * /*nbl_ci*/,
                 gmx_nbl_sj4_t * /*nbl_sj4*/,
+                const gmx_nbl_excl_t * /*excl*/,
                 const int * /*atom_types*/,
                 int /*ntypes*/,
                 const float4 * /*xq*/,
@@ -315,9 +319,10 @@ void cu_stream_nb(t_cudata d_data,
     {
         if (!(d_data->prune_nbl || doAlwaysNsPrune))
         {
-            // printf("--- no prune no ene\n");
-            p_k_calc_nb_f<<<dim_grid, dim_block, shmem, 0>>>(d_data->ci,
+            p_k_calc_nb_f<<<dim_grid, dim_block, shmem, 0>>>(
+                    d_data->ci,
                     d_data->sj4,
+                    d_data->excl,
                     d_data->atom_types,
                     d_data->ntypes,
                     d_data->xq,
@@ -330,8 +335,10 @@ void cu_stream_nb(t_cudata d_data,
         } 
         else 
         {
-            p_k_calc_nb_f_pnbl<<<dim_grid, dim_block, shmem, 0>>>(d_data->ci,
+            p_k_calc_nb_f_pnbl<<<dim_grid, dim_block, shmem, 0>>>(
+                    d_data->ci,
                     d_data->sj4,
+                    d_data->excl,
                     d_data->atom_types,
                     d_data->ntypes,
                     d_data->xq,
@@ -355,6 +362,7 @@ void cu_stream_nb(t_cudata d_data,
             p_k_calc_nb_fe<<<dim_grid, dim_block, shmem, 0>>>(
                     d_data->ci,
                     d_data->sj4,
+                    d_data->excl,
                     d_data->atom_types,
                     d_data->ntypes,
                     d_data->xq,
@@ -374,6 +382,7 @@ void cu_stream_nb(t_cudata d_data,
             p_k_calc_nb_fe_pnbl<<<dim_grid, dim_block, shmem, 0>>>(
                     d_data->ci,
                     d_data->sj4,
+                    d_data->excl,
                     d_data->atom_types,
                     d_data->ntypes,
                     d_data->xq,

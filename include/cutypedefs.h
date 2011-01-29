@@ -72,10 +72,13 @@ struct cudata
     int             ci_nalloc;  /* allocation size for ci                       */
     gmx_nbl_ci_t     *ci;       /* list of i-cells ("supercells")               */
 
-    int             nsj4;        /* total # of i-j cell subcell pairs           */
-    int             sj4_nalloc;  /* allocation size for sj                      */
-    gmx_nbl_sj4_t   *sj4;        /* j subcell list, contains j subcell number 
+    int             nsj4;       /* total # of i-j cell subcell pairs           */
+    int             sj4_nalloc; /* allocation size for sj                      */
+    gmx_nbl_sj4_t   *sj4;       /* j subcell list, contains j subcell number 
                                     and index into the i subcell list           */
+    gmx_nbl_excl_t  *excl;      /* Exclusions                               */
+    int             nexcl;      /* The count for excl                       */
+    int             excl_nalloc;/* The allocation size for excl             */
 
     gmx_bool        prune_nbl;  /* true if neighbor list pruning needs to be 
                                    done during the  current step                */
