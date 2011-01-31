@@ -48,9 +48,7 @@
 #include "vec.h"
 #include "pbc.h"
 #include "nsbox.h"
-#ifdef NBL_CC
 #include "gmx_cyclecounter.h"
-#endif
 
 #ifdef GMX_OPENMP
 #include <omp.h>
@@ -61,7 +59,7 @@
 
 #include <xmmintrin.h>
 #include <emmintrin.h>
-// #define GMX_SSE4_1
+//#define GMX_SSE4_1
 #ifdef GMX_SSE4_1
 #include <smmintrin.h>
 #endif
@@ -115,12 +113,22 @@ static gmx_subcell_in_range_t subc_in_range_x;
 static gmx_subcell_in_range_t subc_in_range_sse8;
 
 typedef struct {
+    int          count;
+    gmx_cycles_t c;
+    gmx_cycles_t start;
+} gmx_nbs_cc_t;
+
+enum { enbsCCgrid, enbsCCsearch, enbsCCcombine, enbsCCnr };
+
+typedef struct {
     gmx_cache_protect_t cp0;
 
     int *cxy_na;
 
     int  *sort_work;
     int  sort_work_nalloc;
+
+    gmx_nbs_cc_t cc[enbsCCnr];
 
     gmx_cache_protect_t cp1;
 } gmx_nbs_work_t;
@@ -158,6 +166,9 @@ typedef struct gmx_nbsearch {
 
     int  nsubc_tot;
 
+    gmx_bool print_cycles;
+    gmx_nbs_cc_t cc[enbsCCnr];
+
     gmx_supcell_set_i_x_t *supc_set_i_x;
 
     gmx_subcell_in_range_t *subc_dc;
@@ -165,6 +176,58 @@ typedef struct gmx_nbsearch {
     int  nthread_max;
     gmx_nbs_work_t *work;
 } gmx_nbsearch_t_t;
+
+static void nbs_cycle_clear(gmx_nbs_cc_t *cc)
+{
+    int i;
+
+    for(i=0; i<enbsCCnr; i++)
+    {
+        cc[i].count = 0;
+        cc[i].c     = 0;
+    }
+}
+
+static void nbs_cycle_start(gmx_nbs_cc_t *cc)
+{
+    cc->start = gmx_cycles_read();
+}
+
+static void nbs_cycle_stop(gmx_nbs_cc_t *cc)
+{
+    cc->c += gmx_cycles_read() - cc->start;
+    cc->count++;
+}
+
+static double Mcyc_av(const gmx_nbs_cc_t *cc)
+{
+    return (double)cc->c*1e-6/cc->count;
+}
+
+static void nbs_cycle_print(FILE *fp,const gmx_nbsearch_t nbs)
+{
+    int n;
+    int t;
+
+    fprintf(fp,"\n");
+    fprintf(fp,"ns %4d grid %4.1f search %4.1f",
+            nbs->cc[enbsCCgrid].count,
+            Mcyc_av(&nbs->cc[enbsCCgrid]),
+            Mcyc_av(&nbs->cc[enbsCCsearch]));
+
+    if (nbs->nthread_max > 1)
+    {
+        fprintf(fp," comb %4.1f",
+                Mcyc_av(&nbs->cc[enbsCCcombine]));
+        fprintf(fp," s. th");
+        for(t=0; t<nbs->nthread_max; t++)
+        {
+            fprintf(fp," %4.1f",
+                    Mcyc_av(&nbs->work[t].cc[enbsCCsearch]));
+        }
+    }
+    fprintf(fp,"\n");
+}
 
 void gmx_nbsearch_init(gmx_nbsearch_t * nbs_ptr,int natoms_subcell)
 {
@@ -233,11 +296,16 @@ void gmx_nbsearch_init(gmx_nbsearch_t * nbs_ptr,int natoms_subcell)
     }
 #endif
 
+    nbs->print_cycles = (getenv("GMX_NBS_CYCLE") != 0);
+    nbs_cycle_clear(nbs->cc);
+
     snew(nbs->work,nbs->nthread_max);
     for(t=0; t<nbs->nthread_max; t++)
     {
         nbs->work[t].sort_work   = NULL;
         nbs->work[t].sort_work_nalloc = 0;
+
+        nbs_cycle_clear(nbs->work[t].cc);
     }
 }
 
@@ -928,6 +996,8 @@ void gmx_nbsearch_put_on_grid(gmx_nbsearch_t nbs,
 {
     int nc_max;
 
+    nbs_cycle_start(&nbs->cc[enbsCCgrid]);
+
     nbs->ePBC = ePBC;
     copy_mat(box,nbs->box);
 
@@ -945,6 +1015,8 @@ void gmx_nbsearch_put_on_grid(gmx_nbsearch_t nbs,
     }
 
     calc_cell_indices(nbs,n,x,nbat);
+
+    nbs_cycle_stop(&nbs->cc[enbsCCgrid]);
 }
 
 static void get_cell_range(real b0,real b1,int nc,real s,real invs,
@@ -2073,11 +2145,8 @@ static void gmx_nbsearch_make_nblist_part(const gmx_nbsearch_t nbs,
     int  cxf,cxl,cyf,cyf_x,cyl;
     int  cx,cy;
     int  c0,c1,cs,cf,cl;
-#ifdef NBL_CC
-    gmx_cycles_t cyc;
 
-    cyc = gmx_cycles_read();
-#endif
+    nbs_cycle_start(&work->cc[enbsCCsearch]);
 
     bDomDec = FALSE;
 
@@ -2389,10 +2458,7 @@ static void gmx_nbsearch_make_nblist_part(const gmx_nbsearch_t nbs,
         }
     }
 
-#ifdef NBL_CC
-    cyc = gmx_cycles_read() - cyc;
-    printf("cyc %4.1f\n",(double)cyc*1e-6);
-#endif
+    nbs_cycle_stop(&work->cc[enbsCCsearch]);
     
     if (debug)
     {
@@ -2419,6 +2485,8 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
     {
         fprintf(debug,"ns making %d nblists\n",nnbl);
     }
+    nbs_cycle_start(&nbs->cc[enbsCCsearch]);
+
 #pragma omp parallel for schedule(static)
     for(th=0; th<nnbl; th++)
     {
@@ -2429,10 +2497,22 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
                                       ((th+1)*nbs->nc)/nnbl,
                                       &nbl[th]);
     }
+    nbs_cycle_stop(&nbs->cc[enbsCCsearch]);
 
     if (CombineNBLists && nnbl > 1)
     {
+        nbs_cycle_start(&nbs->cc[enbsCCcombine]);
+
         combine_nblists(nnbl-1,nbl+1,nbl);
+ 
+        nbs_cycle_stop(&nbs->cc[enbsCCcombine]);
+    }
+
+    if (nbs->print_cycles &&
+        nbs->cc[enbsCCgrid].count > 0 &&
+        nbs->cc[enbsCCgrid].count % 10 == 0)
+    {
+        nbs_cycle_print(stderr,nbs);
     }
 
     if (debug)
