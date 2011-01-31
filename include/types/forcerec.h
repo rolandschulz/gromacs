@@ -248,7 +248,7 @@ typedef struct {
   real rlist_nsbox;
   gmx_nbsearch_t nbs;
   int            nnbl;
-  gmx_nblist_t   *nbl;
+  gmx_nblist_t   **nbl;
   gmx_nb_atomdata_t *nbat;
 
   /* The wall tables (if used) */

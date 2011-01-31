@@ -1991,9 +1991,14 @@ void init_forcerec(FILE *fp,
         fr->nnbl = omp_get_max_threads();
 #endif
         snew(fr->nbl,fr->nnbl);
+#pragma omp parallel for schedule(static)
         for(i=0; i<fr->nnbl; i++)
         {
-            gmx_nblist_init(&fr->nbl[i],
+            /* Allocate the nblist data structure locally on each thread
+             * to optimize memory access for NUMA architectures.
+             */
+            snew(fr->nbl[i],1);
+            gmx_nblist_init(fr->nbl[i],
 #ifdef GMX_GPU
                             /* Only list 0 is used on the GPU */
                             (fr->useGPU && i==0) ? &pmalloc : NULL,

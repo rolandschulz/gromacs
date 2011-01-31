@@ -862,7 +862,7 @@ void do_force(FILE *fplog,t_commrec *cr,
         else
         {
             /* Emulate */
-            nsbox_generic_kernel(&fr->nbl[0],fr->nbat,fr,
+            nsbox_generic_kernel(fr->nbl[0],fr->nbat,fr,
                                  fr->nblists[0].tab.scale,
                                  fr->nblists[0].tab.tab,
                                  fr->nbat->f,fr->fshift[0],

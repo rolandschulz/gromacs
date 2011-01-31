@@ -64,7 +64,7 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
                               const t_blocka *excl,
                               real rcut,real rlist,
                               int min_ci_balanced,
-                              int nnbl,gmx_nblist_t *nbl,
+                              int nnbl,gmx_nblist_t **nbl,
                               gmx_bool CombineNBLists);
 
 /* Initialize the non-bonded atom data structure.

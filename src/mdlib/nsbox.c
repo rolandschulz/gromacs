@@ -2027,7 +2027,7 @@ static void print_nblist_ci_sj(FILE *fp,const gmx_nblist_t *nbl)
     }
 }
 
-static void combine_nblists(int nnbl,const gmx_nblist_t *nbl,
+static void combine_nblists(int nnbl,gmx_nblist_t **nbl,
                             gmx_nblist_t *nblc)
 {
     int nci,nsj4,nsi,nexcl;
@@ -2042,10 +2042,10 @@ static void combine_nblists(int nnbl,const gmx_nblist_t *nbl,
     nexcl = nblc->nexcl;
     for(i=0; i<nnbl; i++)
     {
-        nci   += nbl[i].nci;
-        nsj4  += nbl[i].nsj4;
-        nsi   += nbl[i].nsi;
-        nexcl += nbl[i].nexcl;
+        nci   += nbl[i]->nci;
+        nsj4  += nbl[i]->nsj4;
+        nsi   += nbl[i]->nsi;
+        nexcl += nbl[i]->nexcl;
     }
 
     if (nci > nblc->ci_nalloc)
@@ -2077,7 +2077,7 @@ static void combine_nblists(int nnbl,const gmx_nblist_t *nbl,
         si_offset   = nblc->nsi;
         excl_offset = nblc->nexcl;
 
-        nbli = &nbl[n];
+        nbli = nbl[n];
 
         /* We could instead omp prallelizing the two loops below
          * parallelize the copy of integral parts of the nblist.
@@ -2476,7 +2476,7 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
                               const t_blocka *excl,
                               real rcut,real rlist,
                               int min_ci_balanced,
-                              int nnbl,gmx_nblist_t *nbl,
+                              int nnbl,gmx_nblist_t **nbl,
                               gmx_bool CombineNBLists)
 {
     int nth,th;
@@ -2495,7 +2495,7 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
                                       rcut,rlist,min_ci_balanced,
                                       ((th+0)*nbs->nc)/nnbl,
                                       ((th+1)*nbs->nc)/nnbl,
-                                      &nbl[th]);
+                                      nbl[th]);
     }
     nbs_cycle_stop(&nbs->cc[enbsCCsearch]);
 
@@ -2503,7 +2503,7 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
     {
         nbs_cycle_start(&nbs->cc[enbsCCcombine]);
 
-        combine_nblists(nnbl-1,nbl+1,nbl);
+        combine_nblists(nnbl-1,nbl+1,nbl[0]);
  
         nbs_cycle_stop(&nbs->cc[enbsCCcombine]);
     }
@@ -2517,11 +2517,11 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
 
     if (debug)
     {
-        print_nblist_statistics(debug,&nbl[0],nbs,rlist);
+        print_nblist_statistics(debug,nbl[0],nbs,rlist);
     }
     if (gmx_debug_at)
     {
-        print_nblist_ci_sj(debug,nbl);
+        print_nblist_ci_sj(debug,nbl[0]);
     }
 }
 
