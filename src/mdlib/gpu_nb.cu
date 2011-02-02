@@ -219,7 +219,6 @@ void cu_stream_nb(t_cudata d_data,
     }
     else 
     {    
-        gmx_fatal(FARGS, "Kernel 2 codepath is not done yet!");
         shmem =  CELL_SIZE * CELL_SIZE * 3 * sizeof(float);
     }
 
@@ -462,10 +461,8 @@ void cu_blockwait_nb(t_cudata d_data, gmx_bool calc_ene,
     d_data->timings.k_time[d_data->prune_nbl ? 1 : 0][calc_ene ? 1 : 0].t += t_tot;
     d_data->timings.k_time[d_data->prune_nbl ? 1 : 0][calc_ene ? 1 : 0].c += 1;
    
-    if (d_data->prune_nbl)
-    {
-        d_data->prune_nbl = FALSE;
-    }
+    /* turn off neighborlist pruning */
+    d_data->prune_nbl = FALSE;
 
     /* XXX debugging code, remove this */
     calc_ene = (calc_ene || alwaysE) && !neverE; 
