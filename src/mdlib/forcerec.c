@@ -1999,7 +1999,7 @@ void init_forcerec(FILE *fp,
              */
             snew(fr->nbl[i],1);
             gmx_nblist_init(fr->nbl[i],
-#ifdef GMX_GPU_disabled
+#ifdef GMX_GPU
                             /* Only list 0 is used on the GPU */
                             (fr->useGPU && i==0) ? &pmalloc : NULL,
                             (fr->useGPU && i==0) ? &pfree   : NULL);

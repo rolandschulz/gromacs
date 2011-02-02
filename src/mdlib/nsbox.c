@@ -59,7 +59,7 @@
 
 #include <xmmintrin.h>
 #include <emmintrin.h>
-//#define GMX_SSE4_1
+// #define GMX_SSE4_1
 #ifdef GMX_SSE4_1
 #include <smmintrin.h>
 #endif
@@ -2060,7 +2060,7 @@ static void combine_nblists(int nnbl,gmx_nblist_t **nbl,
                         nblc->sj4_nalloc*sizeof(*nblc->sj4),
                         nblc->alloc,nblc->free);
     }
-    if (nexcl > nblc->nexcl)
+    if (nexcl > nblc->excl_nalloc)
     {
         nblc->excl_nalloc = over_alloc_small(nexcl);
         nb_realloc_void((void **)&nblc->excl,
