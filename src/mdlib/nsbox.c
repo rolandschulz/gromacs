@@ -1492,26 +1492,44 @@ static void print_nblist_statistics(FILE *fp,const gmx_nblist_t *nbl,
     }
 }
 
-static gmx_nbl_excl_t *get_nbl_exclusions(gmx_nblist_t *nbl,int sj4,int warp)
+static void low_get_nbl_exclusions(gmx_nblist_t *nbl,int sj4,
+                                   int warp,gmx_nbl_excl_t **excl)
 {
-    gmx_nbl_excl_t *excl;
-
     if (nbl->sj4[sj4].imei[warp].excl_ind == 0)
     {
         /* No exclusions set, make a new list entry */
-        check_excl_space(nbl,1);
         nbl->sj4[sj4].imei[warp].excl_ind = nbl->nexcl;
         nbl->nexcl++;
-        excl = &nbl->excl[nbl->sj4[sj4].imei[warp].excl_ind];
-        set_no_excls(excl);
+        *excl = &nbl->excl[nbl->sj4[sj4].imei[warp].excl_ind];
+        set_no_excls(*excl);
     }
     else
     {
         /* We already have some exclusions, new ones can be added to the list */
-        excl = &nbl->excl[nbl->sj4[sj4].imei[warp].excl_ind];
+        *excl = &nbl->excl[nbl->sj4[sj4].imei[warp].excl_ind];
     }
+}
 
-    return excl;
+static void get_nbl_exclusions_1(gmx_nblist_t *nbl,int sj4,
+                                 int warp,gmx_nbl_excl_t **excl)
+{
+    if (nbl->sj4[sj4].imei[warp].excl_ind == 0)
+    {
+        /* We need to make a new list entry, check if we have space */
+        check_excl_space(nbl,1);
+    }
+    low_get_nbl_exclusions(nbl,sj4,warp,excl);
+}
+
+static void get_nbl_exclusions_2(gmx_nblist_t *nbl,int sj4,
+                                 gmx_nbl_excl_t **excl_w0,
+                                 gmx_nbl_excl_t **excl_w1)
+{
+    /* Check for space we might need */
+    check_excl_space(nbl,2);
+    
+    low_get_nbl_exclusions(nbl,sj4,0,excl_w0);
+    low_get_nbl_exclusions(nbl,sj4,1,excl_w1);
 }
 
 static void make_subcell_list(const gmx_nbsearch_t nbs,
@@ -1603,8 +1621,7 @@ static void make_subcell_list(const gmx_nbsearch_t nbs,
                 /* Here we only set the set self and double pair exclusions */
                 if (ci_equals_cj && si == sj)
                 {
-                    excl[0] = get_nbl_exclusions(nbl,sj4_ind,0);
-                    excl[1] = get_nbl_exclusions(nbl,sj4_ind,1);
+                    get_nbl_exclusions_2(nbl,sj4_ind,&excl[0],&excl[1]);
 
                     if (nbl->TwoWay)
                     {
@@ -1797,7 +1814,7 @@ static void set_ci_excls(const gmx_nbsearch_t nbs,
                         inner_e = ge - se*naps;
                         w       = (inner_e >> 2);
 
-                        nbl_excl = get_nbl_exclusions(nbl,found>>2,w);
+                        get_nbl_exclusions_1(nbl,found>>2,w,&nbl_excl);
 
                         nbl_excl->pair[(inner_e & 3)*nbl->naps+inner_i] &=
                             ~(1U << ((found & 3)*NSUBCELL + si));
