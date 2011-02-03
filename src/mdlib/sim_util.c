@@ -1544,9 +1544,10 @@ void init_md(FILE *fplog,
 		}
 		else
 		{
-		    //fprintf(stderr,"TODO RJ: 1.12 r%d\n", write_buf->globalRank);//TODO RJ: delete this code
 		    intraCommSize = 1;
+		    //fprintf(stderr,"Before intra: %i, rank: %i\n",cr->nc.rank_intra, cr->dd->rank);
 		    cr->nc.rank_intra = 0;
+		    //fprintf(stderr,"After intra: %i, rank: %i\n",cr->nc.rank_intra, cr->dd->rank);
 		}
         if (cr->nc.comm_inter != MPI_COMM_NULL)
         {
