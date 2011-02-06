@@ -1532,6 +1532,42 @@ static void get_nbl_exclusions_2(gmx_nblist_t *nbl,int sj4,
     low_get_nbl_exclusions(nbl,sj4,1,excl_w1);
 }
 
+static void set_self_and_newton_excls(gmx_nblist_t *nbl,
+                                      int sj4_ind,int sj_offset,
+                                      int si)
+{
+    gmx_nbl_excl_t *excl[2];
+    int  ei,ej,w;
+
+    /* Here we only set the set self and double pair exclusions */
+
+    get_nbl_exclusions_2(nbl,sj4_ind,&excl[0],&excl[1]);
+    
+    if (nbl->TwoWay)
+    {
+        /* Only minor != major bits set */
+        for(ej=0; ej<nbl->naps; ej++)
+        {
+            w = (ej>>2);
+            excl[w]->pair[(ej&(4-1))*nbl->naps+ej] &=
+                ~(1U << (sj_offset*NSUBCELL+si));
+        }
+    }
+    else
+    {
+        /* Only minor < major bits set */
+        for(ej=0; ej<nbl->naps; ej++)
+        {
+            w = (ej>>2);
+            for(ei=ej; ei<nbl->naps; ei++)
+            {
+                excl[w]->pair[(ej&(4-1))*nbl->naps+ei] &=
+                    ~(1U << (sj_offset*NSUBCELL+si));
+            }
+        }
+    }
+}
+
 static void make_subcell_list(const gmx_nbsearch_t nbs,
                               gmx_nblist_t *nbl,
                               int ci,int cj,
@@ -1547,9 +1583,7 @@ static void make_subcell_list(const gmx_nbsearch_t nbs,
     gmx_nbl_sj4_t *sj4;
     const real *bb_ci,*x_ci;
     real d2;
-    int  jas,ja,ias,iac2,e;
-    int  ei,ej,w;
-    gmx_nbl_excl_t *excl[2];
+    int  w;
 #define GMX_PRUNE_NBL_CPU_ONE
 #ifdef GMX_PRUNE_NBL_CPU_ONE
     int  si_last;
@@ -1618,35 +1652,6 @@ static void make_subcell_list(const gmx_nbsearch_t nbs,
             {
                 /* Flag this i-subcell to be taken into account */
                 imask |= (1U << (sj_offset*NSUBCELL+si));
-                /* Here we only set the set self and double pair exclusions */
-                if (ci_equals_cj && si == sj)
-                {
-                    get_nbl_exclusions_2(nbl,sj4_ind,&excl[0],&excl[1]);
-
-                    if (nbl->TwoWay)
-                    {
-                        /* Only minor != major bits set */
-                        for(ej=0; ej<nbl->naps; ej++)
-                        {
-                            w = (ej>>2);
-                            excl[w]->pair[(ej&(4-1))*nbl->naps+ej] &=
-                                ~(1U << (sj_offset*NSUBCELL+si));
-                        }
-                    }
-                    else
-                    {
-                        /* Only minor < major bits set */
-                        for(ej=0; ej<nbl->naps; ej++)
-                        {
-                            w = (ej>>2);
-                            for(ei=ej; ei<nbl->naps; ei++)
-                            {
-                                excl[w]->pair[(ej&(4-1))*nbl->naps+ei] &=
-                                    ~(1U << (sj_offset*NSUBCELL+si));
-                            }
-                        }
-                    }
-                }
 
 #ifdef GMX_PRUNE_NBL_CPU_ONE
                 si_last = si;
@@ -1658,15 +1663,10 @@ static void make_subcell_list(const gmx_nbsearch_t nbs,
         }
 
 #ifdef GMX_PRUNE_NBL_CPU_ONE
-        /* If we only found 1 or 2 pairs, check if any atoms are actually
+        /* If we only found 1 pair, check if any atoms are actually
          * within the cut-off, so we could get rid of it.
-         * We don't want to mess with exclusions, so we check if
-         * the i and j subcells are not identical
-         * (unlikely to be outside the cut-off then, but check anyhow).
          */
-        if (npair == 1 &&
-            !(ci_equals_cj && si_last == sj) &&
-            d2_last >= rbb2)
+        if (npair == 1 && d2_last >= rbb2)
         {
             if (!nbs->subc_dc(naps,si_last,x_ci,csj,stride,x,rl2))
             {
@@ -1678,9 +1678,18 @@ static void make_subcell_list(const gmx_nbsearch_t nbs,
 
         if (npair > 0)
         {
-            /* We have a useful sj entry,
-             * close it now.
+            /* We have a useful sj entry, close it now */
+
+            /* Set the exclusions for the si== sj entry.
+             * Here we don't bother to check if this entry is actually flagged,
+             * as it will nearly always be in the list.
              */
+            if (ci_equals_cj)
+            {
+                set_self_and_newton_excls(nbl,sj4_ind,sj_offset,sj);
+            }
+
+            /* Copy the sub-cell interaction mask to the list */
             for(w=0; w<NWARP; w++)
             {
                 sj4->imei[w].imask |= imask;
