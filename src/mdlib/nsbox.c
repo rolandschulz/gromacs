@@ -656,7 +656,7 @@ static void sort_columns(gmx_nbsearch_t nbs,
                          int *sort_work)
 {
     int  cxy;
-    int  cx,cy,cz,c=-1,ncz;
+    int  cx,cy,cz=-1,c=-1,ncz;
     int  na,ash,na_c,ind,a;
     int  subdiv_z,sub_z,na_z,ash_z;
     int  subdiv_y,sub_y,na_y,ash_y;
@@ -1586,8 +1586,8 @@ static void make_subcell_list(const gmx_nbsearch_t nbs,
     int  w;
 #define GMX_PRUNE_NBL_CPU_ONE
 #ifdef GMX_PRUNE_NBL_CPU_ONE
-    int  si_last;
-    real d2_last;
+    int  si_last=-1;
+    real d2_last=0;
 #endif
 
     bb_ci = nbl->work->bb_ci;
