@@ -1574,7 +1574,7 @@ void init_md(FILE *fplog,
             write_buf->heteroSys = FALSE;
         }
 
-        fprintf(stderr,"TODO RJ: 1.3\n");//TODO RJ: delete this code
+        //fprintf(stderr,"TODO RJ: 1.3\n");//TODO RJ: delete this code
 		if(write_buf->heteroSys)
 		{
 		    MPI_Comm_split (cr->dd->mpi_comm_all, write_buf->globalRank/write_buf->coresOnNode[write_buf->globalRank], write_buf->globalRank, &(write_buf->gather_comm));//TODO RJ: Check
