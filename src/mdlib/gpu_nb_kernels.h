@@ -8,6 +8,7 @@
 /*
 TODO:
   - fix GPU_FACEL
+  - make utility functions "static inline __device___"
  */
 #ifdef PRUNE_NBL
 #ifdef CALC_ENERGIES                           
@@ -114,7 +115,8 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1n)
             imask_prune = imask;
 #endif
 
-#pragma unroll 4
+            /* #pragma unroll 4 
+               -- nvcc doesn't like my code so it refuses to unroll it */
             for (jm = 0; jm < 4; jm++)
             {
                 imask_j = (imask >> (jm * 8)) & 255U;
@@ -135,7 +137,9 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1n)
                     fsj_buf = make_float3(0.0f);
 
                     /* loop over i sub-cells in ci */
-#pragma unroll 8
+                    /* #pragma unroll 8 
+                       -- nvcc doesn't like my code so it refuses to unroll it
+                       which is a pity because here unrolling could help.  */
                     for (sii = 0; sii < nsubi; sii++)
                     {
                         i = __ffs(imask_j) - 1;
@@ -177,7 +181,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1n)
                             c6      = tex1Dfetch(tex_nbfp, 2 * (ntypes * typei + typej));
                             c12     = tex1Dfetch(tex_nbfp, 2 * (ntypes * typei + typej) + 1);
 
-                            inv_r       = 1.0f / sqrt(r2);
+                            inv_r       = rsqrt(r2);
                             inv_r2      = inv_r * inv_r;
                             inv_r6      = inv_r2 * inv_r2 * inv_r2;
 
@@ -205,7 +209,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1n)
                             E_el        += qi * qj_f * (inv_r + 0.5f * two_k_rf * r2 - c_rf);
 #endif
 #ifdef EL_EWALD
-                            E_el        += qi * qj_f * inv_r * erfc(inv_r * beta);
+                            E_el        += qi * qj_f * inv_r * erfcf(r2 * inv_r * beta);
 #endif
 #endif
                             f_ij    = rv * F_invr;
@@ -231,8 +235,9 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1n)
             }
 #ifdef PRUNE_NBL
             /* Update the imask with the new one which does not contain the 
-               out of range sub-cells anymore. */
-            // if (tidx & (WARP_SIZE - 1))
+               out of range sub-cells anymore. Only the first thread in the 
+               warp writes. ATM this gives a minor, but consistent improvement. */
+            if (tidx & (WARP_SIZE - 1))
             {
                 nbl_sj4[j4].imei[widx].imask = imask_prune;
             }
@@ -369,7 +374,8 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2n)
             imask_prune = imask;
 #endif
 
-#pragma unroll 4
+            /* #pragma unroll 4 
+               -- nvcc doesn't like my code so it refuses to unroll it */
             for (jm = 0; jm < 4; jm++)
             {
                 imask_j = (imask >> (jm * 8)) & 255U;
@@ -390,7 +396,9 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2n)
                     fsj_buf = make_float3(0.0f);
 
                     /* loop over i sub-cells in ci */
-#pragma unroll 8
+                    /* #pragma unroll 8 
+                       -- nvcc doesn't like my code so it refuses to unroll it
+                       which is a pity because here unrolling could help.  */
                     for (sii = 0; sii < nsubi; sii++)
                     {
                         i = __ffs(imask_j) - 1;
@@ -432,7 +440,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2n)
                             c6      = tex1Dfetch(tex_nbfp, 2 * (ntypes * typei + typej));
                             c12     = tex1Dfetch(tex_nbfp, 2 * (ntypes * typei + typej) + 1);
 
-                            inv_r       = 1.0f / sqrt(r2);
+                            inv_r       = rsqrt(r2);
                             inv_r2      = inv_r * inv_r;
                             inv_r6      = inv_r2 * inv_r2 * inv_r2;
 
@@ -460,7 +468,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2n)
                             E_el        += qi * qj_f * (inv_r + 0.5f * two_k_rf * r2 - c_rf);
 #endif
 #ifdef EL_EWALD
-                            E_el        += qi * qj_f * inv_r * erfc(inv_r * beta);
+                            E_el        += qi * qj_f * inv_r * erfcf(r2 * inv_r * beta);
 #endif
 #endif
                             f_ij    = rv * F_invr;
@@ -484,8 +492,9 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_2n)
             }
 #ifdef PRUNE_NBL
             /* Update the imask with the new one which does not contain the 
-               out of range sub-cells anymore. */
-            // if (tidx & (WARP_SIZE - 1))
+               out of range sub-cells anymore. Only the first thread in the 
+               warp writes. ATM this gives a minor, but consistent improvement. */
+            if (tidx & (WARP_SIZE - 1))
             {
                 nbl_sj4[j4].imei[widx].imask = imask_prune;
             }

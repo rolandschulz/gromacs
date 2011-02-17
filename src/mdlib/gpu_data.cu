@@ -139,7 +139,8 @@ void init_cudata_ff(FILE *fplog,
 
     d_data->ewald_beta  = fr->ewaldcoeff;
     d_data->eps_r       = fr->epsilon_r;
-    d_data->two_k_rf    = 2.0 * fr->k_rf;   
+    d_data->two_k_rf    = 2.0 * fr->k_rf;
+    d_data->c_rf        = fr->c_rf;
     d_data->cutoff_sq   = fr->rcut_nsbox * fr->rcut_nsbox;
     d_data->rlist_sq    = fr->rlist_nsbox * fr->rlist_nsbox;
     
@@ -260,6 +261,7 @@ void init_cudata_ff(FILE *fplog,
     }
 
     /* k_calc_nb_*_1 48/16 kB Shared/L1 */
+
     for (int i = 0; i < NUM_NB_KERNELS; i++)
     {
         stat = cudaFuncSetCacheConfig(nb_k1_names[i],  cudaFuncCachePreferShared);
