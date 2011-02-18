@@ -32,9 +32,12 @@ else()
     target_link_libraries(md gmx ${GMX_EXTRA_LIBRARIES} ${FFT_LIBRARIES} ${XML_LIBRARIES})
 endif()
 
-set_target_properties(md PROPERTIES OUTPUT_NAME "md${GMX_LIBS_SUFFIX}" SOVERSION ${SOVERSION})
+set_target_properties(md PROPERTIES OUTPUT_NAME "md${GMX_LIBS_SUFFIX}" SOVERSION ${SOVERSION} INSTALL_NAME_DIR "${LIB_INSTALL_DIR}")
 
-install(TARGETS md DESTINATION ${LIB_INSTALL_DIR})
+install(TARGETS md DESTINATION ${LIB_INSTALL_DIR} COMPONENT libraries)
 
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/libmd.pc.cmakein ${CMAKE_CURRENT_BINARY_DIR}/libmd.pc @ONLY)
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libmd.pc DESTINATION ${LIB_INSTALL_DIR}/pkgconfig RENAME "libmd${GMX_LIBS_SUFFIX}.pc")
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libmd.pc
+        DESTINATION ${LIB_INSTALL_DIR}/pkgconfig
+        RENAME "libmd${GMX_LIBS_SUFFIX}.pc"
+        COMPONENT development)
