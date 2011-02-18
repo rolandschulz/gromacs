@@ -1536,6 +1536,7 @@ void init_md(FILE *fplog,
 		//Note: mpi_comm_all is the same comm as mpi_comm_mygroup that is used to create both comm_inter and comm_intra
 		MPI_Comm_rank (cr->dd->mpi_comm_all, &(write_buf->globalRank));
 		MPI_Comm_size (cr->dd->mpi_comm_all, &totalCommSize);
+//		fprintf(stderr,"globalRank = %i, dd->rank = %i\n", write_buf->globalRank, cr->dd->rank);
 
         if (cr->nc.comm_intra  != MPI_COMM_NULL)
 		{
@@ -1576,15 +1577,18 @@ void init_md(FILE *fplog,
 
         //fprintf(stderr,"TODO RJ: 1.3\n");//TODO RJ: delete this code
 		if(write_buf->heteroSys)
-		{
+		{//TODO RJ: delete this block of code
 		    MPI_Comm_split (cr->dd->mpi_comm_all, write_buf->globalRank/write_buf->coresOnNode[write_buf->globalRank], write_buf->globalRank, &(write_buf->gather_comm));//TODO RJ: Check
 		    MPI_Comm_split (cr->dd->mpi_comm_all, write_buf->globalRank%write_buf->coresOnNode[write_buf->globalRank], write_buf->globalRank, &(write_buf->alltoall_comm));
 		}
 		else
 		{
 		    write_buf->coresPerNode = intraCommSize;
-		    MPI_Comm_split (cr->dd->mpi_comm_all, write_buf->globalRank/write_buf->coresPerNode, write_buf->globalRank, &(write_buf->gather_comm));
-		    MPI_Comm_split (cr->dd->mpi_comm_all, write_buf->globalRank%write_buf->coresPerNode, write_buf->globalRank, &(write_buf->alltoall_comm));
+//		    MPI_Comm_split (cr->dd->mpi_comm_all, write_buf->globalRank/write_buf->coresPerNode, write_buf->globalRank, &(write_buf->gather_comm));
+//		    MPI_Comm_split (cr->dd->mpi_comm_all, write_buf->globalRank%write_buf->coresPerNode, write_buf->globalRank, &(write_buf->alltoall_comm));
+		    MPI_Comm_split (cr->dd->mpi_comm_all, cr->dd->rank/write_buf->coresPerNode, cr->dd->iorank, &(write_buf->gather_comm));
+		    MPI_Comm_split (cr->dd->mpi_comm_all, cr->dd->rank%write_buf->coresPerNode, cr->dd->iorank, &(write_buf->alltoall_comm));
+
 		}
 		MPI_Comm_size (write_buf->gather_comm, &(write_buf->gather_comm_size));
 		MPI_Comm_size (write_buf->alltoall_comm, &(write_buf->alltoall_comm_size));

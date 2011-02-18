@@ -654,8 +654,8 @@ void write_traj(FILE *fplog,t_commrec *cr,
 
             if (writeXTCNow)
             {
-                //fprintf(stderr,"TODO RJ: 4\n");//TODO RJ: delete this code
                 //If the computer running the system is non-homogeneous, then it will revert back to this unoptimized collection method
+                //write_buf->heteroSys = TRUE;
                 if (write_buf->heteroSys)
                 {
                     for (i = 0; i <= bufferStep; i++)//Collect each buffered frame to one of the IO nodes. The data is collected to the node with rank write_buf->dd[i]->masterrank.
@@ -669,7 +669,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
                 }
                 else
                 {
-                    //fprintf(stderr,"TODO RJ: 5\n");//TODO RJ: delete this code
+                    //fprintf(stderr,"masterrank=%i, step=%i, rank=%i\n",cr->dd->masterrank, (int)write_buf->step, cr->dd->rank);
                     dd_collect_vec_buffered(write_buf, state_global->x, cr, bufferStep);
                 }
             }
