@@ -1521,7 +1521,6 @@ void init_md(FILE *fplog,
     /*allocating buffers for buffered MPI-IO writing*/
     if (write_buf != NULL && DOMAINDECOMP(cr))//TODO RJ: This whole section of code looks ugly, fix it
     {
-        //fprintf(stderr,"TODO RJ: 1\n");//TODO RJ: delete this code
         snew (write_buf->state_local, cr->nionodes);
         write_buf->step_after_checkpoint = ir->init_step;
 		allocate_dd_buf(&(write_buf->dd), cr);
@@ -1536,23 +1535,18 @@ void init_md(FILE *fplog,
 		//Note: mpi_comm_all is the same comm as mpi_comm_mygroup that is used to create both comm_inter and comm_intra
 		MPI_Comm_rank (cr->dd->mpi_comm_all, &(write_buf->globalRank));
 		MPI_Comm_size (cr->dd->mpi_comm_all, &totalCommSize);
-//		fprintf(stderr,"globalRank = %i, dd->rank = %i\n", write_buf->globalRank, cr->dd->rank);
 
         if (cr->nc.comm_intra  != MPI_COMM_NULL)
 		{
-            //fprintf(stderr,"TODO RJ: 1.11\n");//TODO RJ: delete this code
 		    MPI_Comm_size (cr->nc.comm_intra, &intraCommSize);
 		}
 		else
 		{
 		    intraCommSize = 1;
-		    //fprintf(stderr,"Before intra: %i, rank: %i\n",cr->nc.rank_intra, cr->dd->rank);
 		    cr->nc.rank_intra = 0;
-		    //fprintf(stderr,"After intra: %i, rank: %i\n",cr->nc.rank_intra, cr->dd->rank);
 		}
         if (cr->nc.comm_inter != MPI_COMM_NULL)
         {
-            //fprintf(stderr,"TODO RJ: 1.21\n");//TODO RJ: delete this code
             MPI_Comm_rank (cr->nc.comm_inter, &(write_buf->interCommRank));
             MPI_Comm_size (cr->nc.comm_inter, &(write_buf->nNetworkCores));
             snew (write_buf->coresOnNode, write_buf->nNetworkCores);//TODO RJ: when error detecting this is a line to look out for!
@@ -1571,11 +1565,9 @@ void init_md(FILE *fplog,
         }
         else
         {
-            //fprintf(stderr,"TODO RJ: 1.22 r%d\n", write_buf->globalRank);//TODO RJ: delete this code
             write_buf->heteroSys = FALSE;
         }
 
-        //fprintf(stderr,"TODO RJ: 1.3\n");//TODO RJ: delete this code
 		if(write_buf->heteroSys)
 		{//TODO RJ: delete this block of code
 		    MPI_Comm_split (cr->dd->mpi_comm_all, write_buf->globalRank/write_buf->coresOnNode[write_buf->globalRank], write_buf->globalRank, &(write_buf->gather_comm));//TODO RJ: Check
@@ -1592,7 +1584,6 @@ void init_md(FILE *fplog,
 		}
 		MPI_Comm_size (write_buf->gather_comm, &(write_buf->gather_comm_size));
 		MPI_Comm_size (write_buf->alltoall_comm, &(write_buf->alltoall_comm_size));
-		//fprintf(stderr,"TODO RJ: 1.3\n");//TODO RJ: delete this code
     }
 
     if (nfile != -1)
