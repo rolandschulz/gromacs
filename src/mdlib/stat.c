@@ -669,7 +669,6 @@ void write_traj(FILE *fplog,t_commrec *cr,
                 }
                 else
                 {
-                    //fprintf(stderr,"masterrank=%i, step=%i, rank=%i\n",cr->dd->masterrank, (int)write_buf->step, cr->dd->rank);
                     dd_collect_vec_buffered(write_buf, state_global->x, cr, bufferStep);
                 }
             }

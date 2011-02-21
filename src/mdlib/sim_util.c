@@ -1570,16 +1570,14 @@ void init_md(FILE *fplog,
 
 		if(write_buf->heteroSys)
 		{//TODO RJ: delete this block of code
-		    MPI_Comm_split (cr->dd->mpi_comm_all, write_buf->globalRank/write_buf->coresOnNode[write_buf->globalRank], write_buf->globalRank, &(write_buf->gather_comm));//TODO RJ: Check
-		    MPI_Comm_split (cr->dd->mpi_comm_all, write_buf->globalRank%write_buf->coresOnNode[write_buf->globalRank], write_buf->globalRank, &(write_buf->alltoall_comm));
+//		    MPI_Comm_split (cr->dd->mpi_comm_all, write_buf->globalRank/write_buf->coresOnNode[write_buf->globalRank], write_buf->globalRank, &(write_buf->gather_comm));//TODO RJ: Check
+//		    MPI_Comm_split (cr->dd->mpi_comm_all, write_buf->globalRank%write_buf->coresOnNode[write_buf->globalRank], write_buf->globalRank, &(write_buf->alltoall_comm));
 		}
 		else
 		{
 		    write_buf->coresPerNode = intraCommSize;
-//		    MPI_Comm_split (cr->dd->mpi_comm_all, write_buf->globalRank/write_buf->coresPerNode, write_buf->globalRank, &(write_buf->gather_comm));
-//		    MPI_Comm_split (cr->dd->mpi_comm_all, write_buf->globalRank%write_buf->coresPerNode, write_buf->globalRank, &(write_buf->alltoall_comm));
-		    MPI_Comm_split (cr->dd->mpi_comm_all, cr->dd->rank/write_buf->coresPerNode, cr->dd->iorank, &(write_buf->gather_comm));
-		    MPI_Comm_split (cr->dd->mpi_comm_all, cr->dd->rank%write_buf->coresPerNode, cr->dd->iorank, &(write_buf->alltoall_comm));
+		    MPI_Comm_split (cr->dd->mpi_comm_all, cr->dd->rank/write_buf->coresPerNode, cr->dd->rank, &(write_buf->gather_comm));
+		    MPI_Comm_split (cr->dd->mpi_comm_all, cr->dd->rank%write_buf->coresPerNode, cr->dd->iorank2ddrank[cr->dd->rank], &(write_buf->alltoall_comm));
 
 		}
 		MPI_Comm_size (write_buf->gather_comm, &(write_buf->gather_comm_size));
