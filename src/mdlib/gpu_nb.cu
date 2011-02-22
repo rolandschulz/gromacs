@@ -430,9 +430,6 @@ void cu_stream_nb(t_cudata d_data,
     }
 
     cudaEventRecord(d_data->stop_nb, 0);
-
-    /* turn off neighborlist pruning */
-    // d_data->prune_nbl = FALSE;
 }
 
 /* Blocking wait for the asynchrounously launched nonbonded calculations to finish. */
@@ -472,19 +469,6 @@ void cu_blockwait_nb(t_cudata d_data, gmx_bool calc_ene,
         *e_lj += *d_data->tmpdata.e_lj;
         *e_el += *d_data->tmpdata.e_el;
     }
-}
-
-/* Blocking wait for the asynchrounously launched nonbonded calculations to finish. */
-void cu_blockwait_nb_OLD(t_cudata d_data, float *time)
-{    
-    cudaError_t stat;
-
-    // stat = cudaStreamSynchronize(d_data->nb_stream);    
-    stat = cudaEventSynchronize(d_data->stop_nb);
-    CU_RET_ERR(stat, "the async execution of nonbonded calculations has failed"); 
-
-    stat = cudaEventElapsedTime(time, d_data->start_nb, d_data->stop_nb);
-    CU_RET_ERR(stat, "cudaEventElapsedTime on start_nb and stop_nb failed");
 }
 
 /* Check if the nonbonded calculation has finished. */

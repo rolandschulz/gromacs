@@ -12,8 +12,8 @@
 #define USE_CUDA_EVENT_BLOCKING_SYNC FALSE /* makes the CPU thread busy-wait! */
 #define EWALD_COULOMB_FORCE_TABLE_SIZE 1536   /* size chosen such we do not run out of texture cache */
 
-#define MY_PI               (3.1415926535897932384626433832795f)
-#define TWO_OVER_SQRT_PI    (2.0f/sqrt(MY_PI))
+#define MY_PI               (3.1415926535897932384626433832795)
+#define TWO_OVER_SQRT_PI    (2.0/sqrt(MY_PI))
     
 #define TIME_GPU_TRANSFERS 1
 
@@ -52,7 +52,7 @@ static const char * const nb_k2_names[NUM_NB_KERNELS] =
     "_Z44k_calc_nb_cutoff_forces_energies_prunenbl_2nPK12gmx_nbl_ci_tP13gmx_nbl_sj4_tPK14gmx_nbl_excl_tPKiiPK6float4PKfPK6float3ffffffPfSH_PS9_"
 };
 
-__device__ __global__ void k_empty(){}
+__device__ __global__ void k_empty_test(){}
 
 /*** CUDA Data operations ***/
 
@@ -65,42 +65,38 @@ static void tabulate_ewald_coulomb_force_r(t_cudata d_data);
 
 /* 
   Tabulates the Ewald Coulomb force.
-  Original idea: OpenMM 
-
- TODO 
-    - replace smalloc with pmalloc
-    - use double instead of float 
+  Idea borrowed from OpenMM (https://simtk.org/home/openmm).
  */
 static void tabulate_ewald_coulomb_force_r(t_cudata d_data)
 {
     float       *ftmp;
-    float       beta, r, x;
+    double      beta, r, x;
     int         i, tabsize;
-    cudaError_t stat;
-    
+    cudaError_t stat;    
+
     cudaChannelFormatDesc   cd;
     const textureReference  *tex_coulomb_tab;
 
     beta        = d_data->ewald_beta;
     tabsize     = EWALD_COULOMB_FORCE_TABLE_SIZE;
 
-    d_data->coulomb_tab_size   = tabsize;
-    d_data->coulomb_tab_scale = (tabsize - 1) / sqrt(d_data->cutoff_sq);
+    d_data->coulomb_tab_size    = tabsize;
+    d_data->coulomb_tab_scale   = (tabsize - 1) / sqrt(d_data->cutoff_sq);
 
-    smalloc(ftmp, tabsize * sizeof(*ftmp)); 
+    pmalloc((void**)&ftmp, tabsize*sizeof(*ftmp));
 
     for (i = 1; i < tabsize; i++)
     {
         r       = i / d_data->coulomb_tab_scale;
         x       = r * beta;
-        ftmp[i] = ((float) erfc(x) / r + beta * TWO_OVER_SQRT_PI * exp(-x * x)) / (r * r);
+        ftmp[i] = (float) ((erfc(x) / r + beta * TWO_OVER_SQRT_PI * exp(-x * x)) / (r * r));
     }
 
     ftmp[0] = ftmp[1];
 
     stat = cudaMalloc((void **)&d_data->coulomb_tab, tabsize * sizeof(*d_data->coulomb_tab));
     CU_RET_ERR(stat, "cudaMalloc failed on d_data->coulomb_tab"); 
-    upload_cudata(d_data->coulomb_tab, ftmp, tabsize * sizeof(*d_data->coulomb_tab));
+    upload_cudata(d_data->coulomb_tab, ftmp, tabsize*sizeof(*d_data->coulomb_tab));
 
     stat = cudaGetTextureReference(&tex_coulomb_tab, "tex_coulomb_tab");
     CU_RET_ERR(stat, "cudaGetTextureReference on tex_coulomb_tab failed");
@@ -108,7 +104,7 @@ static void tabulate_ewald_coulomb_force_r(t_cudata d_data)
     stat = cudaBindTexture(NULL, tex_coulomb_tab, d_data->coulomb_tab, &cd, tabsize * sizeof(*d_data->coulomb_tab));
     CU_RET_ERR(stat, "cudaBindTexture on tex_coulomb_tab failed");
 
-    sfree(ftmp);
+    pfree(ftmp);
 }
 
 /*
@@ -123,13 +119,14 @@ void init_cudata_ff(FILE *fplog,
     gmx_nb_atomdata_t   *nbat;
     int                 ntypes, i, j;
 
-    nbat = fr->nbat;
-    ntypes = nbat->ntype;
-
     cudaChannelFormatDesc   cd;
     const textureReference  *tex_nbfp;
 
+    /* XXX */ 
     int eventflags = ( USE_CUDA_EVENT_BLOCKING_SYNC ? cudaEventBlockingSync: cudaEventDefault );
+
+    nbat    = fr->nbat;
+    ntypes  = nbat->ntype;
 
     if (dp_data == NULL) return;
     
@@ -217,7 +214,7 @@ void init_cudata_ff(FILE *fplog,
     /* initilize timing structure */
     d_data->timings.nb_h2d_time = 0.0;
     d_data->timings.nb_d2h_time = 0.0;
-    d_data->timings.nb_count = 0;
+    d_data->timings.nb_count    = 0;
     d_data->timings.atomdt_h2d_total_time = 0.0;
     d_data->timings.atomdt_count = 0;
     for (i = 0; i < 2; i++)
@@ -255,13 +252,9 @@ void init_cudata_ff(FILE *fplog,
     if (fplog != NULL)
     {
         fprintf(fplog, "Initialized CUDA data structures.\n");
-        
-        printf("Initialized CUDA data structures.\n");
-        fflush(stdout);
     }
 
     /* k_calc_nb_*_1 48/16 kB Shared/L1 */
-
     for (int i = 0; i < NUM_NB_KERNELS; i++)
     {
         stat = cudaFuncSetCacheConfig(nb_k1_names[i],  cudaFuncCachePreferShared);
@@ -275,7 +268,9 @@ void init_cudata_ff(FILE *fplog,
         CU_RET_ERR(stat, "cudaFuncSetCacheConfig failed");
     }
 
-    k_empty<<<1, 512>>>();
+    /* TODO: move this to gpu_utils module */
+    k_empty_test<<<1, 512>>>();
+    CU_LAUNCH_ERR_SYNC("test kernel");
 }
 
 /*
@@ -509,22 +504,14 @@ static void realloc_cudata_array(void **d_dest, void *h_src, size_t type_size,
     }
 }
 
+/*
+  Blocking waits until the atom data gets copied to the GPU and times the transfer.
+ */
 void cu_blockwait_atomdata(t_cudata d_data)
 {   
     float t;
     cu_blockwait_event(d_data->stop_atdat, d_data->start_atdat, &t);
     d_data->timings.atomdt_h2d_total_time += t;
-}
-
-void cu_blockwait_atomdata_OLD(t_cudata d_data, float *time)
-{    
-    cudaError_t stat;     
-
-    stat = cudaEventSynchronize(d_data->stop_atdat);
-    CU_RET_ERR(stat, "the async trasfer of atomdata has failed");   
-
-    stat = cudaEventElapsedTime(time, d_data->start_atdat, d_data->stop_atdat);
-    CU_RET_ERR(stat, "cudaEventElapsedTime on start_atdat and stop_atdat failed");
 }
 
 /* GPU timerstruct  query functions */
