@@ -1484,7 +1484,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
     MPI_Gather  (sendBuf, (bufferStep+1) * 2, MPI_INT,
                  recvBuf, (bufferStep+1) * 2, MPI_INT, 0, write_buf->gather_comm);
 
-    if (cr->nc.rank_intra == 0)//TODO RJ: When error checking look closely at this part//NOTE RJ: Some data is being sent to nonIO nodes to the time spent doing so should be negligible
+    if (cr->nc.rank_intra == 0)
     {
         for (i=0; i<=bufferStep; i++)
         {
@@ -1507,7 +1507,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         MPI_Alltoall(sendBuf, 2 * write_buf->coresPerNode, MPI_INT,
                      recvBuf, 2 * write_buf->coresPerNode, MPI_INT, write_buf->alltoall_comm);//looks correct
     }
-    if (IONODE(cr))//TODO RJ: CHECK THIS!
+    if (IONODE(cr))
     {
         //NOTE: I would have simply used cr->dd->ma, but that only exists on the master node. So instead dd[0]->ma is used instead
         for (i=0; i<cr->nnodes; i++)
@@ -1628,8 +1628,6 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
             unloadDisp += k;
         }
         n = 0;
-        //k = 0;//TODO RJ: delete this line
-        //l=0;//TODO RJ: delete this line
         for (j=0; j<cr->nnodes; j++)//This + i will cycle through every cores' data
         {
             //figure out how many atoms to read

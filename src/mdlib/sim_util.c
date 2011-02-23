@@ -1530,6 +1530,7 @@ void init_md(FILE *fplog,
 			snew(write_buf->state_local[i]->cg_gl,state->cg_gl_nalloc);
 			snew(write_buf->state_local[i]->x,state->nalloc);
 		}
+
 		//knowing how many cores per node on every node there are, is necessary because when transferring
 		//data from one node to another the number of cores is needed for setting up the receive buffer
 		//Note: mpi_comm_all is the same comm as mpi_comm_mygroup that is used to create both comm_inter and comm_intra
@@ -1547,13 +1548,12 @@ void init_md(FILE *fplog,
 		}
         if (cr->nc.comm_inter != MPI_COMM_NULL)
         {
-            MPI_Comm_rank (cr->nc.comm_inter, &(write_buf->interCommRank));
             MPI_Comm_size (cr->nc.comm_inter, &(write_buf->nNetworkCores));
             snew (write_buf->coresOnNode, write_buf->nNetworkCores);//TODO RJ: when error detecting this is a line to look out for!
             if (cr->nc.rank_intra == 0)//Note: I checked that is a valid idea
             {
-                MPI_Alltoall (&intraCommSize, 1, MPI_INT, write_buf->coresOnNode, 1, MPI_INT, cr->nc.comm_inter);
                 write_buf->heteroSys = FALSE;
+                MPI_Alltoall (&intraCommSize, 1, MPI_INT, write_buf->coresOnNode, 1, MPI_INT, cr->nc.comm_inter);
                 for (i=0; i<totalCommSize; i++)
                 {
                     if (i != 0 && write_buf->coresOnNode[i-1] != write_buf->coresOnNode[i])
@@ -1562,26 +1562,24 @@ void init_md(FILE *fplog,
                     }
                 }
             }
+            MPI_Bcast (write_buf->heteroSys, 1, MPI_INT, 0, cr->nc.comm_intra);
         }
         else
         {
             write_buf->heteroSys = FALSE;
         }
 
-		if(write_buf->heteroSys)
-		{//TODO RJ: delete this block of code
-//		    MPI_Comm_split (cr->dd->mpi_comm_all, write_buf->globalRank/write_buf->coresOnNode[write_buf->globalRank], write_buf->globalRank, &(write_buf->gather_comm));//TODO RJ: Check
-//		    MPI_Comm_split (cr->dd->mpi_comm_all, write_buf->globalRank%write_buf->coresOnNode[write_buf->globalRank], write_buf->globalRank, &(write_buf->alltoall_comm));
-		}
-		else
+        //Note RJ: I use my own communicators so that I can manipulate some of the ranks for dealing with
+        //         checkpoints only occurring on the master without having to worry about breaking code elsewhere
+        if(!write_buf->heteroSys)
 		{
 		    write_buf->coresPerNode = intraCommSize;
+		    //TODO RJ: add some logic here so that the master will have a rank_intra = 0, and that if its going to checkpoint, that the last frame is collected to the master.
 		    MPI_Comm_split (cr->dd->mpi_comm_all, cr->dd->rank/write_buf->coresPerNode, cr->dd->rank, &(write_buf->gather_comm));
 		    MPI_Comm_split (cr->dd->mpi_comm_all, cr->dd->rank%write_buf->coresPerNode, cr->dd->iorank2ddrank[cr->dd->rank], &(write_buf->alltoall_comm));
-
+		    MPI_Comm_size (write_buf->gather_comm, &(write_buf->gather_comm_size));
+		    MPI_Comm_size (write_buf->alltoall_comm, &(write_buf->alltoall_comm_size));
 		}
-		MPI_Comm_size (write_buf->gather_comm, &(write_buf->gather_comm_size));
-		MPI_Comm_size (write_buf->alltoall_comm, &(write_buf->alltoall_comm_size));
     }
 
     if (nfile != -1)
