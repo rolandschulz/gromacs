@@ -7,90 +7,37 @@
 #include "cutypedefs.h"
 #include "cudautils.h"
 
-#include "gpu_nb.h"
-#include "gpu_data.h"
+#include "cuda_nb.h"
+#include "cuda_data_mgmt.h"
 #include "cupmalloc.h"
 
 #define CELL_SIZE               (GPU_NS_CELL_SIZE)
-#define CELL_SIZE_POW2_EXPONENT (3) /* NOTE: change this togather with GPU_NS_CELL_SIZE !*/
+#define CELL_SIZE_POW2_EXPONENT (3) /* NOTE: change this together with GPU_NS_CELL_SIZE !*/
 #define NB_DEFAULT_THREADS      (CELL_SIZE * CELL_SIZE)
 
-#include "gpu_nb_kernel_utils.h"
+#include "nb_kernel_utils.cuh"
 
-/*****  Generate kernels  *****/
-
-/* Force-type defines (EL_*) and FUNCTION_NAME are undef-d at the end 
-   of the kernels in gpu_nb_kernels.h
-*/
-
-/*** Force only kernels ***/
-/* Cut-Off */
-#define EL_CUTOFF
-#define FUNCTION_NAME(x, y) x##_cutoff_##y
-#include "gpu_nb_kernels.h"
-/* Reaction-Field */
-#define EL_RF
-#define FUNCTION_NAME(x, y) x##_RF_##y
-#include "gpu_nb_kernels.h"
-/* Ewald */
-#define EL_EWALD
-#define FUNCTION_NAME(x, y) x##_ewald_##y
-#include "gpu_nb_kernels.h"
-
-/*** Force & energy kernels ***/
+/* 
+ * Generate kernels for all combinations of force- and energy-calculation 
+ * as well as pruning. 
+ */
+/** Force only kernels **/
+#include "nb_kernels.cuh"
+/** Force & energy kernels **/
 #define CALC_ENERGIES
-
-/* Cut-Off */
-#define EL_CUTOFF
-#define FUNCTION_NAME(x, y) x##_cutoff_##y
-#include "gpu_nb_kernels.h"
-/* Reaction-Field */
-#define EL_RF
-#define FUNCTION_NAME(x, y) x##_RF_##y
-#include "gpu_nb_kernels.h"
-/* Ewald */
-#define EL_EWALD
-#define FUNCTION_NAME(x, y) x##_ewald_##y
-#include "gpu_nb_kernels.h"
-
+#include "nb_kernels.cuh"
 #undef CALC_ENERGIES
 
-/* TODO clean this up! */
-/****** Prune neighborlist ******/
+/*** Neighborlist pruning kernels ***/
+/** Force only kernels **/
 #define PRUNE_NBL
-/*** Force only kernels ***/
-/* Cut-Off */
-#define EL_CUTOFF
-#define FUNCTION_NAME(x, y) x##_cutoff_##y
-#include "gpu_nb_kernels.h"
-/* Reaction-Field */
-#define EL_RF
-#define FUNCTION_NAME(x, y) x##_RF_##y
-#include "gpu_nb_kernels.h"
-/* Ewald */
-#define EL_EWALD
-#define FUNCTION_NAME(x, y) x##_ewald_##y
-#include "gpu_nb_kernels.h"
-
-/*** Force & energy kernels ***/
+#include "nb_kernels.cuh"
+/** Force & energy kernels **/
 #define CALC_ENERGIES
-
-/* Cut-Off */
-#define EL_CUTOFF
-#define FUNCTION_NAME(x, y) x##_cutoff_##y
-#include "gpu_nb_kernels.h"
-/* Reaction-Field */
-#define EL_RF
-#define FUNCTION_NAME(x, y) x##_RF_##y
-#include "gpu_nb_kernels.h"
-/* Ewald */
-#define EL_EWALD
-#define FUNCTION_NAME(x, y) x##_ewald_##y
-#include "gpu_nb_kernels.h"
-
+#include "nb_kernels.cuh"
 #undef CALC_ENERGIES
-#undef PRUNE_NBL
 
+#undef PRUNE_NBL
 
 /* XXX
     if GMX_GPU_ENE env var set it always runs the energy kernel unless the 
@@ -133,7 +80,7 @@ void cu_stream_nb(t_cudata d_data,
     dim3    dim_block(CELL_SIZE, CELL_SIZE, 1); 
     dim3    dim_grid(nb_blocks, 1, 1); 
     gmx_bool time_trans = d_data->time_transfers; 
-
+#if 1
     /* fn pointer to the nonbonded kernel */
     /* force-only */
     void    (*p_k_calc_nb_f)(
@@ -228,49 +175,49 @@ void cu_stream_nb(t_cudata d_data,
         case cu_eelCUT:
             if (!doKernel2)
             {
-                p_k_calc_nb_f   = k_calc_nb_cutoff_forces_1n;
-                p_k_calc_nb_fe  = k_calc_nb_cutoff_forces_energies_1n;
-                p_k_calc_nb_f_pnbl  = k_calc_nb_cutoff_forces_prunenbl_1n;
-                p_k_calc_nb_fe_pnbl = k_calc_nb_cutoff_forces_energies_prunenbl_1n;
+                p_k_calc_nb_f   = k_calc_nb_cutoff_forces_1;
+                p_k_calc_nb_fe  = k_calc_nb_cutoff_forces_energies_1;
+                p_k_calc_nb_f_pnbl  = k_calc_nb_cutoff_forces_prunenbl_1;
+                p_k_calc_nb_fe_pnbl = k_calc_nb_cutoff_forces_energies_prunenbl_1;
             }
             else 
             {
-                p_k_calc_nb_f   = k_calc_nb_cutoff_forces_2n;
-                p_k_calc_nb_fe  = k_calc_nb_cutoff_forces_energies_2n;
-                p_k_calc_nb_f_pnbl  = k_calc_nb_cutoff_forces_prunenbl_2n;
-                p_k_calc_nb_fe_pnbl = k_calc_nb_cutoff_forces_energies_prunenbl_2n;
+                p_k_calc_nb_f   = k_calc_nb_cutoff_forces_2;
+                p_k_calc_nb_fe  = k_calc_nb_cutoff_forces_energies_2;
+                p_k_calc_nb_f_pnbl  = k_calc_nb_cutoff_forces_prunenbl_2;
+                p_k_calc_nb_fe_pnbl = k_calc_nb_cutoff_forces_energies_prunenbl_2;
             }
             break;
         case cu_eelRF:
             if (!doKernel2)
             {
-                p_k_calc_nb_f   = k_calc_nb_RF_forces_1n;
-                p_k_calc_nb_fe  = k_calc_nb_RF_forces_energies_1n;
-                p_k_calc_nb_f_pnbl  = k_calc_nb_RF_forces_prunenbl_1n;
-                p_k_calc_nb_fe_pnbl = k_calc_nb_RF_forces_energies_prunenbl_1n;
+                p_k_calc_nb_f   = k_calc_nb_RF_forces_1;
+                p_k_calc_nb_fe  = k_calc_nb_RF_forces_energies_1;
+                p_k_calc_nb_f_pnbl  = k_calc_nb_RF_forces_prunenbl_1;
+                p_k_calc_nb_fe_pnbl = k_calc_nb_RF_forces_energies_prunenbl_1;
             }
             else 
             {
-                p_k_calc_nb_f   = k_calc_nb_RF_forces_2n;
-                p_k_calc_nb_fe  = k_calc_nb_RF_forces_energies_2n;
-                p_k_calc_nb_f_pnbl  = k_calc_nb_RF_forces_prunenbl_2n;
-                p_k_calc_nb_fe_pnbl = k_calc_nb_RF_forces_energies_prunenbl_2n;
+                p_k_calc_nb_f   = k_calc_nb_RF_forces_2;
+                p_k_calc_nb_fe  = k_calc_nb_RF_forces_energies_2;
+                p_k_calc_nb_f_pnbl  = k_calc_nb_RF_forces_prunenbl_2;
+                p_k_calc_nb_fe_pnbl = k_calc_nb_RF_forces_energies_prunenbl_2;
             }
             break;
         case cu_eelEWALD:
             if (!doKernel2)
             {
-                p_k_calc_nb_f   = k_calc_nb_ewald_forces_1n;
-                p_k_calc_nb_fe  = k_calc_nb_ewald_forces_energies_1n;
-                p_k_calc_nb_f_pnbl  = k_calc_nb_ewald_forces_prunenbl_1n;
-                p_k_calc_nb_fe_pnbl = k_calc_nb_ewald_forces_energies_prunenbl_1n;
+                p_k_calc_nb_f   = k_calc_nb_ewald_forces_1;
+                p_k_calc_nb_fe  = k_calc_nb_ewald_forces_energies_1;
+                p_k_calc_nb_f_pnbl  = k_calc_nb_ewald_forces_prunenbl_1;
+                p_k_calc_nb_fe_pnbl = k_calc_nb_ewald_forces_energies_prunenbl_1;
             }
             else 
             {
-                p_k_calc_nb_f   = k_calc_nb_ewald_forces_2n;
-                p_k_calc_nb_fe  = k_calc_nb_ewald_forces_energies_2n; 
-                p_k_calc_nb_f_pnbl  = k_calc_nb_ewald_forces_prunenbl_2n;
-                p_k_calc_nb_fe_pnbl = k_calc_nb_ewald_forces_energies_prunenbl_2n;
+                p_k_calc_nb_f   = k_calc_nb_ewald_forces_2;
+                p_k_calc_nb_fe  = k_calc_nb_ewald_forces_energies_2; 
+                p_k_calc_nb_f_pnbl  = k_calc_nb_ewald_forces_prunenbl_2;
+                p_k_calc_nb_fe_pnbl = k_calc_nb_ewald_forces_energies_prunenbl_2;
             }
             break;
         default: 
@@ -430,6 +377,7 @@ void cu_stream_nb(t_cudata d_data,
     }
 
     cudaEventRecord(d_data->stop_nb, 0);
+#endif    
 }
 
 /* Blocking wait for the asynchrounously launched nonbonded calculations to finish. */

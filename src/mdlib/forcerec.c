@@ -75,7 +75,7 @@
 
 #ifdef GMX_GPU
 #include "cutypedefs_ext.h"
-#include "gpu_data.h"
+#include "cuda_data_mgmt.h"
 #include "cupmalloc.h"
 #endif
 

@@ -52,7 +52,7 @@
 #endif
 
 #ifdef GMX_GPU
-#include "gpu_data.h"
+#include "cuda_data_mgmt.h"
 #endif
 
 typedef struct

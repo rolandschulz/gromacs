@@ -1,4 +1,4 @@
-#include "cudatype_utils.h"
+#include "cutype_utils.cuh"
 
 #define CELL_SIZE_2         (CELL_SIZE * CELL_SIZE)
 #define STRIDE_DIM          (CELL_SIZE_2)
@@ -23,7 +23,7 @@ inline __device__ float interpolate_coulomb_force_r(float r, float scale)
             + fract2 * tex1Dfetch(tex_coulomb_tab, index + 1);
 }
 
-inline __device__ void reduce_force_i_generic_strided(float *fbuf, float4 *fout,
+inline __device__ void reduce_force_i_generic(float *fbuf, float4 *fout,
         int tidxi, int tidxj, int aidx)
 {
     if (tidxj == 0)
@@ -42,7 +42,7 @@ inline __device__ void reduce_force_i_generic_strided(float *fbuf, float4 *fout,
     }
 }
 
-inline __device__ void reduce_force_j_generic_strided(float *fbuf, float4 *fout,
+inline __device__ void reduce_force_j_generic(float *fbuf, float4 *fout,
         int tidxi, int tidxj, int aidx)
 {
     if (tidxi == 0)
@@ -62,7 +62,7 @@ inline __device__ void reduce_force_j_generic_strided(float *fbuf, float4 *fout,
 }
 
 /* 8x8 */
-__device__ void reduce_force_i_8_strided(volatile float *fbuf, float4 *fout,
+__device__ void reduce_force_i_8(volatile float *fbuf, float4 *fout,
         int tidxi, int tidxj, int aidx)
 {
     float4 f = make_float4(0.0f);
@@ -95,7 +95,7 @@ __device__ void reduce_force_i_8_strided(volatile float *fbuf, float4 *fout,
     }
 }
 
-inline __device__ void reduce_force_i_pow2_strided(volatile float *fbuf, float4 *fout,
+inline __device__ void reduce_force_i_pow2(volatile float *fbuf, float4 *fout,
         int tidxi, int tidxj, int aidx)
 {
     int     i, j; 
@@ -162,17 +162,17 @@ inline __device__ void reduce_energy_pow2(volatile float *buf,
     }
 }
 
-inline __device__ void reduce_force_i_strided(float *forcebuf, float4 *f,
+inline __device__ void reduce_force_i(float *forcebuf, float4 *f,
         int tidxi, int tidxj, int ai)
 {    
     
     if ((CELL_SIZE & (CELL_SIZE - 1)))
     {
-        reduce_force_i_generic_strided(forcebuf, f, tidxi, tidxj, ai);
+        reduce_force_i_generic(forcebuf, f, tidxi, tidxj, ai);
     }             
     else    
     {
-        reduce_force_i_pow2_strided(forcebuf, f, tidxi, tidxj, ai);
+        reduce_force_i_pow2(forcebuf, f, tidxi, tidxj, ai);
     }
 }
 
