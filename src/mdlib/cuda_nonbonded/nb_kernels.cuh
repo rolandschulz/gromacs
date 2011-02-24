@@ -1,6 +1,7 @@
 /*!
- *  Generate kernels for the electrostatics types Cut-off, Reaction-Field, 
- *  and Ewald/PME.
+ *  Generate kernels for the different electrostatics types:
+ *  Cut-off, Reaction-Field, and Ewald/PME.
+ *  (No include fence as it can be included multiple times.)
  */
 
 /* Cut-Off */

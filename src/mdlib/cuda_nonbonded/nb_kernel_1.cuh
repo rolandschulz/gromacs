@@ -11,43 +11,55 @@ TODO:
   - make utility functions "static inline __device___"
  */
 #ifdef PRUNE_NBL
-#ifdef CALC_ENERGIES                           
+#ifdef CALC_ENERGIES
 __global__ void FUNCTION_NAME(k_calc_nb, forces_energies_prunenbl_1)
 #else
 __global__ void FUNCTION_NAME(k_calc_nb, forces_prunenbl_1)
 #endif
 #else
-#ifdef CALC_ENERGIES                           
+#ifdef CALC_ENERGIES
 __global__ void FUNCTION_NAME(k_calc_nb, forces_energies_1)
 #else
 __global__ void FUNCTION_NAME(k_calc_nb, forces_1)
 #endif
 #endif
-                           (const gmx_nbl_ci_t *nbl_ci,
-#ifndef PRUNE_NBL
-                            const
-#endif
-                            gmx_nbl_sj4_t *nbl_sj4,
-                            const gmx_nbl_excl_t *excl,
-                            const int *atom_types,
-                            int ntypes,
-                            const float4 *xq,
-                            const float *nbfp,
-                            const float3 *shift_vec,
-                            float two_k_rf,
-                            float cutoff_sq,
-                            float coulomb_tab_scale,
-#ifdef PRUNE_NBL
-                            float rlist_sq,
-#endif
-#ifdef CALC_ENERGIES
-                            float beta,
-                            float c_rf,
-                            float *e_lj,
-                            float *e_el,
-#endif
-                            float4 *f)
+    (const cu_atomdata_t atomdata, const cu_nb_params_t nb_params, const cu_nblist_t nblist)
 {
+    /* convenience variables */
+    const gmx_nbl_ci_t *nbl_ci  = nblist.ci;
+#ifndef PRUNE_NBL
+    const
+#endif
+    gmx_nbl_sj4_t *nbl_sj4      = nblist.sj4;
+    const gmx_nbl_excl_t *excl  = nblist.excl;
+    const int *atom_types       = atomdata.atom_types;
+    int ntypes                  = atomdata.ntypes;
+    const float4 *xq            = atomdata.xq;
+    float4 *f                   = atomdata.f;
+    const float3 *shift_vec     = atomdata.shift_vec;
+    float cutoff_sq             = nb_params.cutoff_sq;
+#ifdef EL_RF
+    float two_k_rf              = nb_params.two_k_rf;
+#endif
+#ifdef EL_EWALD
+    float coulomb_tab_scale     = nb_params.coulomb_tab_scale;
+#endif
+#ifdef PRUNE_NBL
+    float rlist_sq              = nb_params.rlist_sq;
+#endif
+
+#ifdef CALC_ENERGIES
+#ifdef EL_EWALD
+    float beta = nb_params.ewald_beta;
+#endif
+#ifdef EL_RF
+    float c_rf = nb_params.c_rf;
+#endif
+    float *e_lj = atomdata.e_lj;
+    float *e_el = atomdata.e_el;
+#endif
+
+    /* thread/block/warp id-s */
     unsigned int tidxi  = threadIdx.x;
     unsigned int tidxj  = threadIdx.y;
     unsigned int tidx   = threadIdx.y * blockDim.x + threadIdx.x;
@@ -103,7 +115,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)
     /* loop over the j sub-cells = seen by any of the atoms in the current cell */
     for (j4 = cij4_start; j4 < cij4_end; j4++)
     {
-        wexcl_idx   = nbl_sj4[j4].imei[widx].excl_ind; /* TODO pull these two out together */
+        wexcl_idx   = nbl_sj4[j4].imei[widx].excl_ind;
         imask       = nbl_sj4[j4].imei[widx].imask;
         wexcl       = excl[wexcl_idx].pair[(tidx) & (WARP_SIZE - 1)];
 
@@ -116,7 +128,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)
 #endif
 
             /* #pragma unroll 4 
-               -- nvcc doesn't like my code so it refuses to unroll it */
+               -- nvcc doesn't like my code, it refuses to unroll it */
             for (jm = 0; jm < 4; jm++)
             {
                 imask_j = (imask >> (jm * 8)) & 255U;
@@ -138,7 +150,7 @@ __global__ void FUNCTION_NAME(k_calc_nb, forces_1)
 
                     /* loop over i sub-cells in ci */
                     /* #pragma unroll 8 
-                       -- nvcc doesn't like my code so it refuses to unroll it
+                       -- nvcc doesn't like my code,  it refuses to unroll it
                        which is a pity because here unrolling could help.  */
                     for (sii = 0; sii < nsubi; sii++)
                     {

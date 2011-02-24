@@ -2033,7 +2033,7 @@ void init_forcerec(FILE *fp,
 
             fr->streamGPU = (getenv("GMX_GPU_DONT_STREAM") == NULL);
 #ifdef GMX_GPU
-            init_cudata_ff(fp, &(fr->gpu_data), fr);
+            init_cudata_ff(fp, &(fr->gpu_nb), fr);
 #endif
         }
     }
