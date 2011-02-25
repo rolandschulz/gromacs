@@ -1553,7 +1553,7 @@ void init_md(FILE *fplog,
             if (cr->nc.rank_intra == 0)//Note: I checked that is a valid idea
             {
                 write_buf->heteroSys = FALSE;
-                MPI_Alltoall (&intraCommSize, 1, MPI_INT, write_buf->coresOnNode, 1, MPI_INT, cr->nc.comm_inter);
+                MPI_Allgather (&intraCommSize, 1, MPI_INT, write_buf->coresOnNode, 1, MPI_INT, cr->nc.comm_inter);
                 for (i=0; i<totalCommSize; i++)
                 {
                     if (i != 0 && write_buf->coresOnNode[i-1] != write_buf->coresOnNode[i])
@@ -1562,7 +1562,7 @@ void init_md(FILE *fplog,
                     }
                 }
             }
-            MPI_Bcast (write_buf->heteroSys, 1, MPI_INT, 0, cr->nc.comm_intra);
+            MPI_Bcast (&write_buf->heteroSys, 1, MPI_INT, 0, cr->nc.comm_intra);
         }
         else
         {
@@ -1576,7 +1576,7 @@ void init_md(FILE *fplog,
 		    write_buf->coresPerNode = intraCommSize;
 		    //TODO RJ: add some logic here so that the master will have a rank_intra = 0, and that if its going to checkpoint, that the last frame is collected to the master.
 		    MPI_Comm_split (cr->dd->mpi_comm_all, cr->dd->rank/write_buf->coresPerNode, cr->dd->rank, &(write_buf->gather_comm));
-		    MPI_Comm_split (cr->dd->mpi_comm_all, cr->dd->rank%write_buf->coresPerNode, cr->dd->iorank2ddrank[cr->dd->rank], &(write_buf->alltoall_comm));
+		    MPI_Comm_split (cr->dd->mpi_comm_all, cr->dd->rank%write_buf->coresPerNode, cr->dd->iorank, &(write_buf->alltoall_comm));
 		    MPI_Comm_size (write_buf->gather_comm, &(write_buf->gather_comm_size));
 		    MPI_Comm_size (write_buf->alltoall_comm, &(write_buf->alltoall_comm_size));
 		}

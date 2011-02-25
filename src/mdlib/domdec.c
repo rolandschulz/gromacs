@@ -1460,7 +1460,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
          *recvBuf,
          *aBuf;
 
-    snew (sendBuf, (bufferStep+1) * cr->nnodes * 2);
+    snew (sendBuf, (bufferStep+1) * cr->nnodes * 2);//TODO RJ: (cr->nnodes-cr->npmenodes)
     snew (recvBuf, (bufferStep+1) * cr->nnodes * 2);
     snew (sendCount, write_buf->alltoall_comm_size);
     snew (recvCount, write_buf->alltoall_comm_size);
@@ -1510,7 +1510,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
     if (IONODE(cr))
     {
         //NOTE: I would have simply used cr->dd->ma, but that only exists on the master node. So instead dd[0]->ma is used instead
-        for (i=0; i<cr->nnodes; i++)
+        for (i=0; i<(cr->nnodes-cr->npmenodes); i++)
         {
             write_buf->dd[0]->ma->ncg[i] = recvBuf[i*2];
             write_buf->dd[0]->ma->nat[i] = recvBuf[i*2+1];
@@ -1560,7 +1560,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
     //------------------------The Alltoall Comm start---------------------------------------------------------------------
     if (cr->nc.rank_intra == 0)
     {
-        srenew (recvDisp, cr->nionodes);
+        srenew (recvDisp, cr->nionodes+1);
 
         //Generates data necessary for the send buffer//sendCount is complex! This is more than likely wrong!//TODO RJ: Investigate just how complex sendCount really is
         for (i = 0; i <= bufferStep; i++)
@@ -1574,7 +1574,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
 
         srenew (sendBuf, nodeSendTotal);
         srenew (sendDisp, write_buf->alltoall_comm_size+1);//nionodes? alltoall comm size? A: group size
-        for (i = 0; i < cr->nnodes; i++)
+        for (i = 0; i < (cr->nnodes-cr->npmenodes); i++)
         {
             recvCount[i]  = (write_buf->dd[0]->ma->ncg[i] * sizeof(int))
                           + (write_buf->dd[0]->ma->nat[i] * sizeof(real) * 3);
@@ -1611,7 +1611,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         //So the way this is working is by first filling in all the cg data and skipping the blocks of data in the receive buffer, Then it fills in the atom data and skips over the cg data in the receive buffer
         l = 0;
         m = 0;
-        for (j=0; j<cr->nnodes; j++)//This + i will cycle through every cores' data
+        for (j=0; j<(cr->nnodes-cr->npmenodes); j++)//This + i will cycle through every cores' data
         {
             //figure out how many ints to read
             for (k=0; k<write_buf->dd[0]->ma->ncg[j]; k++)
@@ -1628,7 +1628,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
             unloadDisp += k;
         }
         n = 0;
-        for (j=0; j<cr->nnodes; j++)//This + i will cycle through every cores' data
+        for (j=0; j<(cr->nnodes-cr->npmenodes); j++)//This + i will cycle through every cores' data
         {
             //figure out how many atoms to read
             //store atoms XYZ location in state_global->x (Which is denoted as 'v')
