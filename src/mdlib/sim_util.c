@@ -1554,7 +1554,7 @@ void init_md(FILE *fplog,
             {
                 write_buf->heteroSys = FALSE;
                 MPI_Allgather (&intraCommSize, 1, MPI_INT, write_buf->coresOnNode, 1, MPI_INT, cr->nc.comm_inter);
-                for (i=0; i<totalCommSize; i++)
+                for (i=0; i<write_buf->nNetworkCores; i++)
                 {
                     if (i != 0 && write_buf->coresOnNode[i-1] != write_buf->coresOnNode[i])
                     {
