@@ -1478,7 +1478,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         sendBuf[i+(bufferStep+1)] = write_buf->dd[i]->nat_home;
         sendBufSize              += sendBuf[i] + sendBuf[i+(bufferStep+1)] * 3; //NOTE: This is used for the Gatherv call
         sendCount[0]             += sendBuf[i] * sizeof(int) + sendBuf[i+(bufferStep+1)] * sizeof(real) * 3; //NOTE: This is used for the Gatherv call
-        //fprintf(stderr,"sendBufSize: %i, ncg: %i, nat: %i, sendCount: %i, bufferStep: %i, rank: %i, cPN: %i \n", sendBufSize, write_buf->dd[i]->ncg_home, write_buf->dd[i]->nat_home, sendCount[0], i, cr->dd->rank, write_buf->coresPerNode);
+        fprintf(stderr,"sendBuf[%i]: %f, sendBufSize: %i, ncg: %i, nat: %i, sendCount: %i, bufferStep: %i, rank: %i, cPN: %i \n", i*2, sendBuf[i*2], sendBufSize, write_buf->dd[i]->ncg_home, write_buf->dd[i]->nat_home, sendCount[0], i, cr->dd->rank, write_buf->coresPerNode);
     }
 
     MPI_Gather  (sendBuf, (bufferStep+1) * 2, MPI_INT,
@@ -1491,16 +1491,17 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
             for (j=0; j<write_buf->coresPerNode; j++)
             {
                 icj = i*write_buf->coresPerNode+j;
-
-                ncgReceive[icj] = recvBuf[j*write_buf->coresPerNode+i];
-                natReceive[icj] = recvBuf[j*write_buf->coresPerNode+(bufferStep+1)+i];
+                fprintf(stderr,"recvBuf[%i]=%f, recvBuf[%i]=%f\n", j*(bufferStep+1)+i*2, recvBuf[j*(bufferStep+1)+i*2], j*(bufferStep+1)+i*2+1, recvBuf[j*(bufferStep+1)+i*2+1]);
+                ncgReceive[icj] = recvBuf[i+j*(bufferStep+1)];
+                natReceive[icj] = recvBuf[i+(bufferStep+1)+j*(bufferStep+1)];
                 frameDisp [icj+1] = frameDisp [icj] + ncgReceive[icj] + natReceive[icj] * 3;
                 sendBuf   [i*(bufferStep+1)+j*2]   = ncgReceive[icj];
                 sendBuf   [i*(bufferStep+1)+j*2+1] = natReceive[icj];
                 recvBufSize  += ncgReceive[icj] + natReceive[icj]*3;
                 recvCount[j] += ncgReceive[icj]*sizeof(int)
                              +  natReceive[icj]*sizeof(real)*3;
-                recvDisp [j]  = (j==0 ? 0 : recvDisp[j-1] + recvCount[j]);
+//                recvDisp [j]  = (j==0 ? 0 : recvDisp[j-1] + recvCount[j]);
+                recvDisp [j]  = (j==0 ? 0 : recvDisp[j-1] + ncgReceive[icj] + natReceive[icj]*3);
             }
         }
 
@@ -1551,7 +1552,6 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
             }
         }
     }
-    m=0;//TODO RJ: DELETE
 
     MPI_Gatherv (sendBuf, sendCount[0], MPI_BYTE,
                  recvBuf, recvCount, recvDisp, MPI_BYTE, 0, write_buf->gather_comm);

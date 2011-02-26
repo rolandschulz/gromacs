@@ -652,7 +652,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
                 wallcycle_stop(wcycle, ewcCOPY);
             }
 
-            if (writeXTCNow)
+            if (writeXTCNow)//TODO RJ: in the case of ionodes=1 this is now broken...
             {
                 //If the computer running the system is non-homogeneous, then it will revert back to this unoptimized collection method
                 //write_buf->heteroSys = TRUE;
