@@ -562,10 +562,10 @@ void cu_blockwait_atomdata(cu_nonbonded_t nb_cu)
     nb_cu->timings->atomdt_h2d_total_time += t;
 }
 
-/*! Returns the GPU timing structure. */
+/*! Returns the GPU timing structure or NULL if nb_cu is NULL. */
 cu_timings_t * get_gpu_times(cu_nonbonded_t nb_cu)
 {
-    return nb_cu->timings;
+    return nb_cu != NULL ? nb_cu->timings : NULL;
 }
 
 /*** Old stuff ***/
