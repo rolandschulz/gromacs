@@ -1465,7 +1465,7 @@ void init_md(FILE *fplog,
              tensor force_vir,tensor shake_vir,rvec mu_tot,
              gmx_bool *bSimAnn,t_vcm **vcm, t_state *state, unsigned long Flags, t_write_buffer* write_buf)
 {
-    int  i,j,n, totalCommSize, interCommSize, intraCommSize, *rbuf;
+    int  i,j,n, totalCommSize, interCommSize, intraCommSize, *rbuf, *coresOnNode;
     real tmpt,mod;
 	
     /* Initial values */
@@ -1534,7 +1534,7 @@ void init_md(FILE *fplog,
 		//knowing how many cores per node on every node there are, is necessary because when transferring
 		//data from one node to another the number of cores is needed for setting up the receive buffer
 		//Note: mpi_comm_all is the same comm as mpi_comm_mygroup that is used to create both comm_inter and comm_intra
-		MPI_Comm_rank (cr->dd->mpi_comm_all, &(write_buf->globalRank));
+		MPI_Comm_rank (cr->dd->mpi_comm_all, &(write_buf->globalRank));//TODO RJ: This may be completely pointless, cr->dd->rank should be the exact same thing
 		MPI_Comm_size (cr->dd->mpi_comm_all, &totalCommSize);
 
         if (cr->nc.comm_intra  != MPI_COMM_NULL)
@@ -1549,20 +1549,20 @@ void init_md(FILE *fplog,
         if (cr->nc.comm_inter != MPI_COMM_NULL)
         {
             MPI_Comm_size (cr->nc.comm_inter, &(write_buf->nNetworkCores));
-            snew (write_buf->coresOnNode, write_buf->nNetworkCores);//TODO RJ: when error detecting this is a line to look out for!
+            snew (coresOnNode, write_buf->nNetworkCores);//TODO RJ: when error detecting this is a line to look out for!
             if (cr->nc.rank_intra == 0)//Note: I checked that is a valid idea
             {
                 write_buf->heteroSys = FALSE;
-                MPI_Allgather (&intraCommSize, 1, MPI_INT, write_buf->coresOnNode, 1, MPI_INT, cr->nc.comm_inter);
+                MPI_Allgather (&intraCommSize, 1, MPI_INT, coresOnNode, 1, MPI_INT, cr->nc.comm_inter);
                 for (i=0; i<write_buf->nNetworkCores; i++)
                 {
-                    if (i != 0 && write_buf->coresOnNode[i-1] != write_buf->coresOnNode[i])
+                    if (i != 0 && coresOnNode[i-1] != coresOnNode[i])
                     {
                         write_buf->heteroSys = TRUE;
                     }
                 }
             }
-            MPI_Bcast (&write_buf->heteroSys, 1, MPI_INT, 0, cr->nc.comm_intra);
+            MPI_Bcast (&write_buf->heteroSys, 1, MPI_INT, 0, cr->nc.comm_intra);//TODO RJ: gmx_bcast???
         }
         else
         {
@@ -1575,6 +1575,10 @@ void init_md(FILE *fplog,
 		{
 		    write_buf->coresPerNode = intraCommSize;
 		    //TODO RJ: add some logic here so that the master will have a rank_intra = 0, and that if its going to checkpoint, that the last frame is collected to the master.
+		    if (cr->nc.rank_intra==0 && cr->dd->masterrank - cr->dd->rank < write_buf->coresPerNode)
+		    {
+		        //TODO RJ: Add logic here...
+		    }
 		    MPI_Comm_split (cr->dd->mpi_comm_all, cr->dd->rank/write_buf->coresPerNode, cr->dd->rank, &(write_buf->gather_comm));
 		    MPI_Comm_split (cr->dd->mpi_comm_all, cr->dd->rank%write_buf->coresPerNode, cr->dd->iorank, &(write_buf->alltoall_comm));
 		    MPI_Comm_size (write_buf->gather_comm, &(write_buf->gather_comm_size));

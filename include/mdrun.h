@@ -153,7 +153,7 @@ typedef struct {
 	//  the number of cores NOT nodes.  nNetworkCores is the number of PP nodes with a
 	//  cr->nc->intra_rank = 0 and the size of coresPerNode. coresPerNode should not be confused with coresOnNode 
 	//  which is used to determine if the system is heterogeneous or not.
-	int globalRank, interCommRank, coresPerNode, *coresOnNode, nNetworkCores,
+	int globalRank, interCommRank, coresPerNode, nNetworkCores,
 	    gather_comm_size, alltoall_comm_size;
 	gmx_bool heteroSys;
 } t_write_buffer;

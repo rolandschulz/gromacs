@@ -1440,6 +1440,9 @@ void dd_collect_vec(gmx_domdec_t *dd,
     }
 }
 
+//TODO RJ: Update all notes
+//TODO RJ: Consider switching to nc.comms instead of using my comms
+//TODO RJ: if bufferStep != nionodes, find difference, then send 0 to the first nodes to ensure the master node gets last frame for checkpointing
 void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, int bufferStep)
 {
     int *sendCount,    //integer array equal to the group size specifying the number of elements to send to each processor.  Only used by cores in the alltoall comm.
@@ -1460,16 +1463,16 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
 
     snew (sendBuf, (bufferStep+1) * cr->nnodes * 2);
     snew (recvBuf, (bufferStep+1) * cr->nnodes * 2);
-    snew (sendCount, write_buf->coresPerNode * (bufferStep+1));
+    snew (sendCount, cr->nnodes * (bufferStep+1));
     snew (recvCount, cr->nnodes);
     snew (ncgReceive, cr->nnodes * (bufferStep+1));
     snew (natReceive, cr->nnodes * (bufferStep+1));
     snew (frameDisp,  cr->nnodes * (bufferStep+1)+1);
-    snew (recvDisp, cr->nnodes);
+    snew (recvDisp, cr->nnodes + 1);
     snew (sendDisp, write_buf->coresPerNode * (bufferStep+1) + 1);
 
     //--Gather and All2all------------------------------------------------------------------------------------------------
-    for (i=0; i<=bufferStep; i++)
+    for (i=0; i<=bufferStep; i++)//TODO RJ: to ensure master gets last frame, loop to group size and send 0s to non-receiving IOnodes
     {
         sendBuf[i*2]              = write_buf->dd[i]->ncg_home;
         sendBuf[i*2+1]            = write_buf->dd[i]->nat_home;
@@ -1495,17 +1498,17 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
                 recvBufSize  += ncgReceive[icj] + natReceive[icj]*3;
                 recvCount[j] += ncgReceive[icj]*sizeof(int)
                              +  natReceive[icj]*sizeof(real)*3;
-                recvDisp [j]  = (j==0 ? 0 : recvDisp[j-1] + ncgReceive[icj] + natReceive[icj]*3);
+                recvDisp [j]  = (j==0 ? 0 : recvDisp[j-1] + recvCount[j]);
             }
         }
 
         MPI_Alltoall(sendBuf, 2 * write_buf->coresPerNode, MPI_INT,
-                     recvBuf, 2 * write_buf->coresPerNode, MPI_INT, write_buf->alltoall_comm);//looks correct
+                     recvBuf, 2 * write_buf->coresPerNode, MPI_INT, write_buf->alltoall_comm);
     }
     if (IONODE(cr))
     {
         //NOTE: I would have simply used cr->dd->ma, but that only exists on the master node. So instead dd[0]->ma is used instead
-        for (i=0; i<(cr->nnodes-cr->npmenodes); i++)
+        for (i=0; i<(cr->nnodes - cr->npmenodes); i++)
         {
             write_buf->dd[0]->ma->ncg[i] = recvBuf[i*2];
             write_buf->dd[0]->ma->nat[i] = recvBuf[i*2+1];
@@ -1518,7 +1521,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
     //Creates data necessary for the Gather Call used by the alltoall core
     if(cr->nc.rank_intra == 0)
     {
-        snew (recvBuf, recvBufSize);
+        srenew (recvBuf, recvBufSize);
         snew (aBuf, recvBufSize);
     }
 
@@ -1526,7 +1529,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
 
     //Fills the send buffer with all the data that needs to be sent to the Alltoall core
     m=0;
-    for (i=0; i<=bufferStep; i++)//looks correct
+    for (i=0; i<=bufferStep; i++)
     {
 
         //This fills in the send buf with the cgs
@@ -1550,14 +1553,14 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
     sendCount[0] = 0;
     //------------------------The Gather Comm end-------------------------------------------------------------------------
     //------------------------The Alltoall Comm start---------------------------------------------------------------------
-    if (cr->nc.rank_intra == 0)//TODO RJ: so valgrind tagged this line as writing too far by 4....???
+    if (cr->nc.rank_intra == 0)
     {
-        srenew (recvDisp, cr->nionodes+1);
+//        srenew (recvDisp, cr->nionodes+1);//TODO RJ: see if this is correct to do or not
 
         //Generates data necessary for the send buffer
         for (i = 0; i <= bufferStep; i++)
         {
-            for (j=0; j<write_buf->coresPerNode; j++)//TODO RJ: valgrind tagged this as reading too by 4 L@@K
+            for (j=0; j<write_buf->coresPerNode; j++)
             {
                 nodeSendTotal   += (ncgReceive[write_buf->coresPerNode * i + j] * sizeof(int)) //TODO RJ: I switched to the ICJ method from cji
                                 +  (natReceive[write_buf->coresPerNode * i + j] * sizeof(real) * 3);
@@ -1565,16 +1568,17 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         }
 
         srenew (sendBuf, nodeSendTotal);
-        srenew (sendDisp, write_buf->alltoall_comm_size+1);
-        for (i = 0; i < (cr->nnodes-cr->npmenodes); i++)
+        srenew (sendDisp, write_buf->alltoall_comm_size+1);//TODO RJ: NOTE senddisp isnt used before this point, so its orig size is redundant
+        for (i = 0; i < (cr->nnodes - cr->npmenodes); i++)//TODO RJ: May be more correct to say <=bufferStep
         {
             recvCount[i]  = (write_buf->dd[0]->ma->ncg[i] * sizeof(int))
-                          + (write_buf->dd[0]->ma->nat[i] * sizeof(real) * 3);//TODO RJ: Valgrind tagged as writing too far by 4 L@@K, and reading too far by 4...???
+                          + (write_buf->dd[0]->ma->nat[i] * sizeof(real) * 3);
             recvBufSize  += recvCount[i];
             recvDisp[i+1] = recvDisp[i] + recvCount[i];
         }
 
         //sorts the sendBuf so that first frame from first core is first, then comes first frame from second core...
+        //TODO RJ: to ensure master gets last frame, sendCount MUST be 0s to non receiving IOnodes
         l=0;//sequentially fills the send buffer
         for (i=0; i<=bufferStep; i++)
         {
@@ -1593,7 +1597,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         //TODO RJ: For non IO nodes that have data to send but nothing to receive, this specifies that nothing should be sent to these nodes
 */
         //TODO RJ: So, only IONODES need the data, nothing should be sent to nonIOnodes
-        MPI_Alltoallv(sendBuf, sendCount, sendDisp, MPI_BYTE, recvBuf, recvCount, recvDisp, MPI_BYTE, write_buf->alltoall_comm);
+        MPI_Alltoallv(sendBuf, sendCount, sendDisp, MPI_BYTE, recvBuf, recvCount, recvDisp, MPI_BYTE, write_buf->alltoall_comm);//TODO RJ: Valgrind claims an invalid read of size 4 here
         //------------------------The Alltoall Comm end-----------------------------------------------------------------------
     }
     if (IONODE(cr))
@@ -1602,7 +1606,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         //Works by first filling in all the cg data and skipping the blocks where atom coordinates will go in the receive buffer. Then it fills in the atom data and skips over the cg data in the receive buffer
         l = 0;
         m = 0;
-        for (j=0; j<(cr->nnodes-cr->npmenodes); j++)//This + i will cycle through every cores' data
+        for (j=0; j<=bufferStep; j++)
         {
             //figure out how many ints to read
             for (k=0; k<write_buf->dd[0]->ma->ncg[j]; k++)
@@ -1617,7 +1621,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
             unloadDisp += k;
         }
         n = 0;
-        for (j=0; j<(cr->nnodes-cr->npmenodes); j++)//This + i will cycle through every cores' data
+        for (j=0; j<=bufferStep; j++)
         {
             //figure out how many atoms to read
             //store atoms XYZ location in state_global->x (Which is denoted as 'v')
@@ -1625,7 +1629,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
             {
                 for (l = write_buf->dd[0]->comm->cgs_gl.index [write_buf->dd[0]->ma->cg [k]]; l < write_buf->dd[0]->comm->cgs_gl.index [write_buf->dd[0]->ma->cg [k]+1]; l++)
                 {
-                    //Sorts the atoms//TODO RJ: When error checking, look here closely //Note: lots of care was taken writing this line so I feel confident about it being correct.  It mirrors the original call fairly closely.
+                    //Sorts the atoms//Note: lots of care was taken writing this line so I feel confident about it being correct.  It mirrors the original call fairly closely.
                     for (m=0; m<3; m++)
                     {
                         v[l][m] = aBuf[n++];

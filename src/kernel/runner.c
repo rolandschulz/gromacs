@@ -763,7 +763,7 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
             }
         }
     }
-
+//TODO RJ: L@@K! We may be having two IO cores on one node....
     /*initialize buffered MPI_IO writing */
 #ifdef GMX_LIB_MPI
     if (DOMAINDECOMP(cr) && integrator[inputrec->eI].func == do_md && (cr->duty & DUTY_PP))
