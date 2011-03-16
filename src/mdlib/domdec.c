@@ -1452,7 +1452,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         *ncgReceive,   //length: coresPerNode * (bufferStep+1), each entry specifies number of cgs per step, 0 to nnodes-1 are ncgs for the first frame... The name is slightly deceptive.  It refers to how many cgs to expect to be received from that particular dd, NOT how many that dd is expecting receive
         *natReceive,   //length: coresPerNode * (bufferStep+1), each entry specifies number of atoms per step
         *frameDisp;    //length: coresPerNode * (bufferStep+1), each entry specifies number of real number displaced within the gatherv recvBuf
-    int i, j, k, l, m, n, icj,
+    int i, j, k, l, m, n, icj, diff,
     nodeSendTotal=0,   // Used for the Alltoallv call
     sendBufSize=0,
     recvBufSize=0,
@@ -1460,7 +1460,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
     real *sendBuf,     //Contains: First frame on first core , cg then atoms. Then it moves turns into second frame on first core...then turns into first frame on second core on this node
          *recvBuf,
          *aBuf;
-
+/* TODO RJ: orig working way
     snew (sendBuf, (bufferStep+1) * cr->nnodes * 2);
     snew (recvBuf, (bufferStep+1) * cr->nnodes * 2);
     snew (sendCount, cr->nnodes * (bufferStep+1));
@@ -1470,8 +1470,21 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
     snew (frameDisp,  cr->nnodes * (bufferStep+1)+1);
     snew (recvDisp, cr->nnodes + 1);
     snew (sendDisp, write_buf->coresPerNode * (bufferStep+1) + 1);
+*/
+
+    snew (sendBuf, cr->nnodes * 2 * cr->nionodes);
+    snew (recvBuf, cr->nnodes * 2 * cr->nionodes);
+    snew (sendCount, cr->nnodes * cr->nionodes);
+    snew (recvCount, cr->nnodes);
+    snew (ncgReceive, cr->nnodes * cr->nionodes);
+    snew (natReceive, cr->nnodes * cr->nionodes);
+    snew (frameDisp,  cr->nnodes * cr->nionodes+1);
+    snew (recvDisp, cr->nnodes + 1);
+    snew (sendDisp, write_buf->coresPerNode * cr->nionodes + 1);
+
 
     //--Gather and All2all------------------------------------------------------------------------------------------------
+/*
     for (i=0; i<=bufferStep; i++)//TODO RJ: to ensure master gets last frame, loop to group size and send 0s to non-receiving IOnodes
     {
         sendBuf[i*2]              = write_buf->dd[i]->ncg_home;
@@ -1482,16 +1495,46 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
 
     MPI_Gather  (sendBuf, (bufferStep+1) * 2, MPI_INT,
                  recvBuf, (bufferStep+1) * 2, MPI_INT, 0, write_buf->gather_comm);
+*/
+
+    for (i=0; i < cr->nionodes; i++)//TODO RJ: to ensure master gets last frame, loop to group size and send 0s to non-receiving IOnodes
+    {
+        diff = (bufferStep+1 + i) - cr->nionodes;
+        //diff = (cr->nionodes + i) - (bufferStep+1);
+        if (cr->nionodes > bufferStep+1 && diff < 0)
+        {
+            sendBuf[i*2]   = 0;
+            sendBuf[i*2+1] = 0;
+            //sendBufSize   += sendBuf[i*2] + sendBuf[i*2+1] * 3; //NOTE: This is used for the Gatherv call
+            //sendCount[0]  += sendBuf[i*2] * sizeof(int) + sendBuf[i*2+1] * sizeof(real) * 3; //NOTE: This is used for the Gatherv call
+        }
+        else
+        {
+            sendBuf[i*2]   = write_buf->dd[diff]->ncg_home;
+            sendBuf[i*2+1] = write_buf->dd[diff]->nat_home;
+            sendBufSize   += sendBuf[i*2] + sendBuf[i*2+1] * 3; //NOTE: This is used for the Gatherv call
+            sendCount[0]  += sendBuf[i*2] * sizeof(int) + sendBuf[i*2+1] * sizeof(real) * 3; //NOTE: This is used for the Gatherv call
+        }
+    }
+/*
+    MPI_Gather  (sendBuf, (bufferStep+1) * 2, MPI_INT,
+                 recvBuf, (bufferStep+1) * 2, MPI_INT, 0, write_buf->gather_comm);
+*/
+    MPI_Gather  (sendBuf, cr->nionodes * 2, MPI_INT,
+                 recvBuf, cr->nionodes * 2, MPI_INT, 0, write_buf->gather_comm);
 
     if (cr->nc.rank_intra == 0)
     {
-        for (i=0; i<=bufferStep; i++)
+/*        for (i=0; i<=bufferStep; i++)*/
+        for (i=0; i<cr->nionodes; i++)
         {
             for (j=0; j<write_buf->coresPerNode; j++)
             {
                 icj = i*write_buf->coresPerNode+j;//This will increase from 0 to coresPerNode * bufferStep
-                ncgReceive[icj] = recvBuf[i*2+j*(bufferStep+1)*2];
-                natReceive[icj] = recvBuf[i*2+j*(bufferStep+1)*2+1];
+/*                ncgReceive[icj] = recvBuf[i*2+j*(bufferStep+1)*2];
+                natReceive[icj] = recvBuf[i*2+j*(bufferStep+1)*2+1];*/
+                ncgReceive[icj] = recvBuf[i*2+j*cr->nionodes*2];
+                natReceive[icj] = recvBuf[i*2+j*cr->nionodes*2+1];
                 frameDisp [icj+1] = frameDisp [icj] + ncgReceive[icj] + natReceive[icj] * 3;
                 sendBuf   [icj*2]   = ncgReceive[icj];
                 sendBuf   [icj*2+1] = natReceive[icj];
@@ -1503,7 +1546,8 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         }
 
         MPI_Alltoall(sendBuf, 2 * write_buf->coresPerNode, MPI_INT,
-                     recvBuf, 2 * write_buf->coresPerNode, MPI_INT, write_buf->alltoall_comm);
+//                     recvBuf, 2 * write_buf->coresPerNode, MPI_INT, write_buf->alltoall_comm);
+                     recvBuf, 2 * write_buf->coresPerNode, MPI_INT, cr->mpi_comm_io);
     }
     if (IONODE(cr))
     {
@@ -1529,7 +1573,8 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
 
     //Fills the send buffer with all the data that needs to be sent to the Alltoall core
     m=0;
-    for (i=0; i<=bufferStep; i++)
+/*    for (i=0; i<=bufferStep; i++)*/
+    for (i=0; i<cr->nionodes; i++)
     {
 
         //This fills in the send buf with the cgs
@@ -1558,7 +1603,8 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
 //        srenew (recvDisp, cr->nionodes+1);//TODO RJ: see if this is correct to do or not
 
         //Generates data necessary for the send buffer
-        for (i = 0; i <= bufferStep; i++)
+/*        for (i = 0; i <= bufferStep; i++)*/
+        for (i = 0; i <cr->nionodes; i++)
         {
             for (j=0; j<write_buf->coresPerNode; j++)
             {
@@ -1580,11 +1626,13 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         //sorts the sendBuf so that first frame from first core is first, then comes first frame from second core...
         //TODO RJ: to ensure master gets last frame, sendCount MUST be 0s to non receiving IOnodes
         l=0;//sequentially fills the send buffer
-        for (i=0; i<=bufferStep; i++)
+/*        for (i=0; i<=bufferStep; i++)*/
+        for (i = 0; i<cr->nionodes; i++)
         {
             for (j=0; j<write_buf->coresPerNode; j++)
             {
-                for (k = frameDisp[j*(bufferStep+1)+i]; k < frameDisp[j*(bufferStep+1)+i+1]; k++)
+/*                for (k = frameDisp[j*(bufferStep+1)+i]; k < frameDisp[j*(bufferStep+1)+i+1]; k++)*/
+                for (k = frameDisp[j*cr->nionodes+i]; k < frameDisp[j*cr->nionodes+i+1]; k++)
                 {
                     sendBuf[l++] = recvBuf[k];
                 }
@@ -1593,11 +1641,10 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
             sendDisp[i+1] = sendDisp[i] + sendCount[i];
         }
         srenew (recvBuf, recvBufSize);
-/*
-        //TODO RJ: For non IO nodes that have data to send but nothing to receive, this specifies that nothing should be sent to these nodes
-*/
         //TODO RJ: So, only IONODES need the data, nothing should be sent to nonIOnodes
-        MPI_Alltoallv(sendBuf, sendCount, sendDisp, MPI_BYTE, recvBuf, recvCount, recvDisp, MPI_BYTE, write_buf->alltoall_comm);//TODO RJ: Valgrind claims an invalid read of size 4 here
+
+        //MPI_Alltoallv(sendBuf, sendCount, sendDisp, MPI_BYTE, recvBuf, recvCount, recvDisp, MPI_BYTE, write_buf->alltoall_comm);//TODO RJ: Valgrind claims an invalid read of size 4 here
+        MPI_Alltoallv(sendBuf, sendCount, sendDisp, MPI_BYTE, recvBuf, recvCount, recvDisp, MPI_BYTE, cr->mpi_comm_io);
         //------------------------The Alltoall Comm end-----------------------------------------------------------------------
     }
     if (IONODE(cr))
