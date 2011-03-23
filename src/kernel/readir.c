@@ -220,9 +220,10 @@ void check_ir(const char *mdparin,t_inputrec *ir, t_gromppopts *opts,
         if (EI_DYNAMICS(ir->eI) && ir->nstlist > 1)
         {
             /* Temporarily hard-coded buffer size which work well for water
-             * and thus for all atomistic bio-molecular, polymer and organic systems.
+             * and thus for all atomistic bio-molecular, polymer and organic systems
+             * at 300 K.
              */
-            ir->rlist += 3.3*pow((ir->nstlist - 1)*ir->delta_t,0.75);
+            ir->rlist += 9.0*(ir->nstlist - 1)*ir->delta_t;
         }
         ir->rlistlong = ir->rlist;
     }
