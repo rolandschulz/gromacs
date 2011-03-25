@@ -1538,7 +1538,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
                 frameDisp [icj+1] = frameDisp [icj] + ncgReceive[icj] + natReceive[icj] * 3;
                 sendBuf   [icj*2]   = ncgReceive[icj];
                 sendBuf   [icj*2+1] = natReceive[icj];
-                recvBufSize  += ncgReceive[icj] + natReceive[icj]*3;
+                recvBufSize  += ncgReceive[icj]*sizeof(int) + natReceive[icj]*sizeof(real)*3;
                 recvCount[j] += ncgReceive[icj]*sizeof(int)
                              +  natReceive[icj]*sizeof(real)*3;
                 recvDisp [j]  = (j==0 ? 0 : recvDisp[j-1] + recvCount[j]);
@@ -1594,7 +1594,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
     }
 
     MPI_Gatherv (sendBuf, sendCount[0], MPI_BYTE,
-                 recvBuf, recvCount, recvDisp, MPI_BYTE, 0, write_buf->gather_comm);
+                 recvBuf, recvCount, recvDisp, MPI_BYTE, 0, write_buf->gather_comm);//TODO RJ: This causes problems on the supercomputers... what is it doing wrong???
     sendCount[0] = 0;
     //------------------------The Gather Comm end-------------------------------------------------------------------------
     //------------------------The Alltoall Comm start---------------------------------------------------------------------
