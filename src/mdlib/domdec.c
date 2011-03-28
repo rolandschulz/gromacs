@@ -1616,12 +1616,26 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
 
         srenew (sendBuf, nodeSendTotal);
         srenew (sendDisp, write_buf->alltoall_comm_size+1);//TODO RJ: NOTE senddisp isnt used before this point, so its orig size is redundant
+/*
+        //TODO RJ: I think this is the source of a sizeable mistake, recvCount should be the size of nionodes, NOT nnodes!
         for (i = 0; i < (cr->nnodes - cr->npmenodes); i++)//TODO RJ: May be more correct to say <=bufferStep
         {
             recvCount[i]  = (write_buf->dd[0]->ma->ncg[i] * sizeof(int))
                           + (write_buf->dd[0]->ma->nat[i] * sizeof(real) * 3);
             recvBufSize  += write_buf->dd[0]->ma->ncg[i] + write_buf->dd[0]->ma->nat[i] * 3;
             recvDisp[i+1] = recvDisp[i] + recvCount[i];
+        }
+*/
+        for (i = 0; i < write_buf->alltoall_comm_size; i++)
+        {
+            for (j = 0; j < write_buf->coresPerNode; j++)
+            {
+                icj = i * write_buf->coresPerNode + j;
+                recvCount[i]  += (write_buf->dd[0]->ma->ncg[icj] * sizeof(int))
+                              +  (write_buf->dd[0]->ma->nat[icj] * sizeof(real) * 3);
+                recvDisp[i+1]  = recvDisp[i] + recvCount[i];
+                recvBufSize   += write_buf->dd[0]->ma->ncg[icj] + write_buf->dd[0]->ma->nat[icj] * 3;
+            }
         }
 
         //sorts the sendBuf so that first frame from first core is first, then comes first frame from second core...
