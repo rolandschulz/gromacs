@@ -1538,7 +1538,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
                 frameDisp [icj+1] = frameDisp [icj] + ncgReceive[icj] + natReceive[icj] * 3;
                 sendBuf   [icj*2]   = ncgReceive[icj];
                 sendBuf   [icj*2+1] = natReceive[icj];
-                recvBufSize  += ncgReceive[icj]*sizeof(int) + natReceive[icj]*sizeof(real)*3;
+                recvBufSize  += ncgReceive[icj] + natReceive[icj]*3;//TODO RJ: *sizeof isn't necessary
                 recvCount[j] += ncgReceive[icj]*sizeof(int)
                              +  natReceive[icj]*sizeof(real)*3;
                 recvDisp [j]  = (j==0 ? 0 : recvDisp[j-1] + recvCount[j]);
@@ -1567,6 +1567,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
     {
         srenew (recvBuf, recvBufSize);
         snew (aBuf, recvBufSize);
+        recvBufSize = 0;
     }
 
     srenew (sendBuf, sendBufSize);
@@ -1608,8 +1609,8 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         {
             for (j=0; j<write_buf->coresPerNode; j++)
             {
-                nodeSendTotal   += (ncgReceive[write_buf->coresPerNode * i + j] * sizeof(int)) //TODO RJ: I switched to the ICJ method from cji
-                                +  (natReceive[write_buf->coresPerNode * i + j] * sizeof(real) * 3);
+                nodeSendTotal   += (ncgReceive[write_buf->coresPerNode * i + j]) //TODO RJ: I switched to the ICJ method from cji
+                                +  (natReceive[write_buf->coresPerNode * i + j] * 3);
             }
         }
 
@@ -1619,7 +1620,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         {
             recvCount[i]  = (write_buf->dd[0]->ma->ncg[i] * sizeof(int))
                           + (write_buf->dd[0]->ma->nat[i] * sizeof(real) * 3);
-            recvBufSize  += recvCount[i];
+            recvBufSize  += write_buf->dd[0]->ma->ncg[i] + write_buf->dd[0]->ma->nat[i] * 3;
             recvDisp[i+1] = recvDisp[i] + recvCount[i];
         }
 
