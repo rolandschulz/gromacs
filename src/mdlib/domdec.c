@@ -1606,7 +1606,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
 
         //Generates data necessary for the send buffer
 /*        for (i = 0; i <= bufferStep; i++)*/
-        for (int i=0; i<write_buf->coresPerNode; i++)
+        for (i=0; i<write_buf->coresPerNode; i++)
         {
             recvCount[i]=0;
             recvDisp[i]=0;
