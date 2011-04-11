@@ -1541,7 +1541,8 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
                 recvBufSize  += ncgReceive[icj] + natReceive[icj]*3;//TODO RJ: *sizeof isn't necessary
                 recvCount[j] += ncgReceive[icj]*sizeof(int)
                              +  natReceive[icj]*sizeof(real)*3;
-                recvDisp [j]  = (j==0 ? 0 : recvDisp[j-1] + recvCount[j]);
+//                recvDisp [j]  = (j==0 ? 0 : recvDisp[j-1] + recvCount[j]);
+                recvDisp [j]  = (j==0 ? 0 : recvDisp[j-1] + ncgReceive[icj] + natReceive[icj]);
             }
         }
 
@@ -1553,7 +1554,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
     {
         //NOTE: I would have simply used cr->dd->ma, but that only exists on the master node. So instead dd[0]->ma is used instead
         for (i=0; i<(cr->nnodes - cr->npmenodes); i++)
-        {
+        {//TODO RJ: oddly enough, valgrind tagged this line for accessing unmapped location in memory
             write_buf->dd[0]->ma->ncg[i] = recvBuf[i*2];
             write_buf->dd[0]->ma->nat[i] = recvBuf[i*2+1];
             write_buf->dd[0]->ma->index[i+1] = write_buf->dd[0]->ma->index[i] + write_buf->dd[0]->ma->ncg[i];
@@ -1595,7 +1596,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
     }
 
     MPI_Gatherv (sendBuf, sendCount[0], MPI_BYTE,
-                 recvBuf, recvCount, recvDisp, MPI_BYTE, 0, write_buf->gather_comm);//TODO RJ: This causes problems on the supercomputers... what is it doing wrong???
+                 recvBuf, recvCount, recvDisp, MPI_BYTE, 0, write_buf->gather_comm);//TODO RJ: I still consider this to be THE offending line of code
     sendCount[0] = 0;
     //------------------------The Gather Comm end-------------------------------------------------------------------------
     //------------------------The Alltoall Comm start---------------------------------------------------------------------
@@ -1605,6 +1606,13 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
 
         //Generates data necessary for the send buffer
 /*        for (i = 0; i <= bufferStep; i++)*/
+        for (int i=0; i<write_buf->coresPerNode; i++)
+        {
+            recvCount[i]=0;
+            recvDisp[i]=0;
+            sendCount[i]=0;
+        }
+
         for (i = 0; i <cr->nionodes; i++)
         {
             for (j=0; j<write_buf->coresPerNode; j++)
@@ -1633,9 +1641,16 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
                 icj = i * write_buf->coresPerNode + j;
                 recvCount[i]  += (write_buf->dd[0]->ma->ncg[icj] * sizeof(int))
                               +  (write_buf->dd[0]->ma->nat[icj] * sizeof(real) * 3);
-                recvDisp[i+1]  = recvDisp[i] + recvCount[i];
-                recvBufSize   += write_buf->dd[0]->ma->ncg[icj] + write_buf->dd[0]->ma->nat[icj] * 3;
+//                recvDisp[i+1]  = recvDisp[i] + recvCount[i];
+//                recvDisp[i+1]  = recvDisp[i]
+//                              +  write_buf->dd[0]->ma->ncg[icj]
+//                              +  write_buf->dd[0]->ma->nat[icj]*3;
+                recvDisp[i+1] += write_buf->dd[0]->ma->ncg[icj]
+                              +  write_buf->dd[0]->ma->nat[icj]*3;
+                recvBufSize   += write_buf->dd[0]->ma->ncg[icj]
+                              +  write_buf->dd[0]->ma->nat[icj]*3;
             }
+            recvDisp[i+1] += recvDisp[i];
         }
 
         //sorts the sendBuf so that first frame from first core is first, then comes first frame from second core...
@@ -1652,8 +1667,10 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
                     sendBuf[l++] = recvBuf[k];
                 }
                 sendCount[i] += ncgReceive[i*write_buf->coresPerNode+j] * sizeof(int) + natReceive[i*write_buf->coresPerNode+j] * sizeof(real) * 3;
+//                sendDisp[i+1] = sendDisp[i] + ncgReceive[i*write_buf->coresPerNode+j] + natReceive[i*write_buf->coresPerNode+j]*3;
+                sendDisp[i+1] += ncgReceive[i*write_buf->coresPerNode+j] + natReceive[i*write_buf->coresPerNode+j]*3;
             }
-            sendDisp[i+1] = sendDisp[i] + sendCount[i];
+            sendDisp[i+1] += sendDisp[i];//TODO:rj I think I'm some how expecting to send either too many or too few bytes.
         }
         srenew (recvBuf, recvBufSize);
         //TODO RJ: So, only IONODES need the data, nothing should be sent to nonIOnodes
