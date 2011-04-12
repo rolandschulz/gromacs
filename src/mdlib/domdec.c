@@ -1541,9 +1541,13 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
                 recvBufSize  += ncgReceive[icj] + natReceive[icj]*3;//TODO RJ: *sizeof isn't necessary
                 recvCount[j] += ncgReceive[icj]*sizeof(int)
                              +  natReceive[icj]*sizeof(real)*3;
-//                recvDisp [j]  = (j==0 ? 0 : recvDisp[j-1] + recvCount[j]);
-                recvDisp [j]  = (j==0 ? 0 : recvDisp[j-1] + ncgReceive[icj] + natReceive[icj]);
+                recvDisp[j+1] = recvCount[j];
+                if (i==cr->nionodes-1)
+                {
+                    recvDisp[j+1] += recvDisp[j];
+                }
             }
+
         }
 
         MPI_Alltoall(sendBuf, 2 * write_buf->coresPerNode, MPI_INT,
@@ -1645,8 +1649,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
 //                recvDisp[i+1]  = recvDisp[i]
 //                              +  write_buf->dd[0]->ma->ncg[icj]
 //                              +  write_buf->dd[0]->ma->nat[icj]*3;
-                recvDisp[i+1] += write_buf->dd[0]->ma->ncg[icj]
-                              +  write_buf->dd[0]->ma->nat[icj]*3;
+                recvDisp[i+1] = recvCount[i];//TODO RJ!!! This is always 100 - 300 bytes larger than sendDisp....WHY???
                 recvBufSize   += write_buf->dd[0]->ma->ncg[icj]
                               +  write_buf->dd[0]->ma->nat[icj]*3;
             }
@@ -1667,8 +1670,8 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
                     sendBuf[l++] = recvBuf[k];
                 }
                 sendCount[i] += ncgReceive[i*write_buf->coresPerNode+j] * sizeof(int) + natReceive[i*write_buf->coresPerNode+j] * sizeof(real) * 3;
-//                sendDisp[i+1] = sendDisp[i] + ncgReceive[i*write_buf->coresPerNode+j] + natReceive[i*write_buf->coresPerNode+j]*3;
-                sendDisp[i+1] += ncgReceive[i*write_buf->coresPerNode+j] + natReceive[i*write_buf->coresPerNode+j]*3;
+                sendDisp[i+1] = sendCount[i];
+//                sendDisp[i+1] += ncgReceive[i*write_buf->coresPerNode+j] + natReceive[i*write_buf->coresPerNode+j]*3;
             }
             sendDisp[i+1] += sendDisp[i];//TODO:rj I think I'm some how expecting to send either too many or too few bytes.
         }
