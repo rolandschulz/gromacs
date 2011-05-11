@@ -3268,6 +3268,39 @@ static void combine_nblists(int nnbl,gmx_nblist_t **nbl,
     }
 }
 
+static gmx_bool next_ci(int th,int nth,
+                        const gmx_nbs_grid_t *grid,
+                        int *ci_xy,int *ci_x,int *ci_y,
+                        int *ci)
+{
+    (*ci)++;
+
+    while (*ci_xy == -1 || *ci >= grid->cxy_ind[*ci_xy+1])
+    {
+        if (*ci_xy == -1)
+        {
+            /* Initialization:
+             * take the first grid column equal to the thread number
+             */
+            *ci_xy = th;
+        }
+        else
+        {
+            /* Step through the columns with the number of threads */
+            *ci_xy += nth;
+        }
+        if (*ci_xy >= grid->ncx*grid->ncy)
+        {
+            return FALSE;
+        }
+        *ci_x = *ci_xy/grid->ncy;
+        *ci_y = *ci_xy - *ci_x*grid->ncy;
+        *ci = grid->cxy_ind[*ci_xy];
+    }
+
+    return TRUE;
+}
+
 static void gmx_nbsearch_make_nblist_part(const gmx_nbsearch_t nbs,
                                           const gmx_nbs_grid_t *gridi,
                                           const gmx_nbs_grid_t *gridj,
@@ -3276,7 +3309,7 @@ static void gmx_nbsearch_make_nblist_part(const gmx_nbsearch_t nbs,
                                           const t_blocka *excl,
                                           real rcut,real rlist,
                                           int min_ci_balanced,
-                                          int ci_start,int ci_end,
+                                          int th,int nth,
                                           gmx_nblist_t *nbl)
 {
     int  max_j4list;
@@ -3375,16 +3408,10 @@ static void gmx_nbsearch_make_nblist_part(const gmx_nbsearch_t nbs,
     bbcz_j = gridj->bbcz;
     bb_j   = gridj->bb;
 
-    ci_xy = 0;
-    for(ci=ci_start; ci<ci_end; ci++)
+    ci_xy = -1;
+    ci = -1;
+    while (next_ci(th,nth,gridi,&ci_xy,&ci_x,&ci_y,&ci))
     {
-        while (ci >= gridi->cxy_ind[ci_xy+1])
-        {
-            ci_xy++;
-        }
-        ci_x = ci_xy/gridi->ncy;
-        ci_y = ci_xy - ci_x*gridi->ncy;
-
         /* Loop over shift vectors in three dimensions */
         for (tz=-shp[ZZ]; tz<=shp[ZZ]; tz++)
         {
@@ -3735,8 +3762,7 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
                 gmx_nbsearch_make_nblist_part(nbs,gridi,gridj,
                                               &nbs->work[th],nbat,excl,
                                               rcut,rlist,min_ci_balanced,
-                                              ((th+0)*gridi->nc)/nnbl,
-                                              ((th+1)*gridi->nc)/nnbl,
+                                              th,nnbl,
                                               nbl[th]);
             }
             nbs_cycle_stop(&nbs->cc[enbsCCsearch]);
