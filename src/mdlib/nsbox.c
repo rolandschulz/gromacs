@@ -195,6 +195,7 @@ typedef struct gmx_nbsearch {
     int  ePBC;
     matrix box;
 
+    gmx_bool DomDec;
     ivec dd_dim;
     gmx_domdec_zones_t *zones;
 
@@ -292,16 +293,18 @@ void gmx_nbsearch_init(gmx_nbsearch_t * nbs_ptr,
 
     snew(nbs,1);
     *nbs_ptr = nbs;
-    
-    nbs->zones = zones;
+
+    nbs->DomDec = (n_dd_cells != NULL);
 
     clear_ivec(nbs->dd_dim);
-    if (n_dd_cells == NULL)
+    if (!nbs->DomDec)
     {
         nbs->ngrid = 1;
     }
     else
     {
+        nbs->zones = zones;
+
         np = 1;
         for(d=0; d<DIM; d++)
         {
@@ -3268,34 +3271,34 @@ static void combine_nblists(int nnbl,gmx_nblist_t **nbl,
     }
 }
 
-static gmx_bool next_ci(int th,int nth,
-                        const gmx_nbs_grid_t *grid,
-                        int *ci_xy,int *ci_x,int *ci_y,
-                        int *ci)
+static gmx_bool next_ci(const gmx_nbs_grid_t *grid,
+                        int nth,int ci_block,
+                        int *ci_x,int *ci_y,
+                        int *ci_b,int *ci)
 {
+    (*ci_b)++;
     (*ci)++;
 
-    while (*ci_xy == -1 || *ci >= grid->cxy_ind[*ci_xy+1])
+    if (*ci_b == ci_block)
     {
-        if (*ci_xy == -1)
+        /* Jump to the next block assigned to this task */
+        *ci   += (nth - 1)*ci_block;
+        *ci_b  = 0;
+    }
+
+    if (*ci >= grid->nc)
+    {
+        return FALSE;
+    }
+
+    while (*ci >= grid->cxy_ind[*ci_x*grid->ncy + *ci_y + 1])
+    {
+        *ci_y += 1;
+        if (*ci_y == grid->ncy)
         {
-            /* Initialization:
-             * take the first grid column equal to the thread number
-             */
-            *ci_xy = th;
+            *ci_x += 1;
+            *ci_y  = 0;
         }
-        else
-        {
-            /* Step through the columns with the number of threads */
-            *ci_xy += nth;
-        }
-        if (*ci_xy >= grid->ncx*grid->ncy)
-        {
-            return FALSE;
-        }
-        *ci_x = *ci_xy/grid->ncy;
-        *ci_y = *ci_xy - *ci_x*grid->ncy;
-        *ci = grid->cxy_ind[*ci_xy];
     }
 
     return TRUE;
@@ -3315,7 +3318,8 @@ static void gmx_nbsearch_make_nblist_part(const gmx_nbsearch_t nbs,
     int  max_j4list;
     matrix box;
     real rl2,rbb2;
-    int  d,ci,ci_xy,ci_x,ci_y,cj;
+    int  d;
+    int  ci_block,ci_b,ci,ci_x,ci_y,ci_xy,cj;
     ivec shp;
     int  tx,ty,tz;
     int  shift;
@@ -3408,10 +3412,41 @@ static void gmx_nbsearch_make_nblist_part(const gmx_nbsearch_t nbs,
     bbcz_j = gridj->bbcz;
     bb_j   = gridj->bb;
 
-    ci_xy = -1;
-    ci = -1;
-    while (next_ci(th,nth,gridi,&ci_xy,&ci_x,&ci_y,&ci))
+    /* Set the block size as 5/11/ntask times the average number of cells
+     * in a y,z slab. This should ensure a quite uniform distribution
+     * of the grid parts of the different thread along all three grid
+     * zone boundaries with 3D domain decomposition. At the same time
+     * the blocks will not become too small.
+     */
+    ci_block = (gridi->nc*5)/(11*gridi->ncx*nth);
+
+    /* Ensure the blocks are not too small: avoids cache invalidation */
+    if (ci_block*nbs->napc < 16)
     {
+        ci_block = (16 + nbs->napc - 1)/nbs->napc;
+    }
+
+    /* Without domain decomposition
+     * or with less than 3 blocks per task, divide in nth blocks.
+     */
+    if (!nbs->DomDec || ci_block*3*nth > gridi->nc)
+    {
+        ci_block = (gridi->nc + nth - 1)/nth;
+    }
+    if (debug)
+    {
+        fprintf(debug,"nbl nc_i %d col.av. %.1f ci_block %d\n",
+                gridi->nc,gridi->nc/(double)(gridi->ncx*gridi->ncy),ci_block);
+    }
+
+    ci_b = -1;
+    ci   = th*ci_block - 1;
+    ci_x = 0;
+    ci_y = 0;
+    while (next_ci(gridi,nth,ci_block,&ci_x,&ci_y,&ci_b,&ci))
+    {
+        ci_xy = ci_x*gridi->ncy + ci_y;
+
         /* Loop over shift vectors in three dimensions */
         for (tz=-shp[ZZ]; tz<=shp[ZZ]; tz++)
         {
