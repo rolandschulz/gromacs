@@ -1599,21 +1599,21 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         srenew (sendDisp, write_buf->alltoall_comm_size+1);//TODO RJ: NOTE senddisp isnt used before this point, so its orig size is redundant
 
         //TODO RJ: recv stuff may only need to go to bufferStep
-        for (i = 0; i < write_buf->alltoall_comm_size; i++)
+        if (iorank<=cr->nionodes)
         {
-            for (j = 0; j < write_buf->coresPerNode; j++)
+            for (i = 0; i < write_buf->alltoall_comm_size; i++)
             {
-                icj = i * write_buf->coresPerNode + j;
-                recvCount[i]  += (write_buf->dd[iorank]->ma->ncg[icj] * sizeof(int))
-                              +  (write_buf->dd[iorank]->ma->nat[icj] * sizeof(real) * 3);//TODO RJ: Verify that these are correct...
-//                recvDisp[i+1]  = recvDisp[i]
-//                              +  write_buf->dd[0]->ma->ncg[icj]
-//                              +  write_buf->dd[0]->ma->nat[icj]*3;
-                recvDisp[i+1] = recvCount[i];//TODO RJ!!! This is always 100 - 300 bytes larger than sendDisp....WHY???/// Fixed?
-                recvBufSize   += write_buf->dd[iorank]->ma->ncg[icj]
-                              +  write_buf->dd[iorank]->ma->nat[icj]*3;
+                for (j = 0; j < write_buf->coresPerNode; j++)
+                {
+                    icj = i * write_buf->coresPerNode + j;
+                    recvCount[i]  += (write_buf->dd[iorank]->ma->ncg[icj] * sizeof(int))
+                                      +  (write_buf->dd[iorank]->ma->nat[icj] * sizeof(real) * 3);//TODO RJ: Verify that these are correct...
+                    recvDisp[i+1] = recvCount[i];//TODO RJ... This is always 100 - 300 bytes larger than sendDisp....WHY???/// Fixed?
+                    recvBufSize   += write_buf->dd[iorank]->ma->ncg[icj]
+                                                                    +  write_buf->dd[iorank]->ma->nat[icj]*3;
+                }
+                recvDisp[i+1] += recvDisp[i];
             }
-            recvDisp[i+1] += recvDisp[i];
         }
 
         //sorts the sendBuf so that first frame from first core is first, then comes first frame from second core...
@@ -5905,7 +5905,7 @@ int allocate_dd_buf(gmx_domdec_t ***dd_buf, t_commrec *cr) // prepares dd_buf
 
         if (MASTER(cr)) {
             (*dd_buf)[i]->ma = dd->ma;  /*the master already has the ma structure allocated*/
-        } else if (dd->iorank == i ) { // This is preparing certain nodes for holding several frames.
+        } else if (dd->iorank == i ) {
             (*dd_buf)[i]->ma = init_gmx_domdec_master_t(dd, dd->comm->cgs_gl.nr, dd->comm->cgs_gl.index[dd->comm->cgs_gl.nr]);//todo rj: for some reason this line of code only works for some io nodes
         }
     }
