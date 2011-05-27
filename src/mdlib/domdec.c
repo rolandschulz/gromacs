@@ -1442,7 +1442,7 @@ void dd_collect_vec(gmx_domdec_t *dd,
 
 //TODO RJ: Update all notes
 //TODO RJ: Consider switching to nc.comms instead of using my comms
-//TODO RJ: L@@K ma->ncgs/nats & double check your displacements!...Current symptoms are 0s where frames should be
+//TODO RJ: ON SMOKY, as long as all rank_intra==0s are IOnodes... no problems, BUT when some rank_intra==0s are NOT IOnodes then a memory leak occurs
 void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, int bufferStep)
 {
     int *sendCount,    //integer array equal to the group size specifying the number of elements to send to each processor.  Only used by cores in the alltoall comm.
@@ -1475,7 +1475,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
 
     //--Gather and All2all------------------------------------------------------------------------------------------------
 
-    for (i=0; i < cr->nionodes; i++)//TODO RJ: to ensure master gets last frame, loop to group size and send 0s to non-receiving IOnodes
+    for (i=0; i < cr->nionodes; i++)//NOTE: to ensure master gets last frame, loop to group size and send 0s to non-receiving IOnodes
     {
         diff = (bufferStep+1 + i) - cr->nionodes;
         //diff = (cr->nionodes + i) - (bufferStep+1);
@@ -1488,9 +1488,9 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         {
             sendBuf[i*2]   = write_buf->dd[diff]->ncg_home;
             sendBuf[i*2+1] = write_buf->dd[diff]->nat_home;
-            sendBufSize   += sendBuf[i*2] + sendBuf[i*2+1] * 3; //NOTE: This is used for the Gatherv call
-            sendCount[0]  += sendBuf[i*2] * sizeof(int) + sendBuf[i*2+1] * sizeof(real) * 3; //NOTE: This is used for the Gatherv call
         }
+        sendBufSize   += sendBuf[i*2] + sendBuf[i*2+1] * 3; //NOTE: This is used for the Gatherv call
+        sendCount[0]  += sendBuf[i*2] * sizeof(int) + sendBuf[i*2+1] * sizeof(real) * 3; //NOTE: This is used for the Gatherv call
     }
     MPI_Gather  (sendBuf, cr->nionodes * 2, MPI_INT,
                  recvBuf, cr->nionodes * 2, MPI_INT, 0, write_buf->gather_comm);
@@ -1501,14 +1501,14 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         {
             for (j=0; j<write_buf->coresPerNode; j++)
             {
-                icj = i*write_buf->coresPerNode+j;//This will increase from 0 to coresPerNode * bufferStep
+                icj = i*write_buf->coresPerNode+j;//This will increase by 1 from 0 to coresPerNode * bufferStep
                 ncgReceive[icj] = recvBuf[i*2+j*cr->nionodes*2];
                 natReceive[icj] = recvBuf[i*2+j*cr->nionodes*2+1];
 //                frameDisp [icj+1] = frameDisp [icj] + ncgReceive[icj] + natReceive[icj] * 3;
-                frameDisp[icj+1] = frameDisp[icj] + recvBuf[icj*2] + recvBuf[icj*2+1]*3;//TODO RJ: L@@K, but should be fine
+                frameDisp[icj+1] = frameDisp[icj] + recvBuf[icj*2] + recvBuf[icj*2+1]*3;
                 sendBuf   [icj*2]   = ncgReceive[icj];
                 sendBuf   [icj*2+1] = natReceive[icj];
-                recvBufSize  += ncgReceive[icj] + natReceive[icj]*3;//TODO RJ: *sizeof isn't necessary
+                recvBufSize  += ncgReceive[icj] + natReceive[icj]*3;
                 recvCount[j] += ncgReceive[icj]*sizeof(int)
                              +  natReceive[icj]*sizeof(real)*3;
                 recvDisp[j+1] = recvCount[j];
@@ -1570,11 +1570,11 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
     }
 
     MPI_Gatherv (sendBuf, sendCount[0], MPI_BYTE,
-                 recvBuf, recvCount, recvDisp, MPI_BYTE, 0, write_buf->gather_comm);//TODO RJ: I still consider this to be THE offending line of code
+                 recvBuf, recvCount, recvDisp, MPI_BYTE, 0, write_buf->gather_comm);
     sendCount[0] = 0;
     //------------------------The Gather Comm end-------------------------------------------------------------------------
     //------------------------The Alltoall Comm start---------------------------------------------------------------------
-    //TODO: RJ from this moment on, don't use nionodes! use bufferStep!
+
     if (cr->nc.rank_intra == 0)
     {
         //Generates data necessary for the send buffer
@@ -1585,8 +1585,8 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
             sendCount[i]=0;
         }
 
-/*        for (i = 0; i <cr->nionodes; i++)*/
-        for (i=0; i<=bufferStep; i++)
+        for (i = 0; i <cr->nionodes; i++)
+//        for (i=0; i<=bufferStep; i++)
         {
             for (j=0; j<write_buf->coresPerNode; j++)
             {
@@ -1598,8 +1598,8 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         srenew (sendBuf, nodeSendTotal);
         srenew (sendDisp, write_buf->alltoall_comm_size+1);//TODO RJ: NOTE senddisp isnt used before this point, so its orig size is redundant
 
-        //TODO RJ: recv stuff may only need to go to bufferStep
-        if (iorank<=cr->nionodes)
+
+        if (IONODE(cr))
         {
             for (i = 0; i < write_buf->alltoall_comm_size; i++)
             {
@@ -1607,17 +1607,17 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
                 {
                     icj = i * write_buf->coresPerNode + j;
                     recvCount[i]  += (write_buf->dd[iorank]->ma->ncg[icj] * sizeof(int))
-                                      +  (write_buf->dd[iorank]->ma->nat[icj] * sizeof(real) * 3);//TODO RJ: Verify that these are correct...
-                    recvDisp[i+1] = recvCount[i];//TODO RJ... This is always 100 - 300 bytes larger than sendDisp....WHY???/// Fixed?
+                                  +  (write_buf->dd[iorank]->ma->nat[icj] * sizeof(real) * 3);
+                    recvDisp[i+1]  = recvCount[i];
                     recvBufSize   += write_buf->dd[iorank]->ma->ncg[icj]
-                                                                    +  write_buf->dd[iorank]->ma->nat[icj]*3;
+                                  +  write_buf->dd[iorank]->ma->nat[icj]*3;
                 }
                 recvDisp[i+1] += recvDisp[i];
             }
         }
 
         //sorts the sendBuf so that first frame from first core is first, then comes first frame from second core...
-        //TODO RJ: to ensure master gets last frame, sendCount MUST be 0s to non receiving IOnodes
+        //NOTE: to ensure master gets last frame, sendCount MUST be 0s to non-receiving IOnodes
         l=0;//sequentially fills the send buffer
         for (i = 0; i<cr->nionodes; i++)
         {
@@ -1636,7 +1636,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         srenew (recvBuf, recvBufSize);
         //TODO RJ: So, only IONODES need the data, nothing should be sent to nonIOnodes
 
-        MPI_Alltoallv(sendBuf, sendCount, sendDisp, MPI_BYTE, recvBuf, recvCount, recvDisp, MPI_BYTE, write_buf->alltoall_comm);//TODO RJ: Valgrind claims an invalid read of size 4 here
+        MPI_Alltoallv(sendBuf, sendCount, sendDisp, MPI_BYTE, recvBuf, recvCount, recvDisp, MPI_BYTE, write_buf->alltoall_comm);
 //        MPI_Alltoallv(sendBuf, sendCount, sendDisp, MPI_BYTE, recvBuf, recvCount, recvDisp, MPI_BYTE, cr->mpi_comm_io);
         //------------------------The Alltoall Comm end-----------------------------------------------------------------------
     }
