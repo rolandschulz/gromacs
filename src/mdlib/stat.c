@@ -652,10 +652,9 @@ void write_traj(FILE *fplog,t_commrec *cr,
                 wallcycle_stop(wcycle, ewcCOPY);
             }
 
-            if (writeXTCNow)//TODO RJ: in the case of ionodes=1 this is now broken...
+            if (writeXTCNow)
             {
                 //If the computer running the system is non-homogeneous, then it will revert back to this unoptimized collection method
-                //write_buf->heteroSys = TRUE;
                 if (write_buf->heteroSys)
                 {
                     for (i = 0; i <= bufferStep; i++)//Collect each buffered frame to one of the IO nodes. The data is collected to the node with rank write_buf->dd[i]->masterrank.

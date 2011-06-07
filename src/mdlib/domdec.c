@@ -1440,8 +1440,6 @@ void dd_collect_vec(gmx_domdec_t *dd,
     }
 }
 
-//TODO RJ: Update all notes
-//TODO RJ: Small rounding errors exist...
 //TODO RJ: ON SMOKY, as long as all rank_intra==0s are IOnodes... no problems, BUT when some rank_intra==0s are NOT IOnodes then a memory leak occurs
 void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, int bufferStep)
 {
@@ -1449,16 +1447,16 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         *recvCount,    //integer array (of length group size) containing the number of elements that are received from each process (significant only at root)
         *sendDisp,     //integer array (of length group size)
         *recvDisp,     //integer array (of length group size). Entry  i specifies the displacement relative to recvbuf at which to place the incoming data from process  i (significant only at root)
-        *ncgReceive,   //length: coresPerNode * (bufferStep+1), each entry specifies number of cgs per step, 0 to nnodes-1 are ncgs for the first frame... The name is slightly deceptive.  It refers to how many cgs to expect to be received from that particular dd, NOT how many that dd is expecting receive
-        *natReceive,   //length: coresPerNode * (bufferStep+1), each entry specifies number of atoms per step
-        *frameDisp;    //length: coresPerNode * (bufferStep+1), each entry specifies number of real number displaced within the gatherv recvBuf
+        *ncgReceive,   //length: coresPerNode * nionodes,   each entry specifies number of cgs per step, 0 to nnodes-1 are ncgs for the first frame... The name is slightly deceptive.  It refers to how many cgs to expect to be received from that particular dd, NOT how many that dd is expecting receive
+        *natReceive,   //length: coresPerNode * nionodes,   each entry specifies number of atoms per step
+        *frameDisp;    //length: coresPerNode * nionodes+1, each entry specifies number of real number displaced within the gatherv recvBuf
     int i, j, k, l, m, n, icj, diff,
-    nodeSendTotal=0,   // Used for the Alltoallv call
+    nodeSendTotal=0,   //Used for the Alltoallv call
     sendBufSize=0,
     recvBufSize=0,
     unloadDisp=0,
     iorank = cr->dd->iorank;
-    real *sendBuf,     //Contains: First frame on first core , cg then atoms. Then it moves turns into second frame on first core...then turns into first frame on second core on this node
+    real *sendBuf,     //Contains: First frame on first core , cg then atoms. Then it turns into second frame on first core...then turns into first frame on second core...
          *recvBuf,
          *aBuf;
 
@@ -1470,14 +1468,19 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
     snew (natReceive, cr->nnodes * cr->nionodes);
     snew (frameDisp,  cr->nnodes * cr->nionodes+1);
     snew (recvDisp, cr->nnodes + 1);
-    snew (sendDisp, write_buf->coresPerNode * cr->nionodes + 1);
+    snew (sendDisp, cr->nnodes + 1);
 
 
     //--Gather and All2all------------------------------------------------------------------------------------------------
 
-    for (i=0; i < cr->nionodes; i++)//NOTE: to ensure master gets last frame, loop to group size and send 0s to non-receiving IOnodes
+    for (i=0; i < cr->nionodes; i++)//NOTE: 0s are sent to some IOnodes when gromacs is about to write but hasn't used all available IOnodes
     {
-    	if (i==bufferStep)
+        if (i < bufferStep)
+        {
+        	sendBuf[i*2]   = write_buf->dd[i]->ncg_home;
+        	sendBuf[i*2+1] = write_buf->dd[i]->nat_home;
+        }
+        else if (i == bufferStep)
     	{
     		sendBuf[(cr->nionodes-1)*2]   = write_buf->dd[i]->ncg_home;
     		sendBuf[(cr->nionodes-1)*2+1] = write_buf->dd[i]->nat_home;
@@ -1487,24 +1490,20 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
             sendBuf[i*2]   = 0;
             sendBuf[i*2+1] = 0;
         }
-        else if (i < bufferStep)
-        {
-        	sendBuf[i*2]   = write_buf->dd[i]->ncg_home;
-        	sendBuf[i*2+1] = write_buf->dd[i]->nat_home;
-        }
-        sendBufSize   += sendBuf[i*2] + sendBuf[i*2+1] * 3; //NOTE: This is used for the Gatherv call
-        sendCount[0]  += sendBuf[i*2] * sizeof(int) + sendBuf[i*2+1] * sizeof(real) * 3; //NOTE: This is used for the Gatherv call
+        sendBufSize   += sendBuf[i*2] + sendBuf[i*2+1] * 3; 
+        sendCount[0]  += sendBuf[i*2] * sizeof(int) + sendBuf[i*2+1] * sizeof(real) * 3;
     }
     MPI_Gather  (sendBuf, cr->nionodes * 2, MPI_INT,
                  recvBuf, cr->nionodes * 2, MPI_INT, 0, write_buf->gather_comm);
 
+    //Creates data necessary for the Gatherv Call used by the alltoall core (cr->nc.rank_intra=0)
     if (cr->nc.rank_intra == 0)
     {
         for (i=0; i<cr->nionodes; i++)
         {
             for (j=0; j<write_buf->coresPerNode; j++)
             {
-                icj = i*write_buf->coresPerNode+j;//This will increase by 1 from 0 to coresPerNode * bufferStep
+                icj = i*write_buf->coresPerNode+j;//This will increase by 1 from 0 to coresPerNode * nionodes
                 ncgReceive[icj] = recvBuf[i*2+j*cr->nionodes*2];
                 natReceive[icj] = recvBuf[i*2+j*cr->nionodes*2+1];
                 frameDisp [icj+1] = frameDisp[icj] + recvBuf[icj*2] + recvBuf[icj*2+1]*3;
@@ -1524,9 +1523,9 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         MPI_Alltoall(sendBuf, 2 * write_buf->coresPerNode, MPI_INT,
                      recvBuf, 2 * write_buf->coresPerNode, MPI_INT, write_buf->alltoall_comm);
     }
-    if ((IONODE(cr) && iorank<bufferStep) || (IONODE(cr) && iorank==cr->dd->nionodes-1))
+    if (IONODE(cr) && (iorank<bufferStep || iorank==cr->nionodes-1))
     {
-        //NOTE: I would have simply used cr->dd->ma, but that only exists on the master node. So instead dd[0]->ma is used instead
+        //NOTE: I would have simply used cr->dd->ma, but that only exists on the master node. So instead dd[IORANK]->ma is used instead
         for (i=0; i<(cr->nnodes - cr->npmenodes); i++)
         {
             write_buf->dd[iorank]->ma->ncg[i] = recvBuf[i*2];
@@ -1537,7 +1536,6 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
     //--Gather and All2all------------------------------------------------------------------------------------------------
     //------------------------The Gather Comm start-----------------------------------------------------------------------
 
-    //Creates data necessary for the Gather Call used by the alltoall core
     if(cr->nc.rank_intra == 0)
     {
         srenew (recvBuf, recvBufSize);
@@ -1551,9 +1549,8 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
     m=0;
     for (i=0; i<=bufferStep; i++)
     {
-
         //This fills in the send buf with the cgs
-        for (j=0; j<write_buf->dd[i]->ncg_home; j++)//looks correct
+        for (j=0; j<write_buf->dd[i]->ncg_home; j++)
         {
             sendBuf[m++] = write_buf->dd[i]->index_gl[j];
         }
@@ -1569,14 +1566,13 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
     }
 
     MPI_Gatherv (sendBuf, sendCount[0], MPI_BYTE,
-                 recvBuf, recvCount, recvDisp, MPI_BYTE, 0, write_buf->gather_comm);//Tagged by Valgrind AGAIN!
+                 recvBuf, recvCount, recvDisp, MPI_BYTE, 0, write_buf->gather_comm);
     sendCount[0] = 0;
     //------------------------The Gather Comm end-------------------------------------------------------------------------
     //------------------------The Alltoall Comm start---------------------------------------------------------------------
 
     if (cr->nc.rank_intra == 0)
     {
-        //Generates data necessary for the send buffer
         for (i=0; i<write_buf->coresPerNode; i++)
         {
             recvCount[i]=0;
@@ -1588,15 +1584,14 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         {
             for (j=0; j<write_buf->coresPerNode; j++)
             {
-                nodeSendTotal   += (ncgReceive[write_buf->coresPerNode * i + j]) //TODO RJ: I switched to the ICJ method from cji
+                nodeSendTotal   += (ncgReceive[write_buf->coresPerNode * i + j])
                                 +  (natReceive[write_buf->coresPerNode * i + j] * 3);
             }
         }
-
         srenew (sendBuf, nodeSendTotal);
-        srenew (sendDisp, write_buf->alltoall_comm_size+1);//TODO RJ: NOTE senddisp isnt used before this point, so its orig size is redundant
 
-        if ((IONODE(cr) && iorank<bufferStep) || (IONODE(cr) && iorank==cr->dd->nionodes-1))//TODO RJ: This MAY be the source of the problem because, even though the non-IOnode ri=0s aren't recving anything, they MAY need to be properly setup...
+        //Prepares recieve buffers for IOnodes that will be used
+        if (IONODE(cr) && (iorank<bufferStep || iorank==cr->nionodes-1))
         {
             for (i = 0; i < write_buf->alltoall_comm_size; i++)
             {
@@ -1637,12 +1632,12 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         MPI_Alltoallv(sendBuf, sendCount, sendDisp, MPI_BYTE, recvBuf, recvCount, recvDisp, MPI_BYTE, write_buf->alltoall_comm);
         //------------------------The Alltoall Comm end-----------------------------------------------------------------------
     }
+    //Takes data from the receive buffer and places it into its proper buffers
     if (IONODE(cr) && recvBufSize != 0)
     {
-        //Takes data from the receive buffer and places it into its proper buffers
-        //Works by first filling in all the cg data and skipping the blocks where atom coordinates will go in the receive buffer. Then it fills in the atom data and skips over the cg data in the receive buffer
         l = 0;
         m = 0;
+        //Works by first filling in all the cg data and skipping the blocks where atom coordinates will go in the receive buffer. Then it fills in the atom data and skips over the cg data in the receive buffer
         for (j=0; j< cr->nnodes - cr->npmenodes; j++)
         {
             //figure out how many ints to read
@@ -1651,22 +1646,23 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
                 write_buf->dd[iorank]->ma->cg[l++] = (int)recvBuf[k+unloadDisp];
             }
             unloadDisp += k;
+            //figure out how many atoms to read
             for (k = 0; k < write_buf->dd[iorank]->ma->nat[j] * 3; k++)
             {
                 aBuf[m++] = recvBuf[k+unloadDisp];
             }
             unloadDisp += k;
         }
+
         n = 0;
         for (j=0; j< cr->nnodes - cr->npmenodes; j++)
         {
-            //figure out how many atoms to read
             //store atoms XYZ location in state_global->x (Which is denoted as 'v')
             for (k = write_buf->dd[iorank]->ma->index[j]; k < write_buf->dd[iorank]->ma->index[j+1]; k++)
             {
                 for (l = write_buf->dd[iorank]->comm->cgs_gl.index [write_buf->dd[iorank]->ma->cg [k]]; l < write_buf->dd[iorank]->comm->cgs_gl.index [write_buf->dd[iorank]->ma->cg [k]+1]; l++)
                 {
-                    //Sorts the atoms//Note: lots of care was taken writing this line so I feel confident about it being correct.  It mirrors the original call fairly closely.
+                    //Sorts the atoms
                     for (m=0; m<3; m++)
                     {
                         v[l][m] = aBuf[n++];
