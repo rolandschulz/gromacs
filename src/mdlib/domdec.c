@@ -1441,6 +1441,7 @@ void dd_collect_vec(gmx_domdec_t *dd,
 }
 
 //TODO RJ: Update all notes
+//TODO RJ: Small rounding errors exist...
 //TODO RJ: ON SMOKY, as long as all rank_intra==0s are IOnodes... no problems, BUT when some rank_intra==0s are NOT IOnodes then a memory leak occurs
 void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, int bufferStep)
 {
@@ -1476,9 +1477,6 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
 
     for (i=0; i < cr->nionodes; i++)//NOTE: to ensure master gets last frame, loop to group size and send 0s to non-receiving IOnodes
     {
-        /*diff = (bufferStep+1 + i) - cr->nionodes;*/
-        //diff = (cr->nionodes + i) - (bufferStep+1);
-        /*if (cr->nionodes > bufferStep+1 && diff < 0)//TODO RJ: CORRECT = "MASTER(cr) || cr->dd->iorank<bufferStep"*/
     	if (i==bufferStep)
     	{
     		sendBuf[(cr->nionodes-1)*2]   = write_buf->dd[i]->ncg_home;
@@ -1491,10 +1489,6 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         }
         else if (i < bufferStep)
         {
-        	/*
-            sendBuf[i*2]   = write_buf->dd[diff]->ncg_home;
-            sendBuf[i*2+1] = write_buf->dd[diff]->nat_home;
-            */
         	sendBuf[i*2]   = write_buf->dd[i]->ncg_home;
         	sendBuf[i*2+1] = write_buf->dd[i]->nat_home;
         }
@@ -1513,7 +1507,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
                 icj = i*write_buf->coresPerNode+j;//This will increase by 1 from 0 to coresPerNode * bufferStep
                 ncgReceive[icj] = recvBuf[i*2+j*cr->nionodes*2];
                 natReceive[icj] = recvBuf[i*2+j*cr->nionodes*2+1];
-                frameDisp[icj+1] = frameDisp[icj] + recvBuf[icj*2] + recvBuf[icj*2+1]*3;
+                frameDisp [icj+1] = frameDisp[icj] + recvBuf[icj*2] + recvBuf[icj*2+1]*3;
                 sendBuf   [icj*2]   = ncgReceive[icj];
                 sendBuf   [icj*2+1] = natReceive[icj];
                 recvBufSize  += ncgReceive[icj] + natReceive[icj]*3;
@@ -1525,14 +1519,12 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
                     recvDisp[j+1] += recvDisp[j];
                 }
             }
-
         }
 
         MPI_Alltoall(sendBuf, 2 * write_buf->coresPerNode, MPI_INT,
                      recvBuf, 2 * write_buf->coresPerNode, MPI_INT, write_buf->alltoall_comm);
-//                     recvBuf, 2 * write_buf->coresPerNode, MPI_INT, cr->mpi_comm_io);
     }
-    if (IONODE(cr))
+    if ((IONODE(cr) && iorank<bufferStep) || (IONODE(cr) && iorank==cr->dd->nionodes-1))
     {
         //NOTE: I would have simply used cr->dd->ma, but that only exists on the master node. So instead dd[0]->ma is used instead
         for (i=0; i<(cr->nnodes - cr->npmenodes); i++)
@@ -1558,13 +1550,12 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
     //Fills the send buffer with all the data that needs to be sent to the Alltoall core
     m=0;
     for (i=0; i<=bufferStep; i++)
-/*    for (i=0; i<cr->nionodes; i++)*/
     {
 
         //This fills in the send buf with the cgs
         for (j=0; j<write_buf->dd[i]->ncg_home; j++)//looks correct
         {
-            sendBuf[m++] = write_buf->dd[i]->index_gl[j];//TODO RJ: VALGRIND TAGED THIS
+            sendBuf[m++] = write_buf->dd[i]->index_gl[j];
         }
 
         //This fills in each XYZ coordinate of each atom
@@ -1594,7 +1585,6 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         }
 
         for (i = 0; i <cr->nionodes; i++)
-//        for (i=0; i<=bufferStep; i++)
         {
             for (j=0; j<write_buf->coresPerNode; j++)
             {
@@ -1606,8 +1596,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         srenew (sendBuf, nodeSendTotal);
         srenew (sendDisp, write_buf->alltoall_comm_size+1);//TODO RJ: NOTE senddisp isnt used before this point, so its orig size is redundant
 
-
-        if (IONODE(cr))//TODO RJ: This MAY be the source of the problem because, even though the non-IOnode ri=0s aren't recving anything, they MAY need to be properly setup...
+        if ((IONODE(cr) && iorank<bufferStep) || (IONODE(cr) && iorank==cr->dd->nionodes-1))//TODO RJ: This MAY be the source of the problem because, even though the non-IOnode ri=0s aren't recving anything, they MAY need to be properly setup...
         {
             for (i = 0; i < write_buf->alltoall_comm_size; i++)
             {
@@ -1640,11 +1629,12 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
             }
             sendDisp[i+1] += sendDisp[i];
         }
-        srenew (recvBuf, recvBufSize);
-        //TODO RJ: So, only IONODES need the data, nothing should be sent to nonIOnodes
+        if (recvBufSize != 0)
+        {
+        	srenew (recvBuf, recvBufSize);
+        }
 
         MPI_Alltoallv(sendBuf, sendCount, sendDisp, MPI_BYTE, recvBuf, recvCount, recvDisp, MPI_BYTE, write_buf->alltoall_comm);
-//        MPI_Alltoallv(sendBuf, sendCount, sendDisp, MPI_BYTE, recvBuf, recvCount, recvDisp, MPI_BYTE, cr->mpi_comm_io);
         //------------------------The Alltoall Comm end-----------------------------------------------------------------------
     }
     if (IONODE(cr) && recvBufSize != 0)

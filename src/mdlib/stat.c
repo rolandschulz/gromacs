@@ -667,7 +667,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
                         }
                     }
                 }
-                else
+                else if (!((mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X)))
                 {
                     dd_collect_vec_buffered(write_buf, state_global->x, cr, bufferStep);
                 }
