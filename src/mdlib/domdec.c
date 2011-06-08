@@ -1440,7 +1440,6 @@ void dd_collect_vec(gmx_domdec_t *dd,
     }
 }
 
-//TODO RJ: ON SMOKY, as long as all rank_intra==0s are IOnodes... no problems, BUT when some rank_intra==0s are NOT IOnodes then a memory leak occurs
 void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, int bufferStep)
 {
     int *sendCount,    //integer array equal to the group size specifying the number of elements to send to each processor.  Only used by cores in the alltoall comm.
@@ -1521,7 +1520,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         }
 
         MPI_Alltoall(sendBuf, 2 * write_buf->coresPerNode, MPI_INT,
-                     recvBuf, 2 * write_buf->coresPerNode, MPI_INT, write_buf->alltoall_comm);
+                     recvBuf, 2 * write_buf->coresPerNode, MPI_INT, cr->mpi_comm_io);
     }
     if (IONODE(cr) && (iorank<bufferStep || iorank==cr->nionodes-1))
     {
@@ -1629,7 +1628,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         	srenew (recvBuf, recvBufSize);
         }
 
-        MPI_Alltoallv(sendBuf, sendCount, sendDisp, MPI_BYTE, recvBuf, recvCount, recvDisp, MPI_BYTE, write_buf->alltoall_comm);
+        MPI_Alltoallv(sendBuf, sendCount, sendDisp, MPI_BYTE, recvBuf, recvCount, recvDisp, MPI_BYTE, cr->mpi_comm_io);
         //------------------------The Alltoall Comm end-----------------------------------------------------------------------
     }
     //Takes data from the receive buffer and places it into its proper buffers
