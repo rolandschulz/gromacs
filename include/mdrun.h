@@ -147,14 +147,7 @@ typedef struct {
 	int step_after_checkpoint;
 	//For collecting dd->cg, cg indices, ncg_home, and nat_home
 	MPI_Comm gather_comm;
-	MPI_Comm alltoall_comm;
-	//For use with gather and alltoall comms
-	//nNetworkCores refers to the number of physical nodes that are being used, the variable "nnodes" refers to
-	//  the number of cores NOT nodes.  nNetworkCores is the number of PP nodes with a
-	//  cr->nc->intra_rank = 0 and the size of coresPerNode. coresPerNode should not be confused with coresOnNode 
-	//  which is used to determine if the system is heterogeneous or not.
-	int globalRank, interCommRank, coresPerNode, nNetworkCores,
-	    gather_comm_size, alltoall_comm_size;
+	int coresPerNode;
 	gmx_bool heteroSys;
 } t_write_buffer;
 
