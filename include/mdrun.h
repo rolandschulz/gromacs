@@ -147,7 +147,7 @@ typedef struct {
 	int step_after_checkpoint;
 	//For collecting dd->cg, cg indices, ncg_home, and nat_home
 	MPI_Comm gather_comm;
-	int coresPerNode;
+	int coresPerNode, alltoall_comm_size;
 	gmx_bool heteroSys;
 } t_write_buffer;
 

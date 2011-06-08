@@ -1465,7 +1465,7 @@ void init_md(FILE *fplog,
              tensor force_vir,tensor shake_vir,rvec mu_tot,
              gmx_bool *bSimAnn,t_vcm **vcm, t_state *state, unsigned long Flags, t_write_buffer* write_buf)
 {
-    int  i,j,n, nNetworkCores, totalCommSize, interCommSize, intraCommSize, *rbuf, *coresOnNode;
+    int  i,j,n, totalCommSize, interCommSize, intraCommSize, *rbuf, *coresOnNode;
     real tmpt,mod;
 	
     /* Initial values */
@@ -1546,13 +1546,13 @@ void init_md(FILE *fplog,
 		}
         if (cr->nc.comm_inter != MPI_COMM_NULL)
         {
-            MPI_Comm_size (cr->nc.comm_inter, &nNetworkCores);
-            snew (coresOnNode, nNetworkCores);
+            MPI_Comm_size (cr->nc.comm_inter, &(write_buf->alltoall_comm_size));
+            snew (coresOnNode, write_buf->alltoall_comm_size);
             
             if (cr->nc.rank_intra == 0)
             {
                 MPI_Allgather (&intraCommSize, 1, MPI_INT, coresOnNode, 1, MPI_INT, cr->nc.comm_inter);
-                for (i=0; i<nNetworkCores; i++)
+                for (i=0; i<write_buf->alltoall_comm_size; i++)
                 {
                     if (i != 0 && coresOnNode[i-1] != coresOnNode[i])
                     {
@@ -1560,7 +1560,7 @@ void init_md(FILE *fplog,
                     }
                 }
             }
-            MPI_Bcast (&write_buf->heteroSys, 1, MPI_INT, 0, cr->nc.comm_intra);//TODO RJ: gmx_bcast???
+            MPI_Bcast (&write_buf->heteroSys, 1, MPI_INT, 0, cr->nc.comm_intra);
         }
 
         //Note RJ: I use my own communicators so that I can manipulate some of the ranks for dealing with
