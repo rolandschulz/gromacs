@@ -1520,7 +1520,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         }
 
         MPI_Alltoall(sendBuf, 2 * write_buf->coresPerNode, MPI_INT,
-                     recvBuf, 2 * write_buf->coresPerNode, MPI_INT, cr->mpi_comm_io);
+                     recvBuf, 2 * write_buf->coresPerNode, MPI_INT, write_buf->alltoall_comm);
     }
     if (IONODE(cr) && (iorank<bufferStep || iorank==cr->nionodes-1))
     {
@@ -1628,7 +1628,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         	srenew (recvBuf, recvBufSize);
         }
 
-        MPI_Alltoallv(sendBuf, sendCount, sendDisp, MPI_BYTE, recvBuf, recvCount, recvDisp, MPI_BYTE, cr->mpi_comm_io);
+        MPI_Alltoallv(sendBuf, sendCount, sendDisp, MPI_BYTE, recvBuf, recvCount, recvDisp, MPI_BYTE, write_buf->alltoall_comm);
         //------------------------The Alltoall Comm end-----------------------------------------------------------------------
     }
     //Takes data from the receive buffer and places it into its proper buffers

@@ -1569,6 +1569,7 @@ void init_md(FILE *fplog,
 		{
 		    write_buf->coresPerNode = intraCommSize;
 		    MPI_Comm_split (cr->dd->mpi_comm_all, cr->dd->rank/write_buf->coresPerNode, cr->dd->rank, &(write_buf->gather_comm));
+                    MPI_Comm_split (cr->mpi_comm_io, cr->nc.rank_intra, cr->dd->iorank, &(write_buf->alltoall_comm));
 		}
     }
 
