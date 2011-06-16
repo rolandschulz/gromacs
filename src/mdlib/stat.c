@@ -619,7 +619,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
         else
         {
             //Collect X if writing X. Also Collect if writing XTC and not buffering
-            if ((mdof_flags & MDOF_X) || ((mdof_flags & MDOF_XTC) && !bBuffer))
+            if ((mdof_flags & MDOF_X) || (mdof_flags & MDOF_XTC))
             {
                 dd_collect_vec(cr->dd,state_local,state_local->x,
                                state_global->x);
@@ -660,13 +660,13 @@ void write_traj(FILE *fplog,t_commrec *cr,
                     for (i = 0; i <= bufferStep; i++)//Collect each buffered frame to one of the IO nodes. The data is collected to the node with rank write_buf->dd[i]->masterrank.
                     {
                         write_buf->dd[i]->masterrank = cr->dd->iorank2ddrank[i];
-                        if (!(i==bufferStep && ((mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X))))
-                        {
-                            dd_collect_vec(write_buf->dd[i],write_buf->state_local[i],write_buf->state_local[i]->x,state_global->x);
-                        }
+
+
+                        dd_collect_vec(write_buf->dd[i],write_buf->state_local[i],write_buf->state_local[i]->x,state_global->x);
+
                     }
                 }
-                else if (!((mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X)))
+                else
                 {
                     dd_collect_vec_buffered(write_buf, state_global->x, cr, bufferStep);
                 }
@@ -750,7 +750,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
 
      if (writeXTCNow && IONODE(cr)) {  //this is an IO node (we have to call write_traj on all IO nodes!)
 
-		gmx_bool bWrite = MASTER(cr) || cr->dd->iorank<bufferStep;  //this node is actually writing
+		gmx_bool bWrite = cr->dd->iorank<=bufferStep;  //this node is actually writing
 		int write_step;
 		real write_t;
 

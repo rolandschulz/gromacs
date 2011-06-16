@@ -1538,7 +1538,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
     if(cr->nc.rank_intra == 0)
     {
         srenew (recvBuf, recvBufSize);
-        snew (aBuf, recvBufSize);
+
         recvBufSize = 0;
     }
 
@@ -1626,6 +1626,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         if (recvBufSize != 0)
         {
         	srenew (recvBuf, recvBufSize);
+                snew (aBuf, recvBufSize);
         }
 
         MPI_Alltoallv(sendBuf, sendCount, sendDisp, MPI_BYTE, recvBuf, recvCount, recvDisp, MPI_BYTE, write_buf->alltoall_comm);
