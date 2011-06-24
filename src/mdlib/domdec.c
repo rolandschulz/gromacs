@@ -5890,10 +5890,10 @@ int allocate_dd_buf(gmx_domdec_t ***dd_buf, t_commrec *cr) // prepares dd_buf
         snew((*dd_buf)[i],1);
         snew((*dd_buf)[i]->index_gl, dd->cg_nalloc);
         snew((*dd_buf)[i]->comm, 1);
+        snew((*dd_buf)[i]->ma, 1);
 
-        if (MASTER(cr)) {
-            (*dd_buf)[i]->ma = dd->ma;  /*the master already has the ma structure allocated*/
-        } else if (dd->iorank == i ) {
+
+        if (dd->iorank == i ) {
             (*dd_buf)[i]->ma = init_gmx_domdec_master_t(dd, dd->comm->cgs_gl.nr, dd->comm->cgs_gl.index[dd->comm->cgs_gl.nr]);//todo rj: for some reason this line of code only works for some io nodes
         }
     }

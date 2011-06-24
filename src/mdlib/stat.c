@@ -619,7 +619,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
         else
         {
             //Collect X if writing X. Also Collect if writing XTC and not buffering
-            if ((mdof_flags & MDOF_X) || (mdof_flags & MDOF_XTC))
+            if (((mdof_flags & MDOF_X) || (mdof_flags & MDOF_XTC)) && !bBuffer)
             {
                 dd_collect_vec(cr->dd,state_local,state_local->x,
                                state_global->x);
@@ -655,6 +655,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
             if (writeXTCNow)
             {
                 //If the computer running the system is non-homogeneous, then it will revert back to this unoptimized collection method
+//                write_buf->heteroSys = TRUE;
                 if (write_buf->heteroSys)
                 {
                     for (i = 0; i <= bufferStep; i++)//Collect each buffered frame to one of the IO nodes. The data is collected to the node with rank write_buf->dd[i]->masterrank.
