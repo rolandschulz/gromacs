@@ -180,14 +180,15 @@ static inline p_k_calc_nb select_nb_kernel(int eeltype, gmx_bool doEne,
     the CPU->GPU and GPU->CPU transfers, respectively.
  */
 void cu_stream_nb(cu_nonbonded_t cu_nb,
-                  const gmx_nb_atomdata_t *nbatom,                                    
-                  // gmx_bool calc_ene,
+                  const gmx_nb_atomdata_t *nbatom,
                   int flags,
+                  gmx_bool nonLocal,
+                  gmx_bool bClearOut, gmx_bool bTransferBack,
                   gmx_bool sync)
 {
     cu_atomdata_t   *adat = cu_nb->atomdata;
     cu_nb_params_t  *nb_params = cu_nb->nb_params;
-    cu_nblist_t     *nblist = cu_nb->nblist;
+    cu_nblist_t     *nblist = nonLocal ? cu_nb->nblist_nl : cu_nb->nblist;
     cu_timers_t     *timers = cu_nb->timers;
 
     int     shmem; 
@@ -203,6 +204,13 @@ void cu_stream_nb(cu_nonbonded_t cu_nb,
 
     static gmx_bool doKernel2 = (getenv("GMX_NB_K2") != NULL);        
     static gmx_bool doAlwaysNsPrune = (getenv("GMX_GPU_ALWAYS_NS_PRUNE") != NULL);
+  
+    cudaEvent_t start_nb   = nonLocal ? timers->start_nb_nl : timers->start_nb;
+    cudaEvent_t stop_nb    = nonLocal ? timers->stop_nb_nl : timers->stop_nb;
+    cudaEvent_t start_h2d  = nonLocal ? timers->start_nb_h2d_nl : timers->start_nb_h2d;
+    cudaEvent_t stop_h2d   = nonLocal ? timers->stop_nb_h2d_nl : timers->stop_nb_h2d;
+    cudaEvent_t start_d2h  = nonLocal ? timers->start_nb_d2h_nl : timers->stop_nb_d2h;
+    cudaEvent_t stop_d2h   = nonLocal ? timers->stop_nb_d2h_nl : timers->stop_nb_d2h;
 
     /* XXX debugging code, remove it */
     calc_ene = (calc_ene || alwaysE) && !neverE; 
@@ -215,19 +223,18 @@ void cu_stream_nb(cu_nonbonded_t cu_nb,
     }
     
     /* beginning of timed nonbonded calculation section */
-    cudaEventRecord(timers->start_nb, 0);
+    cudaEventRecord(start_nb, 0);
 
     /* beginning of timed HtoD section */
     if (time_trans)
     {
-        cudaEventRecord(timers->start_nb_h2d, 0);
+        cudaEventRecord(start_h2d, 0);
     }
-
-    /* 0 the force output array */
-    cudaMemsetAsync(adat->f, 0, adat->natoms * sizeof(*adat->f), 0);
-
     /* HtoD x, q */    
-    upload_cudata_async(adat->xq, nbatom->x, adat->natoms * sizeof(*adat->xq), 0);
+    if (!nonLocal)
+    {
+        upload_cudata_async(adat->xq, nbatom->x, adat->natoms * sizeof(*adat->xq), 0);
+    }
 
     /* HtoD shift vec if we have a dynamic box */
     if (nbatom->dynamic_box || !adat->shift_vec_copied)
@@ -236,22 +243,28 @@ void cu_stream_nb(cu_nonbonded_t cu_nb,
         adat->shift_vec_copied = TRUE;
     }
 
-    /* set the shift force output to 0 */
-    if (calc_fshift)
+    /* 0 the outputs */
+    if (bClearOut)
     {
-        cudaMemsetAsync(adat->f_shift, 0, SHIFTS * sizeof(*adat->f_shift), 0);
-    }
+        cudaMemsetAsync(adat->f, 0, adat->natoms * sizeof(*adat->f), 0);
 
-    /* set energy outputs to 0 */
-    if (calc_ene)
-    {
-        cudaMemsetAsync(adat->e_lj, 0, sizeof(*adat->e_lj), 0);
-        cudaMemsetAsync(adat->e_el, 0, sizeof(*adat->e_el), 0);
+        /* set the shift force output to 0 */
+        if (calc_fshift)
+        {
+            cudaMemsetAsync(adat->f_shift, 0, SHIFTS * sizeof(*adat->f_shift), 0);
+        }
+
+        /* set energy outputs to 0 */
+        if (calc_ene)
+        {
+            cudaMemsetAsync(adat->e_lj, 0, sizeof(*adat->e_lj), 0);
+            cudaMemsetAsync(adat->e_el, 0, sizeof(*adat->e_el), 0);
+        }
     }
 
     if (time_trans)
     {
-        cudaEventRecord(timers->stop_nb_h2d, 0);
+        cudaEventRecord(stop_h2d, 0);
     }
 
     /* launch async nonbonded calculations */        
@@ -273,90 +286,114 @@ void cu_stream_nb(cu_nonbonded_t cu_nb,
     {
         CU_LAUNCH_ERR("k_calc_nb");
     }
-   
-    /* beginning of timed D2H section */
-    if (time_trans)
+
+    if (bTransferBack)
     {
-        cudaEventRecord(timers->start_nb_d2h, 0);
+        /* beginning of timed D2H section */
+        if (time_trans)
+        {
+            cudaEventRecord(start_d2h, 0);
+        }
+
+        /* DtoH f */
+        download_cudata_async(nbatom->out[0].f, adat->f, adat->natoms*sizeof(*adat->f), 0);
+
+        /* DtoH f_shift */
+        if (calc_fshift)
+        {
+            download_cudata_async(cu_nb->tmpdata.f_shift, adat->f_shift,
+                    SHIFTS * sizeof(*cu_nb->tmpdata.f_shift), 0);
+        }
+
+        /* DtoH energies */
+        if (calc_ene)
+        {
+            download_cudata_async(cu_nb->tmpdata.e_lj, adat->e_lj, sizeof(*cu_nb->tmpdata.e_lj), 0);
+            download_cudata_async(cu_nb->tmpdata.e_el, adat->e_el, sizeof(*cu_nb->tmpdata.e_el), 0);
+        }
+
+        if (time_trans)
+        {
+            cudaEventRecord(stop_d2h, 0);
+        }
     }
 
-    /* DtoH f */
-    download_cudata_async(nbatom->f, adat->f, adat->natoms*sizeof(*adat->f), 0);
-
-    /* DtoH f_shift */
-    if (calc_fshift)
-    {
-        download_cudata_async(cu_nb->tmpdata.f_shift, adat->f_shift, 
-                              SHIFTS * sizeof(*cu_nb->tmpdata.f_shift), 0);
-    }
-
-    /* DtoH energies */
-    if (calc_ene)
-    {
-        download_cudata_async(cu_nb->tmpdata.e_lj, adat->e_lj, sizeof(*cu_nb->tmpdata.e_lj), 0);
-        download_cudata_async(cu_nb->tmpdata.e_el, adat->e_el, sizeof(*cu_nb->tmpdata.e_el), 0);
-    }
-
-    if (time_trans)
-    {        
-        cudaEventRecord(timers->stop_nb_d2h, 0);
-    }
-
-    cudaEventRecord(timers->stop_nb, 0);
+    cudaEventRecord(stop_nb, 0);
 }
 
 /*! Blocking wait for the asynchrounously launched nonbonded calculations to finish. */
-void cu_blockwait_nb(cu_nonbonded_t cu_nb, int flags, 
+void cu_blockwait_nb(cu_nonbonded_t cu_nb,
+                     int flags,
+                     gmx_bool nonLocal,
+                     gmx_bool bTransferBack,
                      float *e_lj, float *e_el, rvec *fshift)
 {    
     cudaError_t     s;
     int             i;
     float           t_tot, t;
+
     gmx_bool        calc_ene   = flags & GMX_FORCE_VIRIAL;
     gmx_bool        calc_fshift = flags & GMX_FORCE_VIRIAL;
 
+    cu_nblist_t     *nblist = nonLocal ? cu_nb->nblist_nl : cu_nb->nblist;
     cu_timers_t     *timers  = cu_nb->timers;
     cu_timings_t    *timings = cu_nb->timings;
-    nb_tmp_data     td = cu_nb->tmpdata;    
+    nb_tmp_data     td = cu_nb->tmpdata;
 
-    cu_blockwait_event(timers->stop_nb, timers->start_nb, &t_tot);
-    timings->nb_count++;
+    cudaEvent_t start_nb   = nonLocal ? timers->start_nb_nl : timers->start_nb;
+    cudaEvent_t stop_nb    = nonLocal ? timers->stop_nb_nl : timers->stop_nb;
+    cudaEvent_t start_h2d  = nonLocal ? timers->start_nb_h2d_nl : timers->start_nb_h2d;
+    cudaEvent_t stop_h2d   = nonLocal ? timers->stop_nb_h2d_nl : timers->stop_nb_h2d;
+    cudaEvent_t start_d2h  = nonLocal ? timers->start_nb_d2h_nl : timers->stop_nb_d2h;
+    cudaEvent_t stop_d2h   = nonLocal ? timers->stop_nb_d2h_nl : timers->stop_nb_d2h;
+
+    cu_blockwait_event(stop_nb, start_nb, &t_tot);
+    if (!nonLocal)
+    {
+        timings->nb_count++; /* FIXME: ugly solution */
+    }
     
     if (timers->time_transfers)
     {        
-        s = cudaEventElapsedTime(&t, timers->start_nb_h2d, timers->stop_nb_h2d);
+        s = cudaEventElapsedTime(&t, start_h2d, stop_h2d);
         CU_RET_ERR(s, "cudaEventElapsedTime failed in cu_blockwait_nb");
         timings->nb_h2d_time += t;
         t_tot -= t;
-        
-        s = cudaEventElapsedTime(&t, timers->start_nb_d2h, timers->stop_nb_d2h);
-        CU_RET_ERR(s, "cudaEventElapsedTime failed in cu_blockwait_nb");    
-        timings->nb_d2h_time += t;
-        t_tot -= t;
+
+        if (bTransferBack)
+        {
+            s = cudaEventElapsedTime(&t, start_d2h, stop_d2h);
+            CU_RET_ERR(s, "cudaEventElapsedTime failed in cu_blockwait_nb");
+            timings->nb_d2h_time += t;
+            t_tot -= t;
+        }
     }
 
-    timings->k_time[cu_nb->nblist->prune_nbl ? 1 : 0][calc_ene ? 1 : 0].t += t_tot;
-    timings->k_time[cu_nb->nblist->prune_nbl ? 1 : 0][calc_ene ? 1 : 0].c += 1;
+    timings->k_time[nblist->prune_nbl ? 1 : 0][calc_ene ? 1 : 0].t += t_tot;
+    timings->k_time[nblist->prune_nbl ? 1 : 0][calc_ene ? 1 : 0].c += 1;
    
     /* turn off neighborlist pruning */
-    cu_nb->nblist->prune_nbl = FALSE;
+    nblist->prune_nbl = FALSE;
 
     /* XXX debugging code, remove this */
     calc_ene = (calc_ene || alwaysE) && !neverE; 
 
-    if (calc_ene)
+    if (bTransferBack)
     {
-        *e_lj += *td.e_lj;
-        *e_el += *td.e_el;
-    }
-
-    if (calc_fshift)
-    {
-        for (i = 0; i < SHIFTS; i++)
+        if (calc_ene)
         {
-            fshift[i][0] += td.f_shift[i].x;
-            fshift[i][1] += td.f_shift[i].y;
-            fshift[i][2] += td.f_shift[i].z;
+            *e_lj += *td.e_lj;
+            *e_el += *td.e_el;
+        }
+
+        if (calc_fshift)
+        {
+            for (i = 0; i < SHIFTS; i++)
+            {
+                fshift[i][0] += td.f_shift[i].x;
+                fshift[i][1] += td.f_shift[i].y;
+                fshift[i][2] += td.f_shift[i].z;
+            }
         }
     }
 }

@@ -12,10 +12,19 @@ void init_cudata_ff(FILE * /*fplog*/,
                     cu_nonbonded_t * /*p_cu_nb*/,
                     const t_forcerec * /*fr*/);
 
-void init_cudata_atoms(cu_nonbonded_t /*cu_nb*/,
-                        const gmx_nb_atomdata_t * /*atomdata*/, 
-                        const gmx_nblist_t *  /*nblist*/,
+void init_cudata_nblist(cu_nonbonded_t /*cu_nb*/,
+                        const gmx_nblist_t * /*h_nblist*/,
+                        gmx_bool /*nonLocal*/,
                         gmx_bool /*doStream*/);
+
+void init_cudata_nblist(cu_nonbonded_t /*cu_nb*/,
+                        const gmx_nblist_t * /*h_nblist*/,
+                        gmx_bool /*nonLocal*/,
+                        gmx_bool /*doStream*/);
+
+void init_cudata_atoms(cu_nonbonded_t /*cu_nb*/,
+                       const gmx_nb_atomdata_t * /*atomdata*/,
+                       gmx_bool /*doStream*/);
 
 void destroy_cudata(FILE * /*fplog*/, 
                     cu_nonbonded_t /*cu_nb*/);
