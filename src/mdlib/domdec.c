@@ -1474,17 +1474,17 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
 
     for (i=0; i < cr->nionodes; i++)//NOTE: 0s are sent to some IOnodes when gromacs is about to write but hasn't used all available IOnodes
     {
-        if (i < bufferStep)
+        if (i <= bufferStep)//       if (i < bufferStep)
         {
         	sendBuf[i*2]   = write_buf->dd[i]->ncg_home;
         	sendBuf[i*2+1] = write_buf->dd[i]->nat_home;
         }
-        else if (i == bufferStep)
-    	{
-    		sendBuf[(cr->nionodes-1)*2]   = write_buf->dd[i]->ncg_home;
-    		sendBuf[(cr->nionodes-1)*2+1] = write_buf->dd[i]->nat_home;
-    	}
-    	else if (i > bufferStep && i != cr->nionodes-1)
+//        else if (i == bufferStep)
+//    	{
+//    		sendBuf[(cr->nionodes-1)*2]   = write_buf->dd[i]->ncg_home;
+//    		sendBuf[(cr->nionodes-1)*2+1] = write_buf->dd[i]->nat_home;
+//    	}
+        else//    	else if (i > bufferStep && i != cr->nionodes-1)
     	{
             sendBuf[i*2]   = 0;
             sendBuf[i*2+1] = 0;
@@ -1494,6 +1494,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
     }
     MPI_Gather  (sendBuf, cr->nionodes * 2, MPI_INT,
                  recvBuf, cr->nionodes * 2, MPI_INT, 0, write_buf->gather_comm);
+//    fprintf (stderr, "if you read this, code hasn't completely died... yet");
 
     //Creates data necessary for the Gatherv Call used by the alltoall core (cr->nc.rank_intra=0)
     if (cr->nc.rank_intra == 0)
@@ -1519,10 +1520,13 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
             }
         }
 
-        MPI_Alltoall(sendBuf, 2 * write_buf->coresPerNode, MPI_INT,
+ //       for (i=0; i<100; i++){
+            MPI_Alltoall(sendBuf, 2 * write_buf->coresPerNode, MPI_INT,
                      recvBuf, 2 * write_buf->coresPerNode, MPI_INT, write_buf->alltoall_comm);
+//            fprintf (stderr, "i = %i", i);
+//        }
     }
-    if (IONODE(cr) && (iorank<bufferStep || iorank==cr->nionodes-1))
+    if (IONODE(cr) && iorank<=bufferStep)//    if (IONODE(cr) && (iorank<bufferStep || iorank==cr->nionodes-1))
     {
         //NOTE: I would have simply used cr->dd->ma, but that only exists on the master node. So instead dd[IORANK]->ma is used instead
         for (i=0; i<(cr->nnodes - cr->npmenodes); i++)
@@ -1590,7 +1594,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
         srenew (sendBuf, nodeSendTotal);
 
         //Prepares recieve buffers for IOnodes that will be used
-        if (IONODE(cr) && (iorank<bufferStep || iorank==cr->nionodes-1))
+        if (IONODE(cr) && iorank<=bufferStep)//if (IONODE(cr) && (iorank<bufferStep || iorank==cr->nionodes-1))
         {
             for (i = 0; i < write_buf->alltoall_comm_size; i++)
             {
