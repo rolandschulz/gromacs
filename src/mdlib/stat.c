@@ -655,16 +655,12 @@ void write_traj(FILE *fplog,t_commrec *cr,
             if (writeXTCNow)
             {
                 //If the computer running the system is non-homogeneous, then it will revert back to this unoptimized collection method
-//                write_buf->heteroSys = TRUE;
                 if (write_buf->heteroSys)
                 {
                     for (i = 0; i <= bufferStep; i++)//Collect each buffered frame to one of the IO nodes. The data is collected to the node with rank write_buf->dd[i]->masterrank.
                     {
                         write_buf->dd[i]->masterrank = cr->dd->iorank2ddrank[i];
-
-
                         dd_collect_vec(write_buf->dd[i],write_buf->state_local[i],write_buf->state_local[i]->x,state_global->x);
-
                     }
                 }
                 else
