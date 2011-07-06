@@ -1536,46 +1536,57 @@ void init_md(FILE *fplog,
 		//This figures out how many cores per node there are.
 		//Knowing how many cores per node on every node there are is necessary because when transferring
 		//     data from one node to another, the number of cores is needed for setting up buffers
-        if (cr->nc.comm_intra  != MPI_COMM_NULL)
-		{
-		    MPI_Comm_size (cr->nc.comm_intra, &intraCommSize);
-		}
-		else
-		{
-		    intraCommSize = 1;
-		    cr->nc.rank_intra = 0;
-		}
-        //There is no need for an else here, if there is no comm_inter then there is no buffered writing so none of this code would be used.
-        if (cr->nc.comm_inter != MPI_COMM_NULL)
+        if (cr->nc.bUse)
         {
-            MPI_Comm_size (cr->nc.comm_inter, &(write_buf->alltoall_comm_size));
-            snew (coresOnNode, write_buf->alltoall_comm_size);
-            
-            if (cr->nc.rank_intra == 0)
+		    if (cr->nc.comm_intra != MPI_COMM_NULL)
+		    {
+		        MPI_Comm_size (cr->nc.comm_intra, &intraCommSize);
+		    }
+		    else
+		    {
+		        intraCommSize = 1;
+		        cr->nc.rank_intra = 0;
+		    }
+
+            if (cr->nc.comm_inter != MPI_COMM_NULL)
             {
-                MPI_Allgather (&intraCommSize, 1, MPI_INT, coresOnNode, 1, MPI_INT, cr->nc.comm_inter);
-                //Checking to see if the system is heterogeneous.
-                for (i=0; i<write_buf->alltoall_comm_size; i++)
+                MPI_Comm_size (cr->nc.comm_inter, &(write_buf->alltoall_comm_size));
+                snew (coresOnNode, write_buf->alltoall_comm_size);
+            
+                if (cr->nc.rank_intra == 0)
                 {
-                    if (i != 0 && coresOnNode[i-1] != coresOnNode[i])
+                    MPI_Allgather (&intraCommSize, 1, MPI_INT, coresOnNode, 1, MPI_INT, cr->nc.comm_inter);
+                    //Checking to see if the system is heterogeneous.
+                    for (i=0; i<write_buf->alltoall_comm_size; i++)
                     {
-                        write_buf->heteroSys = TRUE;
+                        if (i != 0 && coresOnNode[i-1] != coresOnNode[i])
+                        {
+                            write_buf->heteroSys = TRUE;
+                        }
                     }
                 }
+                MPI_Bcast (&write_buf->heteroSys, 1, MPI_INT, 0, cr->nc.comm_intra);
             }
-            MPI_Bcast (&write_buf->heteroSys, 1, MPI_INT, 0, cr->nc.comm_intra);
-        }
+            else
+            {
+            	write_buf->heteroSys = TRUE;
+            }
 
-        //Note RJ: I use my own communicators because of how parallel file writing is handled.  The alltoall_comm will
-        //         be the same group as nc.rank_inter but with reverse ranks
-        if(!write_buf->heteroSys)
-        {
-		    write_buf->coresPerNode = intraCommSize;
-            MPI_Comm_split (cr->dd->mpi_comm_all, cr->dd->rank/write_buf->coresPerNode, cr->dd->rank, &(write_buf->gather_comm));
-            MPI_Comm_split (cr->mpi_comm_mygroup, cr->nc.rank_intra, cr->dd->iorank, &(write_buf->alltoall_comm));
-            //iorank is only useful to ionodes, non-ionodes still have ioranks but because they never receive any data, their rank is irrelevant.
+            //Note RJ: I use my own communicators because of how parallel file writing is handled.  The alltoall_comm will
+            //         be the same group as nc.rank_inter but with reverse ranks
+            if(!write_buf->heteroSys)
+            {
+		        write_buf->coresPerNode = intraCommSize;
+                MPI_Comm_split (cr->dd->mpi_comm_all, cr->dd->rank/write_buf->coresPerNode, cr->dd->rank, &(write_buf->gather_comm));
+                MPI_Comm_split (cr->mpi_comm_mygroup, cr->nc.rank_intra, cr->dd->iorank, &(write_buf->alltoall_comm));
+                //iorank is only useful to ionodes, non-ionodes still have ioranks but because they never receive any data, their rank is irrelevant.
+            }
+            //In the case where heteroSys == TRUE, these comms aren't used
         }
-        //In the case where heteroSys == TRUE, these comms aren't used
+        else
+        {
+        	write_buf->heteroSys = TRUE;
+        }
     }
 
     if (nfile != -1)
