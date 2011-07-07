@@ -619,7 +619,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
         else
         {
             //Collect X if writing X. Also Collect if writing XTC and not buffering
-            if ((mdof_flags & MDOF_X) || ((mdof_flags & MDOF_XTC) && !bBuffer))
+            if ((mdof_flags & MDOF_X && !writeXTCNow) || ((mdof_flags & MDOF_XTC) && !bBuffer))
             {
                 dd_collect_vec(cr->dd,state_local,state_local->x,
                                state_global->x);
