@@ -67,7 +67,8 @@ static void init_ewald_coulomb_force_table(cu_nb_params_t *nb_params);
 static void init_ewald_coulomb_force_table(cu_nb_params_t *nb_params)
 {
     float       *ftmp, *coul_tab;
-    int         tabsize, tabscale;
+    int         tabsize;
+    double      tabscale;
     cudaError_t stat;
 
     tabsize     = EWALD_COULOMB_FORCE_TABLE_SIZE;
