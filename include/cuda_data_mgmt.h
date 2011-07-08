@@ -30,6 +30,8 @@ void destroy_cudata(FILE * /*fplog*/,
                     cu_nonbonded_t /*cu_nb*/);
 
 void cu_blockwait_atomdata(cu_nonbonded_t /*cu_nb*/);
+void cu_time_atomdata(cu_nonbonded_t /*cu_nb*/);
+void cu_synchstream_atomdata(cu_nonbonded_t /*cu_nb*/, gmx_bool /*nonLocal*/);
 
 cu_timings_t * get_gpu_timings(cu_nonbonded_t /*cu_nb*/);
 

@@ -59,7 +59,8 @@ static void destroy_cudata_array(void * d_ptr,
                                  int * n = NULL, int * nalloc = NULL);
 static void realloc_cudata_array(void **d_dest, void *h_src, size_t type_size, 
                                  int *curr_size, int *curr_alloc_size, 
-                                 int req_size, gmx_bool doStream);                                
+                                 int req_size,
+                                 cudaStream_t stream, gmx_bool doStream);
 static void init_ewald_coulomb_force_table(cu_nb_params_t *nb_params);
 
 /*! Tabulates the Ewald Coulomb force and initializes the related GPU resources. 
@@ -211,6 +212,10 @@ static void init_timers(cu_timers_t *t)
     stat = cudaEventCreateWithFlags(&(t->stop_atdat_nl), eventflags);
     CU_RET_ERR(stat, "cudaEventCreate on stop_atdat_nl failed");
 
+    stat = cudaStreamCreate(&t->nbstream);
+    CU_RET_ERR(stat, "cudaStreamCreate on nbstream failed");
+    stat = cudaStreamCreate(&t->nbstream_nl);
+    CU_RET_ERR(stat, "cudaStreamCreate on nbstream_nl failed");
 
     t->time_transfers = TIME_GPU_TRANSFERS > 0; /* XXX fix this! */
 
@@ -324,8 +329,9 @@ void init_cudata_nblist(cu_nonbonded_t cu_nb,
 {
     char        sbuf[STRLEN];
 
+    cudaStream_t stream     = nonLocal ? cu_nb->timers->nbstream_nl : cu_nb->timers->nbstream;
     cu_nblist_t *d_nblist   = nonLocal ? cu_nb->nblist_nl : cu_nb->nblist;
-    //cu_timers_t *timers     = cu_nb->timers;  // FIXME
+    //cu_timers_t *timers   = cu_nb->timers;  // FIXME
 
     if (d_nblist->naps < 0)
     {
@@ -343,15 +349,18 @@ void init_cudata_nblist(cu_nonbonded_t cu_nb,
 
     realloc_cudata_array((void **)&d_nblist->ci, h_nblist->ci, sizeof(*(d_nblist->ci)),
                          &d_nblist->nci, &d_nblist->ci_nalloc,
-                         h_nblist->nci, doStream);
+                         h_nblist->nci,
+                         stream, doStream);
 
     realloc_cudata_array((void **)&d_nblist->sj4, h_nblist->sj4, sizeof(*(d_nblist->sj4)),
                          &d_nblist->nsj4, &d_nblist->sj4_nalloc,
-                         h_nblist->nsj4, doStream);
+                         h_nblist->nsj4,
+                         stream, doStream);
 
     realloc_cudata_array((void **)&d_nblist->excl, h_nblist->excl, sizeof(*(d_nblist->excl)),
                          &d_nblist->nexcl, &d_nblist->excl_nalloc,
-                         h_nblist->nexcl, doStream);
+                         h_nblist->nexcl, 
+                         stream, doStream);
 
     /* need to prune the neighbor list during the next step */
     d_nblist->prune_nbl = TRUE;
@@ -447,10 +456,23 @@ void destroy_cudata(FILE *fplog, cu_nonbonded_t cu_nb)
     CU_RET_ERR(stat, "cudaEventDestroy failed on timers->start_nb");
     stat = cudaEventDestroy(timers->stop_nb);
     CU_RET_ERR(stat, "cudaEventDestroy failed on timers->stop_nb");
+    stat = cudaEventDestroy(timers->start_nb_nl);
+    CU_RET_ERR(stat, "cudaEventDestroy failed on timers->start_nb_nl");
+    stat = cudaEventDestroy(timers->stop_nb_nl);
+    CU_RET_ERR(stat, "cudaEventDestroy failed on timers->stop_nb_nl");
     stat = cudaEventDestroy(timers->start_atdat);
     CU_RET_ERR(stat, "cudaEventDestroy failed on timers->start_atdat");
     stat = cudaEventDestroy(timers->stop_atdat);
     CU_RET_ERR(stat, "cudaEventDestroy failed on timers->stop_atdat");
+    stat = cudaEventDestroy(timers->start_atdat_nl);
+    CU_RET_ERR(stat, "cudaEventDestroy failed on timers->start_atdat_nl");
+    stat = cudaEventDestroy(timers->stop_atdat_nl);
+    CU_RET_ERR(stat, "cudaEventDestroy failed on timers->stop_atdat_nl");
+
+    stat = cudaStreamDestroy(timers->nbstream);
+    CU_RET_ERR(stat, "cudaStreamDestroy failed on nbstream");
+    stat = cudaStreamDestroy(timers->nbstream_nl);
+    CU_RET_ERR(stat, "cudaStreamDestroy failed on nbstream_nl");
 
     if (timers->time_transfers)
     {
@@ -458,11 +480,19 @@ void destroy_cudata(FILE *fplog, cu_nonbonded_t cu_nb)
         CU_RET_ERR(stat, "cudaEventDestroy failed on timers->start_nb_h2d");
         stat = cudaEventDestroy(timers->stop_nb_h2d);
         CU_RET_ERR(stat, "cudaEventDestroy failed on timers->stop_nb_h2d");
+        stat = cudaEventDestroy(timers->start_nb_h2d_nl);
+        CU_RET_ERR(stat, "cudaEventDestroy failed on timers->start_nb_h2d_nl");
+        stat = cudaEventDestroy(timers->stop_nb_h2d_nl);
+        CU_RET_ERR(stat, "cudaEventDestroy failed on timers->stop_nb_h2d_nl");
 
         stat = cudaEventDestroy(timers->start_nb_d2h);
         CU_RET_ERR(stat, "cudaEventDestroy failed on timers->start_nb_d2h");
         stat = cudaEventDestroy(timers->stop_nb_d2h);
         CU_RET_ERR(stat, "cudaEventDestroy failed on timers->stop_nb_d2h");
+        stat = cudaEventDestroy(timers->start_nb_d2h_nl);
+        CU_RET_ERR(stat, "cudaEventDestroy failed on timers->start_nb_d2h_nl");
+        stat = cudaEventDestroy(timers->stop_nb_d2h_nl);
+        CU_RET_ERR(stat, "cudaEventDestroy failed on timers->stop_nb_d2h_nl");
     }
 
     cu_unbind_texture("tex_nbfp");
@@ -529,7 +559,8 @@ static void destroy_cudata_array(void *d_ptr, int *n, int *nalloc)
  */
 static void realloc_cudata_array(void **d_dest, void *h_src, size_t type_size, 
                                  int *curr_size, int *curr_alloc_size, 
-                                 int req_size, gmx_bool doStream)
+                                 int req_size, 
+                                 cudaStream_t stream, gmx_bool doStream)
 {
     cudaError_t stat;
 
@@ -563,7 +594,7 @@ static void realloc_cudata_array(void **d_dest, void *h_src, size_t type_size,
     {
         if(doStream)
         {
-            upload_cudata_async(*d_dest, h_src, *curr_size * type_size, 0);
+            upload_cudata_async(*d_dest, h_src, *curr_size * type_size, stream);
         }
         else 
         {
@@ -575,12 +606,33 @@ static void realloc_cudata_array(void **d_dest, void *h_src, size_t type_size,
 /*! Blocking waits until the atom data gets copied to the GPU and times the transfer.
  */
 void cu_blockwait_atomdata(cu_nonbonded_t cu_nb)
-{   
+{
     float t;
     cu_blockwait_event(cu_nb->timers->stop_atdat, cu_nb->timers->start_atdat, &t);
     cu_nb->timings->atomdt_h2d_total_time += t;
-    //cu_blockwait_event(cu_nb->timers->stop_atdat_nl, cu_nb->timers->start_atdat_nl, &t);
-    //cu_nb->timings->atomdt_h2d_total_time += t;
+}
+
+/*! Calculated the ellapsed time during atomdata transfer.
+ */
+void cu_time_atomdata(cu_nonbonded_t cu_nb)
+{
+    float t;
+    cudaError_t stat;
+
+    stat = cudaEventElapsedTime(&t, cu_nb->timers->start_atdat, cu_nb->timers->stop_atdat);
+    CU_RET_ERR(stat, "cudaEventElapsedTime failed in cu_blockwait_nb");
+    cu_nb->timings->atomdt_h2d_total_time += t;
+}
+
+/*! Synchronizes the respective stream with the atomdata init operation.
+ */
+void cu_synchstream_atomdata(cu_nonbonded_t cu_nb, gmx_bool nonLocal)
+{
+    cudaError_t stat;
+    cudaStream_t stream = nonLocal ? cu_nb->timers->nbstream_nl : cu_nb->timers->nbstream;
+
+    stat = cudaStreamWaitEvent(stream, cu_nb->timers->stop_atdat, 0);
+    CU_RET_ERR(stat, "cudaStreamWaitEvent failed");
 }
 
 /*! Returns the GPU timing structure or NULL if cu_nb is NULL. */

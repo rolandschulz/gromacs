@@ -106,6 +106,8 @@ struct cu_timers
     cudaEvent_t start_nb_d2h_nl, stop_nb_d2h_nl; /* events for timing device to host transfer (every step) */
     cudaEvent_t start_atdat, stop_atdat;    /* events for timing atom data transfer (every NS step)         */
     cudaEvent_t start_atdat_nl, stop_atdat_nl;    /* events for timing atom data transfer (every NS step)   */
+
+    cudaStream_t    nbstream, nbstream_nl;      /* local and non-local calculation streams */
 };
 
 /* main data structure for CUDA nonbonded force evaluation */

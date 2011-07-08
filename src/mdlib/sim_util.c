@@ -873,8 +873,8 @@ void do_force(FILE *fplog,t_commrec *cr,
         /* wait for the atomdata trasfer to be finished */
         if (bNS)
         {
-            /* FIXME */
-            cu_blockwait_atomdata(fr->gpu_nb);
+            /* FIXME moved into cu_stream_nb */
+            // XXX cu_blockwait_atomdata(fr->gpu_nb);
        }
 
         /* Launch GPU-accelerated nonbonded calculations.
@@ -1066,6 +1066,7 @@ void do_force(FILE *fplog,t_commrec *cr,
                         enerd->grpp.ener[egLJSR], enerd->grpp.ener[egCOULSR],
                         fr->fshift);
             }
+            cu_time_atomdata(fr->gpu_nb);
 #endif  /* GMX_GPU */
         }
         else
