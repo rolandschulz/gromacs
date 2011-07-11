@@ -585,13 +585,22 @@ void write_traj(FILE *fplog,t_commrec *cr,
     int bufferStep = 0;
     gmx_bool bBuffer = cr->nionodes > 1  && ir->nstxtcout>0; //Used to determine if buffers will be used.
     gmx_bool writeXTCNow = (mdof_flags & MDOF_XTC);
+    gmx_bool bMasterWritesXTC = FALSE;
 
     if (bBuffer)// If buffering will be used
     {
         //If in the future we want to buffer also uncompressed trajectory. Each needs its own bufferStep.
         bufferStep = (step/ir->nstxtcout - (int)ceil((double)write_buf->step_after_checkpoint/ir->nstxtcout)) % cr->nionodes;// bufferStep = step/(how often to write) - (round up) step_at_checkpoint/(how often to write)  MOD (how often we actually do write)
+        //writeXTCNow means that some writing (NOT buffering) is going to happen, either from this frame, buffers, or both
         writeXTCNow = ((mdof_flags & MDOF_XTC) && bufferStep == cr->nionodes-1)   //write XTC in this step and buffer is full
-                || (ir->nstxtcout>0 &&  bufferStep < cr->nionodes-1 && (bLastStep || (mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X)));// XTC is written AND we haven't just written because buffer was full AND its the last step OR its a checkpoint  OR write uncompressed X
+                || (ir->nstxtcout>0 && bufferStep>=0 && bufferStep < cr->nionodes-1 && (bLastStep || (mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X)));// XTC is written AND we haven't just written because buffer was full AND its the last step OR its a checkpoint  OR write uncompressed X
+        if (((mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X)) && (mdof_flags & MDOF_XTC))
+        {  /*We collect to the master even if bufferStep is not nionodes-1.
+             The collecting is part of the collecting for CPT/X and
+             is not collected as part of the buffering*/
+                bMasterWritesXTC = TRUE;
+                bufferStep--;
+        }
 
         if ((mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X))
         {
@@ -619,7 +628,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
         else
         {
             //Collect X if writing X. Also Collect if writing XTC and not buffering
-            if ((mdof_flags & MDOF_X && !writeXTCNow) || ((mdof_flags & MDOF_XTC) && !bBuffer))
+            if ((mdof_flags & MDOF_X) || ((mdof_flags & MDOF_XTC) && !bBuffer))
             {
                 dd_collect_vec(cr->dd,state_local,state_local->x,
                                state_global->x);
@@ -646,10 +655,13 @@ void write_traj(FILE *fplog,t_commrec *cr,
                     write_buf->step=step;
                     write_buf->t=t;
                 }
-                wallcycle_start(wcycle, ewcCOPY);
-                copy_dd(write_buf->dd[bufferStep],cr->dd);
-                copy_state_local(write_buf->state_local[bufferStep],state_local);
-                wallcycle_stop(wcycle, ewcCOPY);
+                if (!bMasterWritesXTC)
+                {
+                    wallcycle_start(wcycle, ewcCOPY);
+                    copy_dd(write_buf->dd[bufferStep],cr->dd);
+                    copy_state_local(write_buf->state_local[bufferStep],state_local);
+                    wallcycle_stop(wcycle, ewcCOPY);
+                }
             }
 
             if (writeXTCNow)
@@ -663,7 +675,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
                         dd_collect_vec(write_buf->dd[i],write_buf->state_local[i],write_buf->state_local[i]->x,state_global->x);
                     }
                 }
-                else
+                else 
                 {
                     dd_collect_vec_buffered(write_buf, state_global->x, cr, bufferStep);
                 }
@@ -747,7 +759,8 @@ void write_traj(FILE *fplog,t_commrec *cr,
 
      if (writeXTCNow && IONODE(cr)) {  //this is an IO node (we have to call write_traj on all IO nodes!)
 
-		gmx_bool bWrite = cr->dd->iorank<=bufferStep;  //this node is actually writing
+		gmx_bool bWrite = cr->dd->iorank<=bufferStep ||    //write if this IO node has recieved data to write
+				(MASTER(cr) && bMasterWritesXTC);  //The master only writes if bMasterWritesXTC is true
 		int write_step;
 		real write_t;
 

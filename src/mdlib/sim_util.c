@@ -1587,6 +1587,7 @@ void init_md(FILE *fplog,
         {
         	write_buf->heteroSys = TRUE;
         }
+        write_buf->heteroSys = TRUE;
     }
 
     if (nfile != -1)

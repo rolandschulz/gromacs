@@ -5957,6 +5957,8 @@ int copy_dd (gmx_domdec_t *copy_dd,gmx_domdec_t *orig_dd) // Copies orig_dd into
     srenew (copy_dd->comm->cgs_gl.index, orig_dd->comm->cgs_gl.nalloc_index);
     memcpy (copy_dd->comm->cgs_gl.index, orig_dd->comm->cgs_gl.index,
             sizeof(int) * (orig_dd->comm->cgs_gl.nr+1));
+    //This prevents an error during collection where some MPI buffers are never setup
+    copy_dd->comm->master_cg_ddp_count = -1;
     return 0;
 }
 
