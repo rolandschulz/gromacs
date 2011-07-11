@@ -1518,7 +1518,7 @@ void init_md(FILE *fplog,
     
     init_nrnb(nrnb);
 
-    /*allocating buffers for buffered MPI-IO writing*/
+    /* allocating buffers for buffered MPI-IO writing */
     if (write_buf != NULL && DOMAINDECOMP(cr))
     {
     	write_buf->heteroSys = FALSE;
@@ -1533,9 +1533,9 @@ void init_md(FILE *fplog,
 			snew(write_buf->state_local[i]->x,state->nalloc);
 		}
 
-		//This figures out how many cores per node there are.
-		//Knowing how many cores per node on every node there are is necessary because when transferring
-		//     data from one node to another, the number of cores is needed for setting up buffers
+		/* This figures out how many cores per node there are. Knowing how many cores per node
+		 * on every node there are is necessary because when transferring data from one node
+		 * to another, the number of cores is needed for setting up buffers */
         if (cr->nc.bUse)
         {
 		    if (cr->nc.comm_intra != MPI_COMM_NULL)
@@ -1548,6 +1548,7 @@ void init_md(FILE *fplog,
 		        cr->nc.rank_intra = 0;
 		    }
 
+            /* Checking to see if the system is heterogeneous. */
             if (cr->nc.comm_inter != MPI_COMM_NULL)
             {
                 MPI_Comm_size (cr->nc.comm_inter, &(write_buf->alltoall_comm_size));
@@ -1556,7 +1557,6 @@ void init_md(FILE *fplog,
                 if (cr->nc.rank_intra == 0)
                 {
                     MPI_Allgather (&intraCommSize, 1, MPI_INT, coresOnNode, 1, MPI_INT, cr->nc.comm_inter);
-                    //Checking to see if the system is heterogeneous.
                     for (i=0; i<write_buf->alltoall_comm_size; i++)
                     {
                         if (i != 0 && coresOnNode[i-1] != coresOnNode[i])
@@ -1572,16 +1572,17 @@ void init_md(FILE *fplog,
             	write_buf->heteroSys = TRUE;
             }
 
-            //Note RJ: I use my own communicators because of how parallel file writing is handled.  The alltoall_comm will
-            //         be the same group as nc.rank_inter but with reverse ranks
+            /* RJ: I use my own communicators because of how parallel file writing is handled.
+             * The alltoall_comm will be the same group as nc.rank_inter but with reverse ranks */
             if(!write_buf->heteroSys)
             {
 		        write_buf->coresPerNode = intraCommSize;
                 MPI_Comm_split (cr->dd->mpi_comm_all, cr->dd->rank/write_buf->coresPerNode, cr->dd->rank, &(write_buf->gather_comm));
                 MPI_Comm_split (cr->mpi_comm_mygroup, cr->nc.rank_intra, cr->dd->iorank, &(write_buf->alltoall_comm));
-                //iorank is only useful to ionodes, non-ionodes still have ioranks but because they never receive any data, their rank is irrelevant.
+                /* iorank is only useful to ionodes, non-ionodes still have ioranks
+                 * but because they never receive any data, their rank is irrelevant. */
             }
-            //In the case where heteroSys == TRUE, these comms aren't used
+            /* In the case where heteroSys == TRUE, these comms aren't used */
         }
         else
         {

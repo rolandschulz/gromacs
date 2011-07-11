@@ -583,23 +583,29 @@ void write_traj(FILE *fplog,t_commrec *cr,
     rvec *global_v;
     
     int bufferStep = 0;
-    gmx_bool bBuffer = cr->nionodes > 1  && ir->nstxtcout>0; //Used to determine if buffers will be used.
-    gmx_bool writeXTCNow = (mdof_flags & MDOF_XTC);
+    gmx_bool bBuffer = cr->nionodes > 1  && ir->nstxtcout>0; /* Used to determine if buffers will be used. */
+    gmx_bool writeXTCNow = (mdof_flags & MDOF_XTC);/* writeXTCNow means that some writing (NOT buffering) is going to happen, either from this frame, buffers, or both */
     gmx_bool bMasterWritesXTC = FALSE;
 
-    if (bBuffer)// If buffering will be used
+    if (bBuffer)/* If buffering will be used */
     {
-        //If in the future we want to buffer also uncompressed trajectory. Each needs its own bufferStep.
+        /* If in the future we want to buffer also uncompressed trajectory.
+         * Each needs its own bufferStep. */
         bufferStep = (step/ir->nstxtcout - (int)ceil((double)write_buf->step_after_checkpoint/ir->nstxtcout)) % cr->nionodes;// bufferStep = step/(how often to write) - (round up) step_at_checkpoint/(how often to write)  MOD (how often we actually do write)
-        //writeXTCNow means that some writing (NOT buffering) is going to happen, either from this frame, buffers, or both
-        writeXTCNow = ((mdof_flags & MDOF_XTC) && bufferStep == cr->nionodes-1)   //write XTC in this step and buffer is full
-                || (ir->nstxtcout>0 && bufferStep>=0 && bufferStep < cr->nionodes-1 && (bLastStep || (mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X)));// XTC is written AND we haven't just written because buffer was full AND its the last step OR its a checkpoint  OR write uncompressed X
+
+                    /* Write XTC in this step and buffer is full
+                     * OR XTC is written AND we haven't just written because buffer was full
+                     * AND its the last step OR its a checkpoint OR write uncompressed X */
+        writeXTCNow = ((mdof_flags & MDOF_XTC) && bufferStep == cr->nionodes-1)
+                    || (ir->nstxtcout>0 && bufferStep>=0 && bufferStep < cr->nionodes-1
+                    && (bLastStep || (mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X)));
+
         if (((mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X)) && (mdof_flags & MDOF_XTC))
         {  /*We collect to the master even if bufferStep is not nionodes-1.
-             The collecting is part of the collecting for CPT/X and
+             The collecting is for CPT/X and
              is not collected as part of the buffering*/
-                bMasterWritesXTC = TRUE;
-                bufferStep--;
+             bMasterWritesXTC = TRUE;
+             bufferStep--;
         }
 
         if ((mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X))
@@ -621,13 +627,12 @@ void write_traj(FILE *fplog,t_commrec *cr,
     if (DOMAINDECOMP(cr))
     {
         if (mdof_flags & MDOF_CPT)
-
         {
             dd_collect_state(cr->dd,state_local,state_global);
         }
         else
         {
-            //Collect X if writing X. Also Collect if writing XTC and not buffering
+            /* Collect X if writing X. Also Collect if writing XTC and not buffering */
             if ((mdof_flags & MDOF_X) || ((mdof_flags & MDOF_XTC) && !bBuffer))
             {
                 dd_collect_vec(cr->dd,state_local,state_local->x,
@@ -643,13 +648,13 @@ void write_traj(FILE *fplog,t_commrec *cr,
         {
             dd_collect_vec(cr->dd,state_local,f_local,f_global);
         }
-        //Could be optimized by not collecting all coordinates but only those in the xtc selection.
+        /* Could be optimized by not collecting all coordinates but only those in the xtc selection. */
         if (bBuffer) {
             if (mdof_flags & MDOF_XTC)
             {
-                //This block of code copies the current dd and state_local to buffers to prepare for writing later.
-                //The last frame being buffered (then writeXTCNow is TRUE) is always collected on the MASTER
-                //We always remember the time on the master in case we write a checkpoint next before writing the next XTC frame
+                /* This block of code copies the current dd and state_local to buffers to prepare for writing later.
+                 * The last frame being buffered is always collected on the MASTER (then bMAsterWritesXTC is true).
+                 * We always remember the time on the master in case we write a checkpoint before writing the next XTC frame */
                 if (MASTER(cr) || bufferStep == cr->dd->iorank)
                 {
                     write_buf->step=step;
@@ -666,10 +671,14 @@ void write_traj(FILE *fplog,t_commrec *cr,
 
             if (writeXTCNow)
             {
-                //If the computer running the system is non-homogeneous, then it will revert back to this unoptimized collection method
+                /* If the computer running the system is non-homogeneous,
+                 * then it will revert back to this collection method thats unoptimized
+                 * for collecting multiple frames like dd_collect_vec_buffered is. */
                 if (write_buf->heteroSys)
                 {
-                    for (i = 0; i <= bufferStep; i++)//Collect each buffered frame to one of the IO nodes. The data is collected to the node with rank write_buf->dd[i]->masterrank.
+                	/* Collect each buffered frame to one of the IO nodes.
+                	 * The data is collected to the node with rank write_buf->dd[i]->masterrank. */
+                	for (i = 0; i <= bufferStep; i++)
                     {
                         write_buf->dd[i]->masterrank = cr->dd->iorank2ddrank[i];
                         dd_collect_vec(write_buf->dd[i],write_buf->state_local[i],write_buf->state_local[i]->x,state_global->x);
@@ -757,15 +766,15 @@ void write_traj(FILE *fplog,t_commrec *cr,
 		}
 	 }
 
-     if (writeXTCNow && IONODE(cr)) {  //this is an IO node (we have to call write_traj on all IO nodes!)
+     if (writeXTCNow && IONODE(cr)) {  /* this is an IO node (we have to call write_traj on all IO nodes!) */
 
-		gmx_bool bWrite = cr->dd->iorank<=bufferStep ||    //write if this IO node has recieved data to write
-				(MASTER(cr) && bMasterWritesXTC);  //The master only writes if bMasterWritesXTC is true
+		gmx_bool bWrite = cr->dd->iorank<=bufferStep ||    /* write if this IO node has received data to write */
+				(MASTER(cr) && bMasterWritesXTC);  /* The master only writes if bMasterWritesXTC is true */
 		int write_step;
 		real write_t;
 
 
-		if (bWrite) { // If this node is one of the writing nodes
+		if (bWrite) { /* If this node is one of the writing nodes */
 			groups = &top_global->groups;
 			wallcycle_start(wcycle, ewcGROUP);
 			if (*n_xtc == -1)
