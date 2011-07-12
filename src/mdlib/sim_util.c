@@ -608,25 +608,18 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
 
     clear_mat(vir_force);
 
-    if (PARTDECOMP(cr))
+    cg0 = 0;
+    if (DOMAINDECOMP(cr))
     {
-        pd_cg_range(cr,&cg0,&cg1);
+        cg1 = cr->dd->ncg_tot;
     }
     else
     {
-        cg0 = 0;
-        if (DOMAINDECOMP(cr))
-        {
-            cg1 = cr->dd->ncg_tot;
-        }
-        else
-        {
-            cg1 = top->cgs.nr;
-        }
-        if (fr->n_tpi > 0)
-        {
-            cg1--;
-        }
+        cg1 = top->cgs.nr;
+    }
+    if (fr->n_tpi > 0)
+    {
+        cg1--;
     }
 
     bStateChanged = (flags & GMX_FORCE_STATECHANGED);
@@ -640,7 +633,7 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
     if (bStateChanged)
     {
         update_forcerec(fplog,fr,box);
-        
+
         /* Calculate total (local) dipole moment in a temporary common array. 
          * This makes it possible to sum them over nodes faster.
          */
@@ -648,61 +641,61 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
                 x,mdatoms->chargeA,mdatoms->chargeB,mdatoms->nChargePerturbed,
                 mu,mu+DIM);
     }
-  
-  if (fr->ePBC != epbcNONE) { 
-    /* Compute shift vectors every step,
-     * because of pressure coupling or box deformation!
-     */
-    if ((flags & GMX_FORCE_DYNAMICBOX) && bStateChanged)
-      calc_shifts(box,fr->shift_vec);
-    
-    if (bCalcCGCM) { 
-      put_charge_groups_in_box(fplog,cg0,cg1,fr->ePBC,box,
-			       &(top->cgs),x,fr->cg_cm);
-      inc_nrnb(nrnb,eNR_CGCM,homenr);
-      inc_nrnb(nrnb,eNR_RESETX,cg1-cg0);
+
+    if (fr->ePBC != epbcNONE) { 
+        /* Compute shift vectors every step,
+         * because of pressure coupling or box deformation!
+         */
+        if ((flags & GMX_FORCE_DYNAMICBOX) && bStateChanged)
+            calc_shifts(box,fr->shift_vec);
+
+        if (bCalcCGCM) { 
+            put_charge_groups_in_box(fplog,cg0,cg1,fr->ePBC,box,
+                    &(top->cgs),x,fr->cg_cm);
+            inc_nrnb(nrnb,eNR_CGCM,homenr);
+            inc_nrnb(nrnb,eNR_RESETX,cg1-cg0);
+        } 
+        else if (EI_ENERGY_MINIMIZATION(inputrec->eI) && graph) {
+            unshift_self(graph,box,x);
+        }
     } 
-    else if (EI_ENERGY_MINIMIZATION(inputrec->eI) && graph) {
-      unshift_self(graph,box,x);
+    else if (bCalcCGCM) {
+        calc_cgcm(fplog,cg0,cg1,&(top->cgs),x,fr->cg_cm);
+        inc_nrnb(nrnb,eNR_CGCM,homenr);
     }
-  } 
-  else if (bCalcCGCM) {
-    calc_cgcm(fplog,cg0,cg1,&(top->cgs),x,fr->cg_cm);
-    inc_nrnb(nrnb,eNR_CGCM,homenr);
-  }
-  
-  if (bCalcCGCM) {
-    if (PAR(cr)) {
-      move_cgcm(fplog,cr,fr->cg_cm);
+
+    if (bCalcCGCM) {
+        if (PAR(cr)) {
+            move_cgcm(fplog,cr,fr->cg_cm);
+        }
+        if (gmx_debug_at)
+            pr_rvecs(debug,0,"cgcm",fr->cg_cm,top->cgs.nr);
     }
-    if (gmx_debug_at)
-      pr_rvecs(debug,0,"cgcm",fr->cg_cm,top->cgs.nr);
-  }
 
 #ifdef GMX_MPI
-  if (!(cr->duty & DUTY_PME)) {
-    /* Send particle coordinates to the pme nodes.
-     * Since this is only implemented for domain decomposition
-     * and domain decomposition does not use the graph,
-     * we do not need to worry about shifting.
-     */    
+    if (!(cr->duty & DUTY_PME)) {
+        /* Send particle coordinates to the pme nodes.
+         * Since this is only implemented for domain decomposition
+         * and domain decomposition does not use the graph,
+         * we do not need to worry about shifting.
+         */    
 
-    wallcycle_start(wcycle,ewcPP_PMESENDX);
-    GMX_MPE_LOG(ev_send_coordinates_start);
+        wallcycle_start(wcycle,ewcPP_PMESENDX);
+        GMX_MPE_LOG(ev_send_coordinates_start);
 
-    bBS = (inputrec->nwall == 2);
-    if (bBS) {
-      copy_mat(box,boxs);
-      svmul(inputrec->wall_ewald_zfac,boxs[ZZ],boxs[ZZ]);
+        bBS = (inputrec->nwall == 2);
+        if (bBS) {
+            copy_mat(box,boxs);
+            svmul(inputrec->wall_ewald_zfac,boxs[ZZ],boxs[ZZ]);
+        }
+
+        gmx_pme_send_x(cr,bBS ? boxs : box,x,
+                mdatoms->nChargePerturbed,lambda,
+                ( flags & GMX_FORCE_VIRIAL),step);
+
+        GMX_MPE_LOG(ev_send_coordinates_finish);
+        wallcycle_stop(wcycle,ewcPP_PMESENDX);
     }
-
-    gmx_pme_send_x(cr,bBS ? boxs : box,x,
-                   mdatoms->nChargePerturbed,lambda,
-                   ( flags & GMX_FORCE_VIRIAL),step);
-
-    GMX_MPE_LOG(ev_send_coordinates_finish);
-    wallcycle_stop(wcycle,ewcPP_PMESENDX);
-  }
 #endif /* GMX_MPI */
 
     /* Communicate coordinates and sum dipole if necessary */
@@ -713,16 +706,34 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
         {
             dd_move_x(cr->dd,box,x);
         }
-        else
-        {
-            move_x(fplog,cr,GMX_LEFT,GMX_RIGHT,x,nrnb);
-        }
+
         /* When we don't need the total dipole we sum it in global_stat */
         if (bStateChanged && NEED_MUTOT(*inputrec))
         {
             gmx_sumd(2*DIM,mu,cr);
         }
         wallcycle_stop(wcycle,ewcMOVEX);
+    }
+
+    if (bNS)
+    {
+        if (!fr->bDomDec)
+        {
+            gmx_nbsearch_put_on_grid(fr->nbs,fr->ePBC,box,
+                    0,vzero,box_diag,
+                    0,mdatoms->homenr,x,
+                    0,NULL,
+                    fr->nbat);
+        }
+        else
+        {
+            gmx_nbsearch_put_on_grid_nonlocal(fr->nbs,domdec_zones(cr->dd),
+                    x,fr->nbat);
+        }
+
+        gmx_nb_atomdata_set_atomtypes(fr->nbat,fr->nbs,mdatoms->typeA);
+
+        gmx_nb_atomdata_set_charges(fr->nbat,fr->nbs,mdatoms->chargeA);
     }
 
     if (bStateChanged)
@@ -762,13 +773,6 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
             mk_mshift(fplog,graph,fr->ePBC,box,x);
         }
 
-        /* Reset long range forces if necessary */
-        if (fr->bTwinRange)
-        {
-            /* Reset the (long-range) forces if necessary */
-            clear_rvecs(fr->natoms_force_constr,bSepLRF ? fr->f_twin : f);
-        }
-
         if (top->cgs.index[top->cgs.nr] > top->cgs.nr)
         {
             put_atoms_in_box(box,mdatoms->homenr,x);
@@ -778,24 +782,6 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
         box_diag[XX] = box[XX][XX];
         box_diag[YY] = box[YY][YY];
         box_diag[ZZ] = box[ZZ][ZZ];
-
-        if (!fr->bDomDec)
-        {
-            gmx_nbsearch_put_on_grid(fr->nbs,fr->ePBC,box,
-                                     0,vzero,box_diag,
-                                     0,mdatoms->homenr,x,
-                                     0,NULL,
-                                     fr->nbat);
-        }
-        else
-        {
-            gmx_nbsearch_put_on_grid_nonlocal(fr->nbs,domdec_zones(cr->dd),
-                                              x,fr->nbat);
-        }
-
-        gmx_nb_atomdata_set_atomtypes(fr->nbat,fr->nbs,mdatoms->typeA);
-
-        gmx_nb_atomdata_set_charges(fr->nbat,fr->nbs,mdatoms->chargeA);
 
 #ifdef GMX_GPU
         /* initialize the gpu atom datastructures */
@@ -1097,6 +1083,7 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
         if (PAR(cr))
         {
             wallcycle_start(wcycle,ewcMOVEF);
+            /* FIXME: remove PD branch this */
             if (DOMAINDECOMP(cr))
             {
                 dd_move_f(cr->dd,f,fr->fshift);
@@ -1118,14 +1105,6 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
                      * since f_twin is already included in f.
                      */
                     dd_move_f(cr->dd,fr->f_twin,NULL);
-                }
-            }
-            else
-            {
-                pd_move_f(cr,f,nrnb);
-                if (bSepLRF)
-                {
-                    pd_move_f(cr,fr->f_twin,nrnb);
                 }
             }
             wallcycle_stop(wcycle,ewcMOVEF);
@@ -1259,60 +1238,60 @@ void do_force_cutsOLD(FILE *fplog,t_commrec *cr,
                 mu,mu+DIM);
     }
 
-  if (fr->ePBC != epbcNONE) { 
-    /* Compute shift vectors every step,
-     * because of pressure coupling or box deformation!
-     */
-    if ((flags & GMX_FORCE_DYNAMICBOX) && bStateChanged)
-      calc_shifts(box,fr->shift_vec);
+    if (fr->ePBC != epbcNONE) { 
+        /* Compute shift vectors every step,
+         * because of pressure coupling or box deformation!
+         */
+        if ((flags & GMX_FORCE_DYNAMICBOX) && bStateChanged)
+            calc_shifts(box,fr->shift_vec);
 
-    if (bCalcCGCM) { 
-      put_charge_groups_in_box(fplog,cg0,cg1,fr->ePBC,box,
-			       &(top->cgs),x,fr->cg_cm);
-      inc_nrnb(nrnb,eNR_CGCM,homenr);
-      inc_nrnb(nrnb,eNR_RESETX,cg1-cg0);
+        if (bCalcCGCM) { 
+            put_charge_groups_in_box(fplog,cg0,cg1,fr->ePBC,box,
+                    &(top->cgs),x,fr->cg_cm);
+            inc_nrnb(nrnb,eNR_CGCM,homenr);
+            inc_nrnb(nrnb,eNR_RESETX,cg1-cg0);
+        } 
+        else if (EI_ENERGY_MINIMIZATION(inputrec->eI) && graph) {
+            unshift_self(graph,box,x);
+        }
     } 
-    else if (EI_ENERGY_MINIMIZATION(inputrec->eI) && graph) {
-      unshift_self(graph,box,x);
+    else if (bCalcCGCM) {
+        calc_cgcm(fplog,cg0,cg1,&(top->cgs),x,fr->cg_cm);
+        inc_nrnb(nrnb,eNR_CGCM,homenr);
     }
-  } 
-  else if (bCalcCGCM) {
-    calc_cgcm(fplog,cg0,cg1,&(top->cgs),x,fr->cg_cm);
-    inc_nrnb(nrnb,eNR_CGCM,homenr);
-  }
-  
-  if (bCalcCGCM) {
-    if (PAR(cr)) {
-      move_cgcm(fplog,cr,fr->cg_cm);
+
+    if (bCalcCGCM) {
+        if (PAR(cr)) {
+            move_cgcm(fplog,cr,fr->cg_cm);
+        }
+        if (gmx_debug_at)
+            pr_rvecs(debug,0,"cgcm",fr->cg_cm,top->cgs.nr);
     }
-    if (gmx_debug_at)
-      pr_rvecs(debug,0,"cgcm",fr->cg_cm,top->cgs.nr);
-  }
 
 #ifdef GMX_MPI
-  if (!(cr->duty & DUTY_PME)) {
-    /* Send particle coordinates to the pme nodes.
-     * Since this is only implemented for domain decomposition
-     * and domain decomposition does not use the graph,
-     * we do not need to worry about shifting.
-     */    
+    if (!(cr->duty & DUTY_PME)) {
+        /* Send particle coordinates to the pme nodes.
+         * Since this is only implemented for domain decomposition
+         * and domain decomposition does not use the graph,
+         * we do not need to worry about shifting.
+         */    
 
-    wallcycle_start(wcycle,ewcPP_PMESENDX);
-    GMX_MPE_LOG(ev_send_coordinates_start);
+        wallcycle_start(wcycle,ewcPP_PMESENDX);
+        GMX_MPE_LOG(ev_send_coordinates_start);
 
-    bBS = (inputrec->nwall == 2);
-    if (bBS) {
-      copy_mat(box,boxs);
-      svmul(inputrec->wall_ewald_zfac,boxs[ZZ],boxs[ZZ]);
+        bBS = (inputrec->nwall == 2);
+        if (bBS) {
+            copy_mat(box,boxs);
+            svmul(inputrec->wall_ewald_zfac,boxs[ZZ],boxs[ZZ]);
+        }
+
+        gmx_pme_send_x(cr,bBS ? boxs : box,x,
+                mdatoms->nChargePerturbed,lambda,
+                ( flags & GMX_FORCE_VIRIAL),step);
+
+        GMX_MPE_LOG(ev_send_coordinates_finish);
+        wallcycle_stop(wcycle,ewcPP_PMESENDX);
     }
-
-    gmx_pme_send_x(cr,bBS ? boxs : box,x,
-                   mdatoms->nChargePerturbed,lambda,
-                   ( flags & GMX_FORCE_VIRIAL),step);
-
-    GMX_MPE_LOG(ev_send_coordinates_finish);
-    wallcycle_stop(wcycle,ewcPP_PMESENDX);
-  }
 #endif /* GMX_MPI */
 
     /* Communicate coordinates and sum dipole if necessary */
@@ -1394,17 +1373,6 @@ void do_force_cutsOLD(FILE *fplog,t_commrec *cr,
         enerd->dvdl_lin += dvdl;
 
         wallcycle_stop(wcycle,ewcNS);
-    }
-
-    if (fr->nbs != NULL)
-    {
-        gmx_nb_atomdata_copy_shiftvec(flags & GMX_FORCE_DYNAMICBOX,
-                                      fr->shift_vec,fr->nbat);
-        if (!bNS)
-        {
-            /* We are not doing ns this step, we need to copy x to nbat->x */
-            gmx_nb_atomdata_copy_x_to_nbat_x(fr->nbs,enbatATOMSall,x,fr->nbat);
-        }
     }
 
     if (inputrec->implicit_solvent && bNS) 
@@ -1643,15 +1611,12 @@ void do_force(FILE *fplog,t_commrec *cr,
     switch (inputrec->cutoff_scheme)
     {
         case ecutsVERLET:
-            do_force_cutsVERLET(fplog, cr,
-                                inputrec,
+            do_force_cutsVERLET(fplog, cr, inputrec,
                                 step, nrnb, wcycle,
-                                top,
-                                mtop,
+                                top, mtop,
                                 groups,
                                 box, x, hist,
-                                f,
-                                vir_force,
+                                f, vir_force,
                                 mdatoms,
                                 enerd, fcd,
                                 lambda, graph,
@@ -1661,15 +1626,12 @@ void do_force(FILE *fplog,t_commrec *cr,
                                 flags);
             break;
         case ecutsOLD:
-             do_force_cutsOLD(fplog, cr,
-                              inputrec,
+             do_force_cutsOLD(fplog, cr, inputrec,
                               step, nrnb, wcycle,
-                              top,
-                              mtop,
+                              top, mtop,
                               groups,
                               box, x, hist,
-                              f,
-                              vir_force,
+                              f, vir_force,
                               mdatoms,
                               enerd, fcd,
                               lambda, graph,
