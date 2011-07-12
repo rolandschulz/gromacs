@@ -701,41 +701,20 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
     }
 #endif /* GMX_MPI */
 
-#ifdef GMX_GPU
-    if (bUseGPU && !bNS)
-        { /* XXX cu_stream_nb ?  */ }
-#endif
-
-    /* Communicate coordinates and sum dipole if necessary */
-    if (PAR(cr))
-    {
-        wallcycle_start(wcycle,ewcMOVEX);
-        if (DOMAINDECOMP(cr))
-        {
-            dd_move_x(cr->dd,box,x);
-
-#ifdef GMX_GPU
-            if (bUseGPU && !bNS)
-                { /* XXX cu_stream_nb ?  */ }
-#endif
-        }
-
-        /* When we don't need the total dipole we sum it in global_stat */
-        if (bStateChanged && NEED_MUTOT(*inputrec))
-        {
-            gmx_sumd(2*DIM,mu,cr);
-        }
-        wallcycle_stop(wcycle,ewcMOVEX);
-    }
-
-    if (!bNS)
-    {
-        /* We are not doing ns this step, we need to copy x to nbat->x */
-        gmx_nb_atomdata_copy_x_to_nbat_x(fr->nbs,enbatATOMSall,x,fr->nbat);
-    }
-
     if (bNS)
     {
+        if (graph && bStateChanged)
+        {
+            /* Calculate intramolecular shift vectors to make molecules whole */
+            mk_mshift(fplog,graph,fr->ePBC,box,x);
+        }
+
+        clear_rvec(vzero);
+        box_diag[XX] = box[XX][XX];
+        box_diag[YY] = box[YY][YY];
+        box_diag[ZZ] = box[ZZ][ZZ];
+
+        wallcycle_start(wcycle,ewcNS);
         if (!fr->bDomDec)
         {
             gmx_nbsearch_put_on_grid(fr->nbs,fr->ePBC,box,
@@ -749,6 +728,7 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
             gmx_nbsearch_put_on_grid_nonlocal(fr->nbs,domdec_zones(cr->dd),
                     x,fr->nbat);
         }
+        wallcycle_stop(wcycle,ewcNS); /* FIXME: add new gridding counter */
 
         gmx_nb_atomdata_set_atomtypes(fr->nbat,fr->nbs,mdatoms->typeA);
 
@@ -760,6 +740,70 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
         {
             init_cudata_atoms(fr->gpu_nb, fr->nbat, fr->streamGPU);
         }
+#endif
+        
+        wallcycle_start(wcycle,ewcNS);
+        gmx_nbsearch_make_nblist(fr->nbs,fr->nbat,
+                                 &top->excls,
+                                 fr->rvdw,fr->rlist,
+                                 700,
+                                 FALSE,fr->nnbl,fr->nbl,
+                                 bUseGPU || fr->emulateGPU);
+        wallcycle_stop(wcycle,ewcNS);
+#ifdef GMX_GPU
+        /* initialize GPU local neighbor list */
+        if (bUseGPU)
+        {
+            init_cudata_nblist(fr->gpu_nb, fr->nbl[0], FALSE, fr->streamGPU);
+        }
+#endif
+    }
+
+    gmx_nb_atomdata_copy_x_to_nbat_x(fr->nbs,enbatATOMSlocal,x,fr->nbat);
+#ifdef GMX_GPU
+
+    if (bUseGPU)
+        { /* TODO cu_stream_nb -- local */ }
+#endif
+
+    /* Communicate coordinates and sum dipole if necessary */
+    if (DOMAINDECOMP(cr))
+    {
+        if (bNS)
+        {
+            wallcycle_start(wcycle,ewcNS);
+            gmx_nbsearch_make_nblist(fr->nbs,fr->nbat,
+                                     &top->excls,
+                                     fr->rvdw,fr->rlist,
+                                     700,
+                                     TRUE,fr->nnbl_nl,fr->nbl_nl,
+                                     bUseGPU || fr->emulateGPU);
+            wallcycle_stop(wcycle,ewcNS);
+#ifdef GMX_GPU
+            /* initialize GPU non-local neighbor list */
+            if (bUseGPU)
+            {
+                init_cudata_nblist(fr->gpu_nb, fr->nbl_nl[0], TRUE, fr->streamGPU);
+            }
+#endif
+        } 
+        else
+        {
+            wallcycle_start(wcycle,ewcMOVEX);
+            dd_move_x(cr->dd,box,x);
+
+            /* When we don't need the total dipole we sum it in global_stat */
+            if (bStateChanged && NEED_MUTOT(*inputrec))
+            {
+                gmx_sumd(2*DIM,mu,cr);
+            }
+            wallcycle_stop(wcycle,ewcMOVEX);
+        }
+
+        gmx_nb_atomdata_copy_x_to_nbat_x(fr->nbs,enbatATOMSnonlocal,x,fr->nbat);
+#ifdef GMX_GPU
+        if (bUseGPU)
+        { /* TODO cu_stream_nb non-local */ }
 #endif
     }
 
@@ -789,59 +833,6 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
     /* Reset energies */
     reset_enerdata(&(inputrec->opts),fr,bNS,enerd,MASTER(cr));
     clear_rvecs(SHIFTS,fr->fshift);
-
-    if (bNS)
-    {
-        wallcycle_start(wcycle,ewcNS);
-        
-        if (graph && bStateChanged)
-        {
-            /* Calculate intramolecular shift vectors to make molecules whole */
-            mk_mshift(fplog,graph,fr->ePBC,box,x);
-        }
-
-        if (top->cgs.index[top->cgs.nr] > top->cgs.nr)
-        {
-            put_atoms_in_box(box,mdatoms->homenr,x);
-        }
-
-        clear_rvec(vzero);
-        box_diag[XX] = box[XX][XX];
-        box_diag[YY] = box[YY][YY];
-        box_diag[ZZ] = box[ZZ][ZZ];
-
-        gmx_nbsearch_make_nblist(fr->nbs,fr->nbat,
-                                 &top->excls,
-                                 fr->rvdw,fr->rlist,
-                                 700,
-                                 FALSE,fr->nnbl,fr->nbl,
-                                 bUseGPU || fr->emulateGPU);
-#ifdef GMX_GPU
-        /* initialize GPU local neighbor list */
-        if (bUseGPU)
-        {
-            init_cudata_nblist(fr->gpu_nb, fr->nbl[0], FALSE, fr->streamGPU);
-        }
-#endif
-        if (DOMAINDECOMP(cr))
-        {
-            gmx_nbsearch_make_nblist(fr->nbs,fr->nbat,
-                                     &top->excls,
-                                     fr->rvdw,fr->rlist,
-                                     700,
-                                     TRUE,fr->nnbl_nl,fr->nbl_nl,
-                                     bUseGPU || fr->emulateGPU);
-#ifdef GMX_GPU
-            /* initialize GPU non-local neighbor list */
-            if (bUseGPU)
-            {
-                init_cudata_nblist(fr->gpu_nb, fr->nbl_nl[0], TRUE, fr->streamGPU);
-            }
-#endif
-        }
-
-        wallcycle_stop(wcycle,ewcNS); // FIXME should this counter exclude the GPU copies?
-    }
 
 #ifdef GMX_GPU
     if (bUseGPU)
