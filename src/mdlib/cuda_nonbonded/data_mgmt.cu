@@ -603,6 +603,18 @@ static void realloc_cudata_array(void **d_dest, void *h_src, size_t type_size,
     }
 }
 
+void cu_move_xq(cu_nonbonded_t cu_nb, const gmx_nb_atomdata_t *nbat,
+                gmx_bool nonLocal)
+{
+    cu_atomdata_t   *d_nbat = cu_nb->atomdata;
+    cudaStream_t    stream = nonLocal ? cu_nb->timers->nbstream_nl :
+                                        cu_nb->timers->nbstream;
+
+    upload_cudata_async(d_nbat->xq, nbat->x,
+                        d_nbat->natoms * sizeof(*d_nbat->xq), stream);
+}
+
+
 /*! Blocking waits until the atom data gets copied to the GPU and times the transfer.
  */
 void cu_blockwait_atomdata(cu_nonbonded_t cu_nb)

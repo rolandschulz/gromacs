@@ -193,6 +193,7 @@ void cu_stream_nb(cu_nonbonded_t cu_nb,
     cudaStream_t    stream = nonLocal ? timers->nbstream_nl : timers->nbstream;
 
     int     shmem; 
+    int     adat_begin, adat_len;  /* local/nonlocal offset and length used for xq and f */
     int     nb_blocks = calc_nb_blocknr(nblist->nci);
     dim3    dim_block(CELL_SIZE, CELL_SIZE, 1); 
     dim3    dim_grid(nb_blocks, 1, 1); 
@@ -212,6 +213,17 @@ void cu_stream_nb(cu_nonbonded_t cu_nb,
     cudaEvent_t stop_h2d   = nonLocal ? timers->stop_nb_h2d_nl : timers->stop_nb_h2d;
     cudaEvent_t start_d2h  = nonLocal ? timers->start_nb_d2h_nl : timers->stop_nb_d2h;
     cudaEvent_t stop_d2h   = nonLocal ? timers->stop_nb_d2h_nl : timers->stop_nb_d2h;
+
+    if (nonLocal)
+    {
+        adat_begin  = adat->natoms_local;
+        adat_len    = adat->natoms - adat->natoms_local;
+    }
+    else
+    {
+        adat_begin  = 0;
+        adat_len    = adat->natoms_local;
+    }
 
     /* XXX debugging code, remove it */
     calc_ene = (calc_ene || alwaysE) && !neverE; 
@@ -235,9 +247,13 @@ void cu_stream_nb(cu_nonbonded_t cu_nb,
         cudaEventRecord(start_h2d, stream);
     }
     /* HtoD x, q */    
+    //upload_cudata_async(adat->xq + adat_begin, nbatom->x + adat_begin,
+    //                    adat_len * sizeof(*adat->xq), stream);
+    /**/
     if (!nonLocal)
     {
-        upload_cudata_async(adat->xq, nbatom->x, adat->natoms * sizeof(*adat->xq), stream);
+        upload_cudata_async(adat->xq, nbatom->x,
+                            adat->natoms * sizeof(*adat->xq), stream);
     }
 
     /* HtoD shift vec if we have a dynamic box */
@@ -321,7 +337,7 @@ void cu_stream_nb(cu_nonbonded_t cu_nb,
             cudaEventRecord(stop_d2h, stream);
         }
     }
-
+    
     cudaEventRecord(stop_nb, stream);
 }
 

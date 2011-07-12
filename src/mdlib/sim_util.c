@@ -591,7 +591,7 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
     int    start,homenr;
     double mu[2*DIM]; 
     gmx_bool   bSepDVDL,bStateChanged,bNS,bFillGrid,bCalcCGCM,bBS;
-    gmx_bool   bDoLongRange,bDoForces,bSepLRF;
+    gmx_bool   bDoLongRange,bDoForces,bSepLRF,bUseGPU;
     matrix boxs;
     rvec   vzero,box_diag;
     real   e,v,dvdl;
@@ -629,6 +629,7 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
     bDoLongRange  = (fr->bTwinRange && bNS && (flags & GMX_FORCE_DOLR));
     bDoForces     = (flags & GMX_FORCE_FORCES);
     bSepLRF       = (bDoLongRange && bDoForces && (flags & GMX_FORCE_SEPLRF));
+    bUseGPU       = fr->useGPU;
 
     if (bStateChanged)
     {
@@ -664,6 +665,8 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
         inc_nrnb(nrnb,eNR_CGCM,homenr);
     }
 
+    gmx_nb_atomdata_copy_shiftvec(flags & GMX_FORCE_DYNAMICBOX,
+                                      fr->shift_vec,fr->nbat);
     if (bCalcCGCM) {
         if (PAR(cr)) {
             move_cgcm(fplog,cr,fr->cg_cm);
@@ -698,6 +701,11 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
     }
 #endif /* GMX_MPI */
 
+#ifdef GMX_GPU
+    if (bUseGPU && !bNS)
+        { /* XXX cu_stream_nb ?  */ }
+#endif
+
     /* Communicate coordinates and sum dipole if necessary */
     if (PAR(cr))
     {
@@ -705,6 +713,11 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
         if (DOMAINDECOMP(cr))
         {
             dd_move_x(cr->dd,box,x);
+
+#ifdef GMX_GPU
+            if (bUseGPU && !bNS)
+                { /* XXX cu_stream_nb ?  */ }
+#endif
         }
 
         /* When we don't need the total dipole we sum it in global_stat */
@@ -713,6 +726,12 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
             gmx_sumd(2*DIM,mu,cr);
         }
         wallcycle_stop(wcycle,ewcMOVEX);
+    }
+
+    if (!bNS)
+    {
+        /* We are not doing ns this step, we need to copy x to nbat->x */
+        gmx_nb_atomdata_copy_x_to_nbat_x(fr->nbs,enbatATOMSall,x,fr->nbat);
     }
 
     if (bNS)
@@ -734,6 +753,14 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
         gmx_nb_atomdata_set_atomtypes(fr->nbat,fr->nbs,mdatoms->typeA);
 
         gmx_nb_atomdata_set_charges(fr->nbat,fr->nbs,mdatoms->chargeA);
+
+#ifdef GMX_GPU
+        /* initialize the gpu atom datastructures */
+        if (bUseGPU)
+        {
+            init_cudata_atoms(fr->gpu_nb, fr->nbat, fr->streamGPU);
+        }
+#endif
     }
 
     if (bStateChanged)
@@ -783,23 +810,15 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
         box_diag[YY] = box[YY][YY];
         box_diag[ZZ] = box[ZZ][ZZ];
 
-#ifdef GMX_GPU
-        /* initialize the gpu atom datastructures */
-        if (fr->useGPU)
-        {
-            init_cudata_atoms(fr->gpu_nb, fr->nbat, fr->streamGPU);
-        }
-#endif
-
         gmx_nbsearch_make_nblist(fr->nbs,fr->nbat,
                                  &top->excls,
                                  fr->rvdw,fr->rlist,
                                  700,
                                  FALSE,fr->nnbl,fr->nbl,
-                                 fr->useGPU || fr->emulateGPU);
+                                 bUseGPU || fr->emulateGPU);
 #ifdef GMX_GPU
         /* initialize GPU local neighbor list */
-        if (fr->useGPU)
+        if (bUseGPU)
         {
             init_cudata_nblist(fr->gpu_nb, fr->nbl[0], FALSE, fr->streamGPU);
         }
@@ -811,10 +830,10 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
                                      fr->rvdw,fr->rlist,
                                      700,
                                      TRUE,fr->nnbl_nl,fr->nbl_nl,
-                                     fr->useGPU || fr->emulateGPU);
+                                     bUseGPU || fr->emulateGPU);
 #ifdef GMX_GPU
             /* initialize GPU non-local neighbor list */
-            if (fr->useGPU)
+            if (bUseGPU)
             {
                 init_cudata_nblist(fr->gpu_nb, fr->nbl_nl[0], TRUE, fr->streamGPU);
             }
@@ -824,27 +843,9 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
         wallcycle_stop(wcycle,ewcNS); // FIXME should this counter exclude the GPU copies?
     }
 
-    if (fr->nbs != NULL)
-    {
-        gmx_nb_atomdata_copy_shiftvec(flags & GMX_FORCE_DYNAMICBOX,
-                                      fr->shift_vec,fr->nbat);
-        if (!bNS)
-        {
-            /* We are not doing ns this step, we need to copy x to nbat->x */
-            gmx_nb_atomdata_copy_x_to_nbat_x(fr->nbs,enbatATOMSall,x,fr->nbat);
-        }
-    }
-
 #ifdef GMX_GPU
-    if (fr->useGPU)
+    if (bUseGPU)
     {
-        /* wait for the atomdata trasfer to be finished */
-        if (bNS)
-        {
-            /* FIXME moved into cu_stream_nb */
-            // XXX cu_blockwait_atomdata(fr->gpu_nb);
-       }
-
         /* Launch GPU-accelerated nonbonded calculations.
            Both copying to/from device and kernel execution is asynchronous */
         wallcycle_start(wcycle,ewcSEND_X_GPU);
@@ -958,7 +959,7 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
                       x,hist,f,enerd,fcd,mtop,top,fr->born,
                       &(top->atomtypes),bBornRadii,box,
                       lambda,graph,&(top->excls),fr->mu_tot,
-                      ((fr->useGPU || fr->emulateGPU) ? flags&~GMX_FORCE_NONBONDED : flags),
+                      ((bUseGPU || fr->emulateGPU) ? flags&~GMX_FORCE_NONBONDED : flags),
                       &cycles_pme);
 
     if (fr->nbl[0]->simple)
@@ -1018,11 +1019,11 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
         }
     }
 
-    if (fr->useGPU || fr->emulateGPU)
+    if (bUseGPU || fr->emulateGPU)
     {
         wallcycle_start(wcycle,ewcRECV_F_GPU);
 
-        if (fr->useGPU)
+        if (bUseGPU)
         {
 #ifdef GMX_GPU
             cu_blockwait_nb(fr->gpu_nb, flags, FALSE, !DOMAINDECOMP(cr),
@@ -1463,13 +1464,12 @@ void do_force_cutsOLD(FILE *fplog,t_commrec *cr,
     }
 
     /* Compute the bonded and non-bonded energies and optionally forces */
-    /* if we use the GPU turn off the nonbonded */
     do_force_lowlevel(fplog,step,fr,inputrec,&(top->idef),
                       cr,nrnb,wcycle,mdatoms,&(inputrec->opts),
                       x,hist,f,enerd,fcd,mtop,top,fr->born,
                       &(top->atomtypes),bBornRadii,box,
                       lambda,graph,&(top->excls),fr->mu_tot,
-                      ((fr->useGPU || fr->emulateGPU) ? flags&~GMX_FORCE_NONBONDED : flags),
+                      flags,
                       &cycles_pme);
 
 
