@@ -597,10 +597,6 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
     real   e,v,dvdl;
     float  cycles_pme,cycles_force;
 
-#ifdef GMX_GPU
-    //cu_timings_t *gpu_t = get_gpu_timings(fr->gpu_nb);
-#endif
-    
     start  = mdatoms->start;
     homenr = mdatoms->homenr;
 
@@ -760,10 +756,18 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
     }
 
     gmx_nb_atomdata_copy_x_to_nbat_x(fr->nbs,enbatATOMSlocal,x,fr->nbat);
-#ifdef GMX_GPU
 
+#ifdef GMX_GPU
     if (bUseGPU)
-        { /* TODO cu_stream_nb -- local */ }
+    { 
+        /* TODO: should do the clear after done on the GPU! */
+        cu_clear_nb_outputs(fr->gpu_nb, fr->nbat, flags);
+
+        /* local nonbonded F on GPU */ 
+        cu_stream_nb(fr->gpu_nb, fr->nbat, flags, FALSE, !fr->streamGPU);
+
+        cu_copyback_nb_data(fr->gpu_nb, fr->nbat, flags, FALSE);
+    }
 #endif
 
     /* Communicate coordinates and sum dipole if necessary */
@@ -801,11 +805,34 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
         }
 
         gmx_nb_atomdata_copy_x_to_nbat_x(fr->nbs,enbatATOMSnonlocal,x,fr->nbat);
+
 #ifdef GMX_GPU
         if (bUseGPU)
-        { /* TODO cu_stream_nb non-local */ }
+        { 
+            /* non-local nonbonded F on GPU */
+            cu_stream_nb(fr->gpu_nb, fr->nbat, flags, TRUE, !fr->streamGPU);
+        }
 #endif
     }
+
+#ifdef GMX_GPU
+    if (bUseGPU)
+    {
+        /* Launch GPU-accelerated nonbonded calculations.
+           Both copying to/from device and kernel execution is asynchronous */
+        wallcycle_start(wcycle,ewcSEND_X_GPU);
+
+        // FIXME this should be above, right after the local nbF
+        //cu_copyback_nb_data(fr->gpu_nb, fr->nbat, flags, FALSE);
+
+        if (DOMAINDECOMP(cr))
+        {
+            cu_copyback_nb_data(fr->gpu_nb, fr->nbat, flags, TRUE);
+        }
+        wallcycle_stop(wcycle,ewcSEND_X_GPU);
+    }
+#endif /* GMX_GPU */
+  
 
     if (bStateChanged)
     {
@@ -833,27 +860,6 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
     /* Reset energies */
     reset_enerdata(&(inputrec->opts),fr,bNS,enerd,MASTER(cr));
     clear_rvecs(SHIFTS,fr->fshift);
-
-#ifdef GMX_GPU
-    if (bUseGPU)
-    {
-        /* Launch GPU-accelerated nonbonded calculations.
-           Both copying to/from device and kernel execution is asynchronous */
-        wallcycle_start(wcycle,ewcSEND_X_GPU);
-     
-        cu_stream_nb(fr->gpu_nb, fr->nbat, flags,
-                     FALSE, TRUE, !DOMAINDECOMP(cr), !fr->streamGPU);
-
-        if (DOMAINDECOMP(cr))
-        {
-            cu_stream_nb(fr->gpu_nb, fr->nbat, flags,
-                         TRUE, FALSE, TRUE, !fr->streamGPU);
-        }
-
-        wallcycle_stop(wcycle,ewcSEND_X_GPU);
-    }
-#endif /* GMX_GPU */
-  
 
     /* XXX I guess this can go out as it's not supported  */
     if (inputrec->implicit_solvent && bNS) 
@@ -1012,23 +1018,56 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
 
     if (bUseGPU || fr->emulateGPU)
     {
+#ifdef GMX_GPU
+        if (bUseGPU)
+        {
+            cu_time_atomdata(fr->gpu_nb);
+        }
+#endif
+
         wallcycle_start(wcycle,ewcRECV_F_GPU);
 
+        /* wait for non-local forces (or calculate in emulation mode) */
+        if (DOMAINDECOMP(cr))
+        {
+            if (bUseGPU)
+            {
+                if (DOMAINDECOMP(cr))
+                {
+#ifdef GMX_GPU
+                    cu_blockwait_nb(fr->gpu_nb, flags, TRUE,
+                            enerd->grpp.ener[egLJSR], enerd->grpp.ener[egCOULSR],
+                            fr->fshift);
+#endif
+                }
+            }
+            else
+            {
+                {
+                    nsbox_generic_kernel(fr->nbl_nl[0],fr->nbat,fr,
+                            fr->nblists[0].tab.scale,
+                            fr->nblists[0].tab.tab,
+                            //FALSE,
+                            TRUE,
+                            fr->nbat->out[0].f,fr->fshift[0],
+                            enerd->grpp.ener[egCOULSR],
+                            fr->bBHAM ?
+                            enerd->grpp.ener[egBHAMSR] :
+                            enerd->grpp.ener[egLJSR]);
+                }
+            }
+            gmx_nb_atomdata_add_nbat_f_to_f(fr->nbs,enbatATOMSnonlocal,fr->nbat,f);
+        }
+
+#if 0
+        /* wait for local forces (or calculate in emulation mode) */
         if (bUseGPU)
         {
 #ifdef GMX_GPU
-            cu_blockwait_nb(fr->gpu_nb, flags, FALSE, !DOMAINDECOMP(cr),
+            cu_blockwait_nb(fr->gpu_nb, flags, FALSE,
                             enerd->grpp.ener[egLJSR], enerd->grpp.ener[egCOULSR],
                             fr->fshift);
-
-            if (DOMAINDECOMP(cr))
-            {
-                cu_blockwait_nb(fr->gpu_nb, flags, TRUE, TRUE,
-                        enerd->grpp.ener[egLJSR], enerd->grpp.ener[egCOULSR],
-                        fr->fshift);
-            }
-            cu_time_atomdata(fr->gpu_nb);
-#endif  /* GMX_GPU */
+#endif
         }
         else
         {
@@ -1036,46 +1075,25 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
             nsbox_generic_kernel(fr->nbl[0],fr->nbat,fr,
                                  fr->nblists[0].tab.scale,
                                  fr->nblists[0].tab.tab,
-                                 TRUE,
+                                 //TRUE,
+                                 FALSE,
                                  fr->nbat->out[0].f,fr->fshift[0],
                                  enerd->grpp.ener[egCOULSR],
                                  fr->bBHAM ?
                                  enerd->grpp.ener[egBHAMSR] :
                                  enerd->grpp.ener[egLJSR]);
-            if (DOMAINDECOMP(cr))
-            {
-                nsbox_generic_kernel(fr->nbl_nl[0],fr->nbat,fr,
-                                     fr->nblists[0].tab.scale,
-                                     fr->nblists[0].tab.tab,
-                                     FALSE,
-                                     fr->nbat->out[0].f,fr->fshift[0],
-                                     enerd->grpp.ener[egCOULSR],
-                                     fr->bBHAM ?
-                                     enerd->grpp.ener[egBHAMSR] :
-                                     enerd->grpp.ener[egLJSR]);
-            }
         }
-
+        gmx_nb_atomdata_add_nbat_f_to_f(fr->nbs,enbatATOMSlocal,fr->nbat,f);
+#endif
         wallcycle_stop(wcycle,ewcRECV_F_GPU);
-
-        gmx_nb_atomdata_add_nbat_f_to_f(fr->nbs,enbatATOMSall,fr->nbat,f);
     }
 
     if (bDoForces)
     {
-        if (IR_ELEC_FIELD(*inputrec))
-        {
-            /* Compute forces due to electric field */
-            calc_f_el(MASTER(cr) ? field : NULL,
-                      start,homenr,mdatoms->chargeA,x,fr->f_novirsum,
-                      inputrec->ex,inputrec->et,t);
-        }
-
         /* Communicate the forces */
         if (PAR(cr))
         {
             wallcycle_start(wcycle,ewcMOVEF);
-            /* FIXME: remove PD branch this */
             if (DOMAINDECOMP(cr))
             {
                 dd_move_f(cr->dd,f,fr->fshift);
@@ -1101,6 +1119,51 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
             }
             wallcycle_stop(wcycle,ewcMOVEF);
         }
+   }
+ 
+#if 1
+    if (bUseGPU || fr->emulateGPU)
+    {
+        wallcycle_start(wcycle,ewcRECV_F_GPU);
+
+        /* wait for local forces (or calculate in emulation mode) */
+        if (bUseGPU)
+        {
+#ifdef GMX_GPU
+            cu_blockwait_nb(fr->gpu_nb, flags, FALSE,
+                            enerd->grpp.ener[egLJSR], enerd->grpp.ener[egCOULSR],
+                            fr->fshift);
+#endif
+        }
+        else
+        {
+            /* Emulate */
+            nsbox_generic_kernel(fr->nbl[0],fr->nbat,fr,
+                                 fr->nblists[0].tab.scale,
+                                 fr->nblists[0].tab.tab,
+                                 //TRUE,
+                                 !DOMAINDECOMP(cr),
+                                 fr->nbat->out[0].f,fr->fshift[0],
+                                 enerd->grpp.ener[egCOULSR],
+                                 fr->bBHAM ?
+                                 enerd->grpp.ener[egBHAMSR] :
+                                 enerd->grpp.ener[egLJSR]);
+        }
+        gmx_nb_atomdata_add_nbat_f_to_f(fr->nbs,enbatATOMSlocal,fr->nbat,f);
+
+        wallcycle_stop(wcycle,ewcRECV_F_GPU);
+    }
+#endif
+
+    if (bDoForces)
+    {
+        if (IR_ELEC_FIELD(*inputrec))
+        {
+            /* Compute forces due to electric field */
+            calc_f_el(MASTER(cr) ? field : NULL,
+                      start,homenr,mdatoms->chargeA,x,fr->f_novirsum,
+                      inputrec->ex,inputrec->et,t);
+        }
 
         /* If we have NoVirSum forces, but we do not calculate the virial,
          * we sum fr->f_novirum=f later.
@@ -1121,7 +1184,7 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
                 wallcycle_stop(wcycle,ewcVSITESPREAD);
             }
         }
-        
+
         if (flags & GMX_FORCE_VIRIAL)
         {
             /* Calculation of the virial must be done after vsites! */
