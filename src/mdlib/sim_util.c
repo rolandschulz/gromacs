@@ -1006,13 +1006,6 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
 
     if (bUseGPU || fr->emulateGPU)
     {
-#ifdef GMX_GPU
-        if (bUseGPU)
-        {
-            cu_time_atomdata(fr->gpu_nb);
-        }
-#endif
-
         /* wait for non-local forces (or calculate in emulation mode) */
         if (DOMAINDECOMP(cr))
         {
@@ -1046,7 +1039,6 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
             }            
             gmx_nb_atomdata_add_nbat_f_to_f(fr->nbs,enbatATOMSnonlocal,fr->nbat,f);
         }
-
     }
 
     if (bDoForces)
@@ -1117,6 +1109,12 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
             wallcycle_stop(wcycle,ewcFORCE);
         }
         gmx_nb_atomdata_add_nbat_f_to_f(fr->nbs,enbatATOMSlocal,fr->nbat,f);
+#ifdef GMX_GPU
+        if (bUseGPU)
+        {
+            cu_time_atomdata(fr->gpu_nb);
+        }
+#endif
     }
     
     if (DOMAINDECOMP(cr))

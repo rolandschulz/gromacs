@@ -240,9 +240,6 @@ void cu_stream_nb(cu_nonbonded_t cu_nb,
     cudaError_t stat = cudaStreamWaitEvent(stream, timers->stop_clear, 0);
     CU_RET_ERR(stat, "cudaEventElapsedTime on stop_clear failed in cu_blockwait_nb");
 
-    /* beginning of timed nonbonded calculation section */
-    cudaEventRecord(start_nb, stream);
-
     /* beginning of timed HtoD section */
     if (time_trans)
     {
@@ -253,16 +250,13 @@ void cu_stream_nb(cu_nonbonded_t cu_nb,
     upload_cudata_async(adat->xq + adat_begin, nbatom->x + adat_begin * 4,
                         adat_len * sizeof(*adat->xq), stream); 
 
-    /* 0 the outputs */
-//    if (bClearOut)
-//    {
-//        cu_clear_nb_outputs(cu_nb, flags);
-//    }
-
     if (time_trans)
     {
         cudaEventRecord(stop_h2d, stream);
     }
+
+    /* beginning of timed nonbonded calculation section */
+    cudaEventRecord(start_nb, stream);
 
     /* launch async nonbonded calculations */        
     /* size of force buffers in shmem */
@@ -392,23 +386,29 @@ void cu_blockwait_nb(cu_nonbonded_t cu_nb,
     s = cudaEventElapsedTime(&t_tot, start_nb, stop_nb);
     CU_RET_ERR(s, "cudaEventElapsedTime failed in cu_blockwait_nb");
 
-    timings->nb_count++;
+    /* only increase counter once */
+    if (!nonLocal)
+    {
+        timings->nb_count++;
+        timings->k_time[nblist->prune_nbl ? 1 : 0][calc_ene ? 1 : 0].c += 1;
+    }
     
+    /* accumulate kernel and transfer timings */
+    timings->k_time[nblist->prune_nbl ? 1 : 0][calc_ene ? 1 : 0].t += t_tot;
+
+    // FIXME remove the time_transfers conditional 
     if (timers->time_transfers)
     {        
         s = cudaEventElapsedTime(&t, start_h2d, stop_h2d);
         CU_RET_ERR(s, "cudaEventElapsedTime failed in cu_blockwait_nb");
         timings->nb_h2d_time += t;
-        t_tot -= t;
+        // t_tot -= t;
 
         s = cudaEventElapsedTime(&t, start_d2h, stop_d2h);
         CU_RET_ERR(s, "cudaEventElapsedTime failed in cu_blockwait_nb");
         timings->nb_d2h_time += t;
-        t_tot -= t;
+        // t_tot -= t;
     }
-
-    timings->k_time[nblist->prune_nbl ? 1 : 0][calc_ene ? 1 : 0].t += t_tot;
-    timings->k_time[nblist->prune_nbl ? 1 : 0][calc_ene ? 1 : 0].c += 1;
    
     /* turn off neighborlist pruning */
     nblist->prune_nbl = FALSE;
