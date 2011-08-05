@@ -310,16 +310,6 @@ void cu_copyback_nb_data(cu_nonbonded_t cu_nb,
         adat_len    = adat->natoms_local;
     }
 
-    /* transfer of the local part needs to wait for non-local calculation to finish */
-    if (!nonLocal)
-    {
-        // FIXME this includes non-local transfer and it shouldn't 
-        //cudaError_t stat = cudaStreamWaitEvent(stream, timers->stop_nb_nl, 0);
-        //CU_RET_ERR(stat, "cudaEventElapsedTime on stop_nb failed in cu_blockwait_nb");
-        cudaError_t stat = cudaStreamSynchronize(timers->nbstream_nl);
-        CU_RET_ERR(stat, "bahhh");
-    }
-    
     /* beginning of timed D2H section */
     if (time_trans)
     {
@@ -380,7 +370,6 @@ void cu_blockwait_nb(cu_nonbonded_t cu_nb,
     cudaEvent_t start_d2h  = nonLocal ? timers->start_nb_d2h_nl : timers->stop_nb_d2h;
     cudaEvent_t stop_d2h   = nonLocal ? timers->stop_nb_d2h_nl : timers->stop_nb_d2h;
 
-    // XXX cu_blockwait_event(stop_nb, start_nb, &t_tot);
     s = cudaStreamSynchronize(stream);
     CU_RET_ERR(s, "cudaStreamSynchronize failed in cu_blockwait_nb");
     s = cudaEventElapsedTime(&t_tot, start_nb, stop_nb);

@@ -570,6 +570,11 @@ static void post_process_forces(FILE *fplog,
     }
 }
 
+void do_nonbonded_verlet()
+{
+
+}
+
 void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
               t_inputrec *inputrec,
               gmx_large_int_t step,t_nrnb *nrnb,gmx_wallcycle_t wcycle,
@@ -740,7 +745,6 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
             init_cudata_atoms(fr->gpu_nb, fr->nbat, fr->streamGPU);
         }
 
-        /* clear force outputs on the GPU */
         cu_clear_nb_outputs(fr->gpu_nb, fr->nbat, flags);
     }
 #endif
@@ -769,8 +773,10 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
     if (bUseGPU)
     { 
         wallcycle_start(wcycle,ewcSEND_X_GPU);
+
         /* launch local nonbonded F on GPU */ 
         cu_stream_nb(fr->gpu_nb, fr->nbat, flags, FALSE, !fr->streamGPU);
+
         wallcycle_stop(wcycle,ewcSEND_X_GPU);
     }
 #endif
@@ -829,12 +835,15 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
 #ifdef GMX_GPU
     if (bUseGPU)
     {
-        /* launch copy-back of non-local and then local nonbonded F GPU results */
+        /* launch copy-back of non-local or if not running in parallel the local F */
         if (DOMAINDECOMP(cr))
         {
             cu_copyback_nb_data(fr->gpu_nb, fr->nbat, flags, TRUE);
         }
-        cu_copyback_nb_data(fr->gpu_nb, fr->nbat, flags, FALSE);
+        else
+        {
+            cu_copyback_nb_data(fr->gpu_nb, fr->nbat, flags, FALSE);
+        }
     }
 #endif /* GMX_GPU */ 
 
@@ -1024,7 +1033,6 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
             else
             {
                 wallcycle_start_nocount(wcycle,ewcFORCE);
-                
                 nsbox_generic_kernel(fr->nbl_nl[0],fr->nbat,fr,
                         fr->nblists[0].tab.scale,
                         fr->nblists[0].tab.tab,
@@ -1039,6 +1047,16 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
             }            
             gmx_nb_atomdata_add_nbat_f_to_f(fr->nbs,enbatATOMSnonlocal,fr->nbat,f);
         }
+
+#ifdef GMX_GPU
+        if (!fr->emulateGPU)
+        {
+            /* When runing in parallel we can only launch local copy-back after the 
+               non-local is done! (CUDA can't synchronize streams with async operations
+               wrt the CPU).*/
+            cu_copyback_nb_data(fr->gpu_nb, fr->nbat, flags, FALSE);
+        }
+#endif
     }
 
     if (bDoForces)
