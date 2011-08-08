@@ -50,6 +50,7 @@
 #ifdef GMX_THREADS
 #include "tmpi.h"
 #endif
+#include <pat_api.h>
 
 typedef struct
 {
@@ -163,7 +164,7 @@ static void wallcycle_all_stop(gmx_wallcycle_t wc,int ewc,gmx_cycles_t cycle)
 
 void wallcycle_start(gmx_wallcycle_t wc, int ewc)
 {
-    //TODO RJ:P A T _ region _ begin (ewc+1, wcn[ewc]) ;
+    PAT_region_begin (ewc+1, wcn[ewc]);
     gmx_cycles_t cycle;
 
     if (wc == NULL)
@@ -227,7 +228,7 @@ double wallcycle_stop(gmx_wallcycle_t wc, int ewc)
         }
     }
 
-    //TODO RJ:P A T _ region _ end (ewc+1) ;
+    PAT_region_end (ewc+1);
     return last;
 }
 

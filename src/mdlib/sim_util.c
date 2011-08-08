@@ -1588,6 +1588,15 @@ void init_md(FILE *fplog,
         {
         	write_buf->heteroSys = TRUE;
         }
+//	write_buf->heteroSys = TRUE;
+        if (write_buf->heteroSys && MASTER(cr))
+        {
+            printf("This is a HETEROGENEOUS System!\n");
+        }
+        else if (MASTER(cr))
+        {
+            printf("This is a HOMOGENEOUS System!\n");
+        }
     }
 
     if (nfile != -1)

@@ -100,7 +100,7 @@
 #ifdef GMX_FAHCORE
 #include "corewrap.h"
 #endif
-//TODO RJ:#include <pat_api.h>
+#include <pat_api.h>
 
 /* simulation conditions to transmit. Keep in mind that they are 
    transmitted to other nodes through an MPI_Reduce after
@@ -1619,7 +1619,7 @@ double do_md(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
     }
 
     bLastStep = (bRerunMD || (ir->nsteps >= 0 && step_rel > ir->nsteps));
-    //TODO RJ:PAT_record(PAT_STATE_ON);
+    PAT_record(PAT_STATE_ON);
     while (!bLastStep || (bRerunMD && bNotLastFrame)) {
 
         wallcycle_start(wcycle,ewcSTEP);
@@ -2804,7 +2804,7 @@ double do_md(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
     done_mdoutf(outf);
     wallcycle_stop(wcycle,ewcSYNC);
     wallcycle_stop(wcycle,ewcTRAJ);
-    //TODO RJ:PAT_record(PAT_STATE_OFF);
+    PAT_record(PAT_STATE_OFF);
 
     debug_gmx();
 

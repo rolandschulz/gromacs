@@ -52,6 +52,7 @@
 #ifdef GMX_THREADS
 #include "thread_mpi.h"
 #endif
+#include <pat_api.h>
 
 /* afm stuf */
 #include "pull.h"
@@ -637,7 +638,7 @@ int main(int argc,char *argv[])
   ddxyz[YY] = (int)(realddxyz[YY] + 0.5);
   ddxyz[ZZ] = (int)(realddxyz[ZZ] + 0.5);
 
-  //TODO RJ:PAT_record(PAT_STATE_OFF);
+  PAT_record(PAT_STATE_OFF);
 
   rc = mdrunner(nthreads, fplog,cr,NFILE,fnm,oenv,bVerbose,bCompact,
                 nstglobalcomm, ddxyz,dd_node_order,rdd,rconstr,
