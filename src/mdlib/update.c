@@ -1440,8 +1440,8 @@ void update_constraints(FILE         *fplog,
             {
                 inc_nrnb(nrnb,eNR_SHIFTX,graph->nnodes);    
             }
-            copy_rvecn(upd->xp,state->x,start,graph->start);
-            copy_rvecn(upd->xp,state->x,graph->start+graph->nnodes,nrend);
+            copy_rvecn(upd->xp,state->x,start,graph->at_start);
+            copy_rvecn(upd->xp,state->x,graph->at_end,nrend);
         }
         else 
         {
