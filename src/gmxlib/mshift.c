@@ -337,7 +337,6 @@ void mk_graph_ilist(FILE *fplog,
   }
   else {
     g->nnodes = g->at_end - g->at_start;
-    snew(g->ishift,g->nnodes);
     snew(g->nedge,g->nnodes);
     snew(g->edge,g->nnodes);
     /* Allocate a single array and set pointers into it */
@@ -391,6 +390,8 @@ void mk_graph_ilist(FILE *fplog,
 
   sfree(nbond);
 
+  snew(g->ishift,g->natoms);
+
   if (gmx_debug_at)
     p_graph(debug,"graph",g);
 }
@@ -414,12 +415,12 @@ void done_graph(t_graph *g)
   
   GCHECK(g);
   if (g->nnodes > 0) {
-    sfree(g->ishift);
     sfree(g->nedge);
     sfree(g->edge[0]);
     sfree(g->edge);
     sfree(g->egc);
   }
+  sfree(g->ishift);
 }
 
 /************************************************************
