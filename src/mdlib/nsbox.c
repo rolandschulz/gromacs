@@ -1479,6 +1479,10 @@ static void gmx_nb_atomdata_realloc(gmx_nb_atomdata_t *nbat,int n)
                     nbat->natoms*sizeof(nbat->type),
                     n*sizeof(nbat->type),
                     nbat->alloc,nbat->free);
+    nb_realloc_void((void **)&nbat->lj_comb,
+                    nbat->natoms*2*sizeof(nbat->lj_comb),
+                    n*2*sizeof(nbat->lj_comb),
+                    nbat->alloc,nbat->free);
     if (nbat->XFormat != nbatXYZQ)
     {
         nb_realloc_void((void **)&nbat->q,
@@ -3954,6 +3958,7 @@ void gmx_nb_atomdata_init(gmx_nb_atomdata_t *nbat,
 
     nbat->natoms  = 0;
     nbat->type    = NULL;
+    nbat->lj_comb = NULL;
     nbat->XFormat = XFormat;
     nbat->q       = NULL;
     nbat->alloc((void **)&nbat->shift_vec,SHIFTS*sizeof(*nbat->shift_vec));
@@ -3966,6 +3971,27 @@ void gmx_nb_atomdata_init(gmx_nb_atomdata_t *nbat,
     {
         nbat->out[i].f = NULL;
         nbat->alloc((void **)&nbat->out[i].fshift,SHIFTS*DIM*sizeof(nbat->out[i].fshift[0]));
+    }
+}
+
+static void copy_lj_to_nbat_lj_comb(const real *lj,int nlj,
+                                    const int *type,int na,
+                                    real *lj_comb)
+{
+    int is,j,k,i;
+    int ind_d;
+
+    j = 0;
+    for(is=0; is<na; is+=SIMD_WIDTH)
+    {
+        for(k=0; k<SIMD_WIDTH; k++)
+        {
+            i = is + k;
+            /* The index of the diagonal of the type matrix */
+            ind_d = type[i]*(nlj + 1);
+            lj_comb[is*2           +k] = sqrt(lj[ind_d*2  ]);
+            lj_comb[is*2+SIMD_WIDTH+k] = sqrt(lj[ind_d*2+1]);
+        }
     }
 }
 
@@ -3988,6 +4014,10 @@ void gmx_nb_atomdata_set_atomtypes(gmx_nb_atomdata_t *nbat,
 
             copy_int_to_nbat_int(nbs->a+ash,grid->cxy_na[i],ncz*nbs->napc,
                                  type,nbat->ntype-1,nbat->type+ash);
+
+            copy_lj_to_nbat_lj_comb(nbat->nbfp,nbat->ntype,
+                                    nbat->type+ash,ncz*nbs->napc,
+                                    nbat->lj_comb+ash*2);
         }
     }
 }

@@ -151,6 +151,7 @@ typedef struct {
     real *nbfp;   /* The Lennard-Jones C6 and C12 params, size ntype^2  */
     int  natoms;  /* Number of atoms                                    */
     int  *type;   /* Atom types                                         */
+    real *lj_comb;/* LJ parameters per atom for combining for pairs     */
     int  XFormat; /* The format of x (and q), enum                      */
     real *q;      /* Charges, can be NULL if incorporated in x          */
     gmx_bool dynamic_box; /* Do we need to update shift_vec every step? */
