@@ -3912,7 +3912,10 @@ void gmx_nb_atomdata_init(gmx_nb_atomdata_t *nbat,
                           gmx_nbat_alloc_t *alloc,
                           gmx_nbat_free_t  *free)
 {
-    int i,j;
+    int  i,j;
+    real c6,c12,tol;
+    char *ptr;
+    gmx_bool bCombGeom,bCombLB;
 
     if (alloc == NULL)
     {
@@ -3938,6 +3941,47 @@ void gmx_nb_atomdata_init(gmx_nb_atomdata_t *nbat,
     nbat->ntype = ntype + 1;
     nbat->alloc((void **)&nbat->nbfp,
                 nbat->ntype*nbat->ntype*2*sizeof(*nbat->nbfp));
+    nbat->alloc((void **)&nbat->nbfp_comb,nbat->ntype*2*sizeof(*nbat->nbfp_comb));
+
+    /* A tolerance of 1e-5 seems reasonable for (possibly hand-typed)
+     * force-field floating point parameters.
+     */
+    tol = 1e-5;
+    ptr = getenv("GMX_LJCOMB_TOL");
+    if (ptr != NULL)
+    {
+        double dbl;
+
+        sscanf(ptr,"%lf",&dbl);
+        tol = dbl;
+    }
+    bCombGeom = TRUE;
+    bCombLB   = TRUE;
+
+    /* Temporarily fill nbat->nbfp_comb with sigma and epsilon
+     * to check for the LB rule.
+     */
+    for(i=0; i<ntype; i++)
+    {
+        c6  = nbfp[(i*ntype+i)*2  ];
+        c12 = nbfp[(i*ntype+i)*2+1];
+        if (c6 > 0 && c12 > 0)
+        {
+            nbat->nbfp_comb[i*2  ] = pow(c12/c6,1.0/6.0);
+            nbat->nbfp_comb[i*2+1] = 0.25*c6*c6/c12;
+        }
+        else if (c6 == 0 && c12 == 0)
+        {
+            nbat->nbfp_comb[i*2  ] = 0;
+            nbat->nbfp_comb[i*2+1] = 0;
+        }
+        else
+        {
+            /* Can not use LB rule with only dispersion or repulsion */
+            bCombLB = FALSE;
+        }
+    }
+
     for(i=0; i<nbat->ntype; i++)
     {
         for(j=0; j<nbat->ntype; j++)
@@ -3947,8 +3991,21 @@ void gmx_nb_atomdata_init(gmx_nb_atomdata_t *nbat,
                 /* We store the prefactor in the derivative of the potential
                  * in the parameter to avoid multiplications in the inner loop.
                  */
-                nbat->nbfp[(i*nbat->ntype+j)*2  ] =  6.0*nbfp[(i*ntype+j)*2  ];
-                nbat->nbfp[(i*nbat->ntype+j)*2+1] = 12.0*nbfp[(i*ntype+j)*2+1];
+                c6  = nbfp[(i*ntype+j)*2  ];
+                c12 = nbfp[(i*ntype+j)*2+1];
+                nbat->nbfp[(i*nbat->ntype+j)*2  ] =  6.0*c6;
+                nbat->nbfp[(i*nbat->ntype+j)*2+1] = 12.0*c12;
+
+                bCombGeom = bCombGeom &&
+                    gmx_within_tol(c6*c6  ,nbfp[(i*ntype+i)*2  ]*nbfp[(j*ntype+j)*2  ],tol) &&
+                    gmx_within_tol(c12*c12,nbfp[(i*ntype+i)*2+1]*nbfp[(j*ntype+j)*2+1],tol);
+
+                bCombLB = bCombLB &&
+                    ((c6 == 0 && c12 == 0 &&
+                      (nbat->nbfp_comb[i*2+1] == 0 || nbat->nbfp_comb[j*2+1] == 0)) ||
+                     (c6 > 0 && c12 > 0 &&
+                      gmx_within_tol(pow(c12/c6,1.0/6.0),0.5*(nbat->nbfp_comb[i*2]+nbat->nbfp_comb[j*2]),tol) &&
+                      gmx_within_tol(0.25*c6*c6/c12,sqrt(nbat->nbfp_comb[i*2+1]*nbat->nbfp_comb[j*2+1]),tol)));
             }
             else
             {
@@ -3957,6 +4014,56 @@ void gmx_nb_atomdata_init(gmx_nb_atomdata_t *nbat,
                 nbat->nbfp[(i*nbat->ntype+j)*2+1] = 0;
             }
         }
+    }
+    if (debug)
+    {
+        fprintf(debug,"Combination rules: geometric %d Lorentz-Berthelot %d\n",
+                bCombGeom,bCombLB);
+    }
+
+    /* We prefer the geometic combination rule,
+     * as that give a slightly faster kernel than the LB rule.
+     */
+    if (bCombGeom)
+    {
+        nbat->comb_rule = ljcrGEOM;
+
+        for(i=0; i<nbat->ntype; i++)
+        {
+            /* Copy the diagonal from the nbfp matrix */
+            nbat->nbfp_comb[i*2  ] = sqrt(nbat->nbfp[(i*nbat->ntype+i)*2  ]);
+            nbat->nbfp_comb[i*2+1] = sqrt(nbat->nbfp[(i*nbat->ntype+i)*2+1]);
+        }
+    }
+    else if (bCombLB)
+    {
+        nbat->comb_rule = ljcrLB;
+
+        for(i=0; i<nbat->ntype; i++)
+        {
+            /* Get 6*C6 and 12*C12 from the diagonal of the nbfp matrix */
+            c6  = nbat->nbfp[(i*nbat->ntype+i)*2  ];
+            c12 = nbat->nbfp[(i*nbat->ntype+i)*2+1];
+            if (c6 > 0 && c12 > 0)
+            {
+                /* We store 0.5*2^1/6*sigma and sqrt(4*3*eps),
+                 * so we get 6*C6 and 12*C12 after combining.
+                 */
+                nbat->nbfp_comb[i*2  ] = 0.5*pow(c12/c6,1.0/6.0);
+                nbat->nbfp_comb[i*2+1] = sqrt(c6*c6/c12);
+            }
+            else
+            {
+                nbat->nbfp_comb[i*2  ] = 0;
+                nbat->nbfp_comb[i*2+1] = 0;
+            }
+        }
+    }
+    else
+    {
+        nbat->comb_rule = ljcrNONE;
+
+        sfree(nbat->nbfp_comb);
     }
 
     nbat->natoms  = 0;
@@ -3977,53 +4084,22 @@ void gmx_nb_atomdata_init(gmx_nb_atomdata_t *nbat,
     }
 }
 
-static void copy_lj_to_nbat_lj_comb(const real *lj,int nlj,
+static void copy_lj_to_nbat_lj_comb(const real *ljparam_type,
                                     const int *type,int na,
-                                    real *lj_comb)
+                                    real *ljparam_at)
 {
     int is,k,i;
-    int ind_d;
 
-    if (TRUE)
+    /* The LJ params follow the combination rule:
+     * copy the params for the type array to the atom array.
+     */
+    for(is=0; is<na; is+=SIMD_WIDTH)
     {
-        /* Geometric combination rules */
-        for(is=0; is<na; is+=SIMD_WIDTH)
+        for(k=0; k<SIMD_WIDTH; k++)
         {
-            for(k=0; k<SIMD_WIDTH; k++)
-            {
-                i = is + k;
-                /* The index of the diagonal of the type matrix */
-                ind_d = type[i]*(nlj + 1);
-                lj_comb[is*2           +k] = sqrt(lj[ind_d*2  ]);
-                lj_comb[is*2+SIMD_WIDTH+k] = sqrt(lj[ind_d*2+1]);
-            }
-        }
-    }
-    else
-    {
-        real c6,c12;
-
-        /* Lorentz-Berthelot combination rule */
-        for(is=0; is<na; is+=SIMD_WIDTH)
-        {
-            for(k=0; k<SIMD_WIDTH; k++)
-            {
-                i = is + k;
-                /* The index of the diagonal of the type matrix */
-                ind_d = type[i]*(nlj + 1);
-                c6  = lj[ind_d*2  ];
-                c12 = lj[ind_d*2+1];
-                if (c6 == 0 || c12 == 0)
-                {
-                    lj_comb[is*2           +k] = 0;
-                    lj_comb[is*2+SIMD_WIDTH+k] = 0;
-                }
-                else
-                {
-                    lj_comb[is*2           +k] = 0.5*pow(c12/c6,1.0/6.0);
-                    lj_comb[is*2+SIMD_WIDTH+k] = c6*gmx_invsqrt(c12);
-                }
-            }
+            i = is + k;
+            ljparam_at[is*2           +k] = ljparam_type[type[i]*2  ];
+            ljparam_at[is*2+SIMD_WIDTH+k] = ljparam_type[type[i]*2+1];
         }
     }
 }
@@ -4048,9 +4124,12 @@ void gmx_nb_atomdata_set_atomtypes(gmx_nb_atomdata_t *nbat,
             copy_int_to_nbat_int(nbs->a+ash,grid->cxy_na[i],ncz*nbs->napc,
                                  type,nbat->ntype-1,nbat->type+ash);
 
-            copy_lj_to_nbat_lj_comb(nbat->nbfp,nbat->ntype,
-                                    nbat->type+ash,ncz*nbs->napc,
-                                    nbat->lj_comb+ash*2);
+            if (nbat->comb_rule != ljcrNONE)
+            {
+                copy_lj_to_nbat_lj_comb(nbat->nbfp_comb,
+                                        nbat->type+ash,ncz*nbs->napc,
+                                        nbat->lj_comb+ash*2);
+            }
         }
     }
 }

@@ -49,31 +49,40 @@
 
 
 /* All functionality defines are set here, except for:
- * CALC_ENERGIES, which is set before calling these functions,
+ * CALC_ENERGIES, which is set before calling the kernel function,
  * CHECK_EXCLS, which is set just before including the inner loop contents.
+ * The combination rule defines, LJ_COMB_GEOM or LJ_COMB_LB are currently
+ * set before calling the kernel function. We might want to move that
+ * to inside the n-loop and have a different combination rule for different
+ * ci's, as no combination rule gives a 50% performance hit for LJ.
  */
 
 /* Calculate Coulomb interactions */
-//#define CALC_COULOMB
+#define CALC_COULOMB
 
 /* Assumes only the first half of the particles in each cell have LJ */
 //#define HALF_LJ
 
-/* Assumes are LJ parameters are indentical */
+/* Assumes all LJ parameters are indentical */
 //#define FIX_LJ_C
 
-/* Assumes geometric LJ combination rules */
-#define LJ_COMB_GEOM
-
-/* Assumes Lorentz-Berthelot LJ combination rules */
-//#define LJ_COMB_LB
+#if defined LJ_COMB_GEOM
+#define NBK_FUNC_NAME(x,y) x##_comb_geom_##y
+#else
+#if defined LJ_COMB_LB
+#define NBK_FUNC_NAME(x,y) x##_comb_lb_##y
+#else
+#define NBK_FUNC_NAME(x,y) x##_comb_none_##y
+#endif
+#endif
 
 static void
 #ifndef CALC_ENERGIES
-nb_cell_kernel_sse2_single_noener
+NBK_FUNC_NAME(nb_cell_kernel_sse2_single,noener)
 #else
-nb_cell_kernel_sse2_single_ener
+NBK_FUNC_NAME(nb_cell_kernel_sse2_single,ener)
 #endif
+#undef NBK_FUNC_NAME
                             (const gmx_nblist_t         *nbl,
                              const gmx_nb_atomdata_t    *nbat,
                              const t_forcerec *         fr,
