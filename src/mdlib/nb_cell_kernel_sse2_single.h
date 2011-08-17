@@ -167,7 +167,7 @@ nb_cell_kernel_sse2_single_ener
 #endif /* LJ_COMB_LB */
 
     __m128     vctotSSE,VvdwtotSSE;
-    __m128     sixSSE,twelveSSE;
+    __m128     sixthSSE,twelvethSSE;
     __m128i    ikSSE,imSSE,ifourSSE;
     __m128i    ioneSSE;
 
@@ -202,11 +202,13 @@ nb_cell_kernel_sse2_single_ener
     facel               = fr->epsfac;
     shiftvec            = fr->shift_vec[0];
     x                   = nbat->x;
-    
-    sixSSE    = _mm_set1_ps(6.0);
-    twelveSSE = _mm_set1_ps(12.0);
-    ifourSSE  = _mm_set1_epi32(4);
-    ioneSSE   = _mm_set1_epi32(1);
+
+#ifdef CALC_ENERGIES    
+    sixthSSE    = _mm_set1_ps(0.16666667);
+    twelvethSSE = _mm_set1_ps(0.08333333);
+#endif
+    ifourSSE    = _mm_set1_epi32(4);
+    ioneSSE     = _mm_set1_epi32(1);
 
     rc2_SSE   = _mm_set1_ps(nbl->rcut*nbl->rcut);
 

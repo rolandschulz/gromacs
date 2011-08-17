@@ -3944,8 +3944,11 @@ void gmx_nb_atomdata_init(gmx_nb_atomdata_t *nbat,
         {
             if (i < ntype && j < ntype)
             {
-                nbat->nbfp[(i*nbat->ntype+j)*2  ] = nbfp[(i*ntype+j)*2  ];
-                nbat->nbfp[(i*nbat->ntype+j)*2+1] = nbfp[(i*ntype+j)*2+1];
+                /* We store the prefactor in the derivative of the potential
+                 * in the parameter to avoid multiplications in the inner loop.
+                 */
+                nbat->nbfp[(i*nbat->ntype+j)*2  ] =  6.0*nbfp[(i*ntype+j)*2  ];
+                nbat->nbfp[(i*nbat->ntype+j)*2+1] = 12.0*nbfp[(i*ntype+j)*2+1];
             }
             else
             {

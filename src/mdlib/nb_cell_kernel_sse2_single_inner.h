@@ -347,10 +347,10 @@
 #ifdef CALC_COULOMB
             vctotSSE           = _mm_add_ps(vctotSSE, gmx_mm_sum4_ps(vcoul_SSE0,vcoul_SSE1,vcoul_SSE2,vcoul_SSE3));
 #endif
-            VvdwtotSSE         = _mm_add_ps(VvdwtotSSE, gmx_mm_sum4_ps(_mm_sub_ps(Vvdw12_SSE0,Vvdw6_SSE0),
-                                                                    _mm_sub_ps(Vvdw12_SSE1,Vvdw6_SSE1),
-                                                                    _mm_sub_ps(Vvdw12_SSE2,Vvdw6_SSE2),
-                                                                    _mm_sub_ps(Vvdw12_SSE3,Vvdw6_SSE3)));
+            VvdwtotSSE         = _mm_add_ps(VvdwtotSSE, gmx_mm_sum4_ps(_mm_sub_ps(_mm_mul_ps(twelvethSSE,Vvdw12_SSE0),_mm_mul_ps(sixthSSE,Vvdw6_SSE0)),
+                                                                       _mm_sub_ps(_mm_mul_ps(twelvethSSE,Vvdw12_SSE1),_mm_mul_ps(sixthSSE,Vvdw6_SSE1)),
+                                                                       _mm_sub_ps(_mm_mul_ps(twelvethSSE,Vvdw12_SSE2),_mm_mul_ps(sixthSSE,Vvdw6_SSE2)),
+                                                                       _mm_sub_ps(_mm_mul_ps(twelvethSSE,Vvdw12_SSE3),_mm_mul_ps(sixthSSE,Vvdw6_SSE3))));
 #endif
                                                                             
             fscal_SSE0         = _mm_mul_ps(rinvsq_SSE0,
@@ -359,16 +359,14 @@
 #else
                                                      (
 #endif
-                                                      _mm_sub_ps(_mm_mul_ps(twelveSSE,Vvdw12_SSE0),
-                                                                 _mm_mul_ps(sixSSE,Vvdw6_SSE0))));
+                                                      _mm_sub_ps(Vvdw12_SSE0,Vvdw6_SSE0)));
             fscal_SSE1         = _mm_mul_ps(rinvsq_SSE1,
 #ifdef CALC_COULOMB
                                            _mm_add_ps(fcoul_SSE1,
 #else
                                                      (
 #endif
-                                                      _mm_sub_ps(_mm_mul_ps(twelveSSE,Vvdw12_SSE1),
-                                                                 _mm_mul_ps(sixSSE,Vvdw6_SSE1))));
+                                                      _mm_sub_ps(Vvdw12_SSE1,Vvdw6_SSE1)));
 #ifndef HALF_LJ
             fscal_SSE2         = _mm_mul_ps(rinvsq_SSE2,
 #ifdef CALC_COULOMB
@@ -376,16 +374,14 @@
 #else
                                                      (
 #endif
-                                                      _mm_sub_ps(_mm_mul_ps(twelveSSE,Vvdw12_SSE2),
-                                                                 _mm_mul_ps(sixSSE,Vvdw6_SSE2))));
+                                                      _mm_sub_ps(Vvdw12_SSE2,Vvdw6_SSE2)));
             fscal_SSE3         = _mm_mul_ps(rinvsq_SSE3,
 #ifdef CALC_COULOMB
                                            _mm_add_ps(fcoul_SSE3,
 #else
                                                      (
 #endif
-                                                      _mm_sub_ps(_mm_mul_ps(twelveSSE,Vvdw12_SSE3),
-                                                                 _mm_mul_ps(sixSSE,Vvdw6_SSE3))));
+                                                      _mm_sub_ps(Vvdw12_SSE3,Vvdw6_SSE3)));
 #else
             fscal_SSE2         = _mm_mul_ps(rinvsq_SSE2,fcoul_SSE2);
             fscal_SSE3         = _mm_mul_ps(rinvsq_SSE3,fcoul_SSE3);
