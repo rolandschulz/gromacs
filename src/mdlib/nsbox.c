@@ -3978,19 +3978,49 @@ static void copy_lj_to_nbat_lj_comb(const real *lj,int nlj,
                                     const int *type,int na,
                                     real *lj_comb)
 {
-    int is,j,k,i;
+    int is,k,i;
     int ind_d;
 
-    j = 0;
-    for(is=0; is<na; is+=SIMD_WIDTH)
+    if (TRUE)
     {
-        for(k=0; k<SIMD_WIDTH; k++)
+        /* Geometric combination rules */
+        for(is=0; is<na; is+=SIMD_WIDTH)
         {
-            i = is + k;
-            /* The index of the diagonal of the type matrix */
-            ind_d = type[i]*(nlj + 1);
-            lj_comb[is*2           +k] = sqrt(lj[ind_d*2  ]);
-            lj_comb[is*2+SIMD_WIDTH+k] = sqrt(lj[ind_d*2+1]);
+            for(k=0; k<SIMD_WIDTH; k++)
+            {
+                i = is + k;
+                /* The index of the diagonal of the type matrix */
+                ind_d = type[i]*(nlj + 1);
+                lj_comb[is*2           +k] = sqrt(lj[ind_d*2  ]);
+                lj_comb[is*2+SIMD_WIDTH+k] = sqrt(lj[ind_d*2+1]);
+            }
+        }
+    }
+    else
+    {
+        real c6,c12;
+
+        /* Lorentz-Berthelot combination rule */
+        for(is=0; is<na; is+=SIMD_WIDTH)
+        {
+            for(k=0; k<SIMD_WIDTH; k++)
+            {
+                i = is + k;
+                /* The index of the diagonal of the type matrix */
+                ind_d = type[i]*(nlj + 1);
+                c6  = lj[ind_d*2  ];
+                c12 = lj[ind_d*2+1];
+                if (c6 == 0 || c12 == 0)
+                {
+                    lj_comb[is*2           +k] = 0;
+                    lj_comb[is*2+SIMD_WIDTH+k] = 0;
+                }
+                else
+                {
+                    lj_comb[is*2           +k] = 0.5*pow(c12/c6,1.0/6.0);
+                    lj_comb[is*2+SIMD_WIDTH+k] = c6*gmx_invsqrt(c12);
+                }
+            }
         }
     }
 }

@@ -52,10 +52,10 @@
             __m128     tx_SSE1,ty_SSE1,tz_SSE1;
             __m128     tx_SSE2,ty_SSE2,tz_SSE2;
             __m128     tx_SSE3,ty_SSE3,tz_SSE3;
-            __m128     rsq_SSE0,rinv_SSE0,rinvsq_SSE0,rinvsix_SSE0;
-            __m128     rsq_SSE1,rinv_SSE1,rinvsq_SSE1,rinvsix_SSE1;
-            __m128     rsq_SSE2,rinv_SSE2,rinvsq_SSE2,rinvsix_SSE2;
-            __m128     rsq_SSE3,rinv_SSE3,rinvsq_SSE3,rinvsix_SSE3;
+            __m128     rsq_SSE0,rinv_SSE0,rinvsq_SSE0;
+            __m128     rsq_SSE1,rinv_SSE1,rinvsq_SSE1;
+            __m128     rsq_SSE2,rinv_SSE2,rinvsq_SSE2;
+            __m128     rsq_SSE3,rinv_SSE3,rinvsq_SSE3;
             __m128     wco_SSE0;
             __m128     wco_SSE1;
             __m128     wco_SSE2;
@@ -78,14 +78,14 @@
             __m128     vcoul_SSE3;
 #endif
 #endif
-            __m128     Vvdw6_SSE0,Vvdw12_SSE0;
-            __m128     Vvdw6_SSE1,Vvdw12_SSE1;
-            __m128     Vvdw6_SSE2,Vvdw12_SSE2;
-            __m128     Vvdw6_SSE3,Vvdw12_SSE3;
             __m128     fscal_SSE0;
             __m128     fscal_SSE1;
             __m128     fscal_SSE2;
             __m128     fscal_SSE3;
+
+#ifdef LJ_COMB_LB
+            __m128     hsig_j_SSE,seps_j_SSE;
+#endif
 
 #ifdef LJ_COMB_GEOM
             __m128     c6s_j_SSE,c12s_j_SSE;
@@ -97,7 +97,24 @@
             __m128     c6_SSE2,c12_SSE2;
             __m128     c6_SSE3,c12_SSE3;
 #endif
-    
+
+#ifdef LJ_COMB_LB
+            __m128     sir_SSE0,sir2_SSE0,sir6_SSE0;
+            __m128     sir_SSE1,sir2_SSE1,sir6_SSE1;
+            __m128     sir_SSE2,sir2_SSE2,sir6_SSE2;
+            __m128     sir_SSE3,sir2_SSE3,sir6_SSE3;
+#else
+            __m128     rinvsix_SSE0;
+            __m128     rinvsix_SSE1;
+            __m128     rinvsix_SSE2;
+            __m128     rinvsix_SSE3;
+#endif
+
+            __m128     Vvdw6_SSE0,Vvdw12_SSE0;
+            __m128     Vvdw6_SSE1,Vvdw12_SSE1;
+            __m128     Vvdw6_SSE2,Vvdw12_SSE2;
+            __m128     Vvdw6_SSE3,Vvdw12_SSE3;
+   
 
             sj               = cj[sjind].c;
 
@@ -200,6 +217,10 @@
             qq_SSE3            = _mm_mul_ps(iq_SSE3,jq_SSE);
 #endif
 
+#ifdef LJ_COMB_LB
+            hsig_j_SSE         = _mm_load_ps(ljc+ssj*2+0);
+            seps_j_SSE         = _mm_load_ps(ljc+ssj*2+4);
+#else
 #ifdef LJ_COMB_GEOM
             c6s_j_SSE          = _mm_load_ps(ljc+ssj*2+0);
             c12s_j_SSE         = _mm_load_ps(ljc+ssj*2+4);
@@ -248,7 +269,8 @@
             c12_SSE3           = _mm_load_ps(pvdw_c12+3*UNROLLJ);
 #endif
 #endif /* FIX_LJ_C */
-#endif
+#endif /* LJ_COMB_GEOM */
+#endif /* LJ_COMB_LB */
 
             
             rinv_SSE0          = _mm_and_ps(rinv_SSE0,wco_SSE0);
@@ -281,6 +303,28 @@
 #endif            
 
             /* Lennard-Jones interaction */
+#ifdef LJ_COMB_LB
+            sir_SSE0           = _mm_mul_ps(_mm_add_ps(hsig_i_SSE0,hsig_j_SSE),rinv_SSE0);
+            sir_SSE1           = _mm_mul_ps(_mm_add_ps(hsig_i_SSE1,hsig_j_SSE),rinv_SSE1);
+            sir_SSE2           = _mm_mul_ps(_mm_add_ps(hsig_i_SSE2,hsig_j_SSE),rinv_SSE2);
+            sir_SSE3           = _mm_mul_ps(_mm_add_ps(hsig_i_SSE3,hsig_j_SSE),rinv_SSE3);
+            sir2_SSE0          = _mm_mul_ps(sir_SSE0,sir_SSE0);
+            sir2_SSE1          = _mm_mul_ps(sir_SSE1,sir_SSE1);
+            sir2_SSE2          = _mm_mul_ps(sir_SSE2,sir_SSE2);
+            sir2_SSE3          = _mm_mul_ps(sir_SSE3,sir_SSE3);
+            sir6_SSE0          = _mm_mul_ps(sir2_SSE0,_mm_mul_ps(sir2_SSE0,sir2_SSE0));
+            sir6_SSE1          = _mm_mul_ps(sir2_SSE1,_mm_mul_ps(sir2_SSE1,sir2_SSE1));
+            sir6_SSE2          = _mm_mul_ps(sir2_SSE2,_mm_mul_ps(sir2_SSE2,sir2_SSE2));
+            sir6_SSE3          = _mm_mul_ps(sir2_SSE3,_mm_mul_ps(sir2_SSE3,sir2_SSE3));
+            Vvdw6_SSE0         = _mm_mul_ps(_mm_mul_ps(seps_i_SSE0,seps_j_SSE),sir6_SSE0);
+            Vvdw6_SSE1         = _mm_mul_ps(_mm_mul_ps(seps_i_SSE1,seps_j_SSE),sir6_SSE1);
+            Vvdw6_SSE2         = _mm_mul_ps(_mm_mul_ps(seps_i_SSE2,seps_j_SSE),sir6_SSE2);
+            Vvdw6_SSE3         = _mm_mul_ps(_mm_mul_ps(seps_i_SSE3,seps_j_SSE),sir6_SSE3);
+            Vvdw12_SSE0        = _mm_mul_ps(Vvdw6_SSE0,sir6_SSE0);
+            Vvdw12_SSE1        = _mm_mul_ps(Vvdw6_SSE1,sir6_SSE1);
+            Vvdw12_SSE2        = _mm_mul_ps(Vvdw6_SSE2,sir6_SSE2);
+            Vvdw12_SSE3        = _mm_mul_ps(Vvdw6_SSE3,sir6_SSE3);
+#else /* LJ_COMB_LB */
             rinvsix_SSE0       = _mm_mul_ps(rinvsq_SSE0,_mm_mul_ps(rinvsq_SSE0,rinvsq_SSE0));
             rinvsix_SSE1       = _mm_mul_ps(rinvsq_SSE1,_mm_mul_ps(rinvsq_SSE1,rinvsq_SSE1));
             rinvsix_SSE2       = _mm_mul_ps(rinvsq_SSE2,_mm_mul_ps(rinvsq_SSE2,rinvsq_SSE2));
@@ -297,6 +341,7 @@
             Vvdw12_SSE2        = _mm_mul_ps(c12_SSE2,_mm_mul_ps(rinvsix_SSE2,rinvsix_SSE2));
             Vvdw12_SSE3        = _mm_mul_ps(c12_SSE3,_mm_mul_ps(rinvsix_SSE3,rinvsix_SSE3));
 #endif
+#endif /* LJ_COMB_LB */
             
 #ifdef CALC_ENERGIES
 #ifdef CALC_COULOMB

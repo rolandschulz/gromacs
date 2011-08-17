@@ -65,6 +65,9 @@
 /* Assumes geometric LJ combination rules */
 #define LJ_COMB_GEOM
 
+/* Assumes Lorentz-Berthelot LJ combination rules */
+//#define LJ_COMB_LB
+
 static void
 #ifndef CALC_ENERGIES
 nb_cell_kernel_sse2_single_noener
@@ -136,6 +139,14 @@ nb_cell_kernel_sse2_single_ener
 #endif
 #endif
 
+#ifdef LJ_COMB_LB
+    const float *ljc;
+
+    __m128     hsig_i_SSE0,seps_i_SSE0;
+    __m128     hsig_i_SSE1,seps_i_SSE1;
+    __m128     hsig_i_SSE2,seps_i_SSE2;
+    __m128     hsig_i_SSE3,seps_i_SSE3;
+#else
 #ifdef FIX_LJ_C
     __m128     c6_SSE0,c12_SSE0;
     __m128     c6_SSE1,c12_SSE1;
@@ -153,7 +164,8 @@ nb_cell_kernel_sse2_single_ener
     __m128     c6s_SSE3,c12s_SSE3;
 #endif
 #endif
-    
+#endif /* LJ_COMB_LB */
+
     __m128     vctotSSE,VvdwtotSSE;
     __m128     sixSSE,twelveSSE;
     __m128i    ikSSE,imSSE,ifourSSE;
@@ -176,7 +188,7 @@ nb_cell_kernel_sse2_single_ener
     int npair=0;
 #endif
 
-#ifdef LJ_COMB_GEOM
+#if defined LJ_COMB_GEOM || defined LJ_COMB_LB
     ljc = nbat->lj_comb;
 #endif
 
@@ -249,7 +261,7 @@ nb_cell_kernel_sse2_single_ener
     c12_SSE1           = _mm_load_ps(pvdw_c12+1*UNROLLJ);
     c12_SSE2           = _mm_load_ps(pvdw_c12+2*UNROLLJ);
     c12_SSE3           = _mm_load_ps(pvdw_c12+3*UNROLLJ);
-#endif
+#endif /* FIX_LJ_C */
 
     cj = nbl->cj;
 
@@ -292,6 +304,16 @@ nb_cell_kernel_sse2_single_ener
 		iq_SSE3          = _mm_set1_ps(facel*q[ssi+3]);
 #endif
 
+#ifdef LJ_COMB_LB
+        hsig_i_SSE0      = _mm_load1_ps(ljc+ssi*2+0);
+        hsig_i_SSE1      = _mm_load1_ps(ljc+ssi*2+1);
+        hsig_i_SSE2      = _mm_load1_ps(ljc+ssi*2+2);
+        hsig_i_SSE3      = _mm_load1_ps(ljc+ssi*2+3);
+        seps_i_SSE0      = _mm_load1_ps(ljc+ssi*2+4);
+        seps_i_SSE1      = _mm_load1_ps(ljc+ssi*2+5);
+        seps_i_SSE2      = _mm_load1_ps(ljc+ssi*2+6);
+        seps_i_SSE3      = _mm_load1_ps(ljc+ssi*2+7);
+#else
 #ifdef LJ_COMB_GEOM
         c6s_SSE0         = _mm_load1_ps(ljc+ssi*2+0);
         c6s_SSE1         = _mm_load1_ps(ljc+ssi*2+1);
@@ -310,6 +332,7 @@ nb_cell_kernel_sse2_single_ener
         nbfp1 = nbat->nbfp + type[ssi+1]*nbat->ntype*2;
         nbfp2 = nbat->nbfp + type[ssi+2]*nbat->ntype*2;
         nbfp3 = nbat->nbfp + type[ssi+3]*nbat->ntype*2;
+#endif
 #endif
 
 		/* Zero the potential energy for this list */
