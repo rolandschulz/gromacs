@@ -68,7 +68,6 @@
 #include "checkpoint.h"
 #include "mdrun.h"
 #include "xvgr.h"
-#include "gmx_wallcycle.h"
 
 typedef struct gmx_global_stat
 {
@@ -555,8 +554,8 @@ static int copy_state_local(t_state *new_sl,t_state *old_sl)
 	memcpy(new_sl,old_sl,sizeof(t_state));
 	new_sl->cg_gl = cg_gl_new;
 	new_sl->x = x_new;
-	srenew(new_sl->cg_gl,old_sl->cg_gl_nalloc);
-	srenew(new_sl->x,old_sl->nalloc);
+        srenew(new_sl->cg_gl,old_sl->cg_gl_nalloc);
+        srenew(new_sl->x,old_sl->nalloc);
 	memcpy(new_sl->cg_gl, old_sl->cg_gl, sizeof(int) * old_sl->cg_gl_nalloc);
 	memcpy(new_sl->x, old_sl->x, sizeof(rvec) * old_sl->natoms);
 	return 0;
@@ -572,9 +571,8 @@ void write_traj(FILE *fplog,t_commrec *cr,
                 t_state *state_local,t_state *state_global,
                 rvec *f_local,rvec *f_global,
                 int *n_xtc,rvec **x_xtc,
-                t_inputrec *ir, gmx_bool bLastStep,
-                t_write_buffer* write_buf,
-                gmx_wallcycle_t wcycle)
+                t_inputrec *ir, gmx_bool bLastStep, 
+                t_write_buffer* write_buf)
 {
     int     i,j;
     gmx_groups_t *groups;
@@ -593,17 +591,18 @@ void write_traj(FILE *fplog,t_commrec *cr,
          * Each needs its own bufferStep. */
         bufferStep = (step/ir->nstxtcout - (int)ceil((double)write_buf->step_after_checkpoint/ir->nstxtcout)) % cr->nionodes;// bufferStep = step/(how often to write) - (round up) step_at_checkpoint/(how often to write)  MOD (how often we actually do write)
 
-                    /* Write XTC in this step and buffer is full
-                     * OR XTC is written AND we haven't just written because buffer was full
-                     * AND its the last step OR its a checkpoint OR write uncompressed X */
-        writeXTCNow = ((mdof_flags & MDOF_XTC) && bufferStep == cr->nionodes-1)
+        /* Write XTC in this step and buffer is full
+         * OR XTC is written AND we haven't just written because buffer was full
+         * AND its the last step OR its a checkpoint OR write uncompressed X */
+        writeXTCNow  = ((mdof_flags & MDOF_XTC) && bufferStep == cr->nionodes-1)
                     || (ir->nstxtcout>0 && bufferStep>=0 && bufferStep < cr->nionodes-1
                     && (bLastStep || (mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X)));
 
         if (((mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X)) && (mdof_flags & MDOF_XTC))
-        {  /*We collect to the master even if bufferStep is not nionodes-1.
-             The collecting is for CPT/X and
-             is not collected as part of the buffering*/
+        {  
+            /* We collect to the master even if bufferStep is not nionodes-1.
+             * The collecting is for CPT/X and
+             * is not collected as part of the buffering */
              bMasterWritesXTC = TRUE;
              bufferStep--;
         }
@@ -623,7 +622,6 @@ void write_traj(FILE *fplog,t_commrec *cr,
     local_v  = state_local->v;
     global_v = state_global->v;
 
-    wallcycle_start(wcycle, ewcCOLLECT);
     if (DOMAINDECOMP(cr))
     {
         if (mdof_flags & MDOF_CPT)
@@ -662,10 +660,8 @@ void write_traj(FILE *fplog,t_commrec *cr,
                 }
                 if (!bMasterWritesXTC)
                 {
-                    wallcycle_start(wcycle, ewcCOPY);
                     copy_dd(write_buf->dd[bufferStep],cr->dd);
                     copy_state_local(write_buf->state_local[bufferStep],state_local);
-                    wallcycle_stop(wcycle, ewcCOPY);
                 }
             }
 
@@ -676,9 +672,9 @@ void write_traj(FILE *fplog,t_commrec *cr,
                  * for collecting multiple frames like dd_collect_vec_buffered is. */
                 if (write_buf->heteroSys)
                 {
-                	/* Collect each buffered frame to one of the IO nodes.
-                	 * The data is collected to the node with rank write_buf->dd[i]->masterrank. */
-                	for (i = 0; i <= bufferStep; i++)
+                    /* Collect each buffered frame to one of the IO nodes.
+                     * The data is collected to the node with rank write_buf->dd[i]->masterrank. */
+                    for (i = 0; i <= bufferStep; i++)
                     {
                         write_buf->dd[i]->masterrank = cr->dd->iorank2ddrank[i];
                         dd_collect_vec(write_buf->dd[i],write_buf->state_local[i],write_buf->state_local[i]->x,state_global->x);
@@ -746,7 +742,6 @@ void write_traj(FILE *fplog,t_commrec *cr,
             if (mdof_flags & MDOF_F) MX(f_global);
         }
     }
-    wallcycle_stop(wcycle, ewcCOLLECT);
 
     /* The order of write_checkpoint and write_xtc/fwrite_trn is crucial, because the position of the trajectories is stored in the checkpoint.
      * The checkpoint is written before the current step because the current step is written to the trajectory when appending from the checkpoint
@@ -762,21 +757,21 @@ void write_traj(FILE *fplog,t_commrec *cr,
 		{
 		 write_checkpoint(of->fn_cpt,of->bKeepAndNumCPT,
 						  fplog,cr,of->eIntegrator,
-						  of->simulation_part,step,t,state_global,wcycle);
+						  of->simulation_part,step,t,state_global);
 		}
 	 }
 
-     if (writeXTCNow && IONODE(cr)) {  /* this is an IO node (we have to call write_traj on all IO nodes!) */
+     /* this is an IO node (we have to call write_traj on all IO nodes!) */
+     if (writeXTCNow && IONODE(cr)) {
 
 		gmx_bool bWrite = cr->dd->iorank<=bufferStep ||    /* write if this IO node has received data to write */
 				(MASTER(cr) && bMasterWritesXTC);  /* The master only writes if bMasterWritesXTC is true */
 		int write_step;
 		real write_t;
 
-
-		if (bWrite) { /* If this node is one of the writing nodes */
+                /* If this node is one of the writing nodes */
+		if (bWrite) { 
 			groups = &top_global->groups;
-			wallcycle_start(wcycle, ewcGROUP);
 			if (*n_xtc == -1)
 			{
 				*n_xtc = 0;
@@ -809,7 +804,6 @@ void write_traj(FILE *fplog,t_commrec *cr,
 					}
 				}
 			}
-			wallcycle_stop (wcycle, ewcGROUP);
 		}
 		if (bBuffer)
 		{
@@ -823,7 +817,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
 		}
 
 		if (write_xtc(of->fp_xtc,*n_xtc,write_step,write_t,
-				  state_local->box,xxtc,of->xtc_prec,bWrite,wcycle) == 0)
+				  state_local->box,xxtc,of->xtc_prec,bWrite) == 0)
 		{
 			gmx_fatal(FARGS,"XTC error - maybe you are out of quota?");
 		}
@@ -835,7 +829,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
          {
              write_checkpoint(of->fn_cpt,of->bKeepAndNumCPT,
                      fplog,cr,of->eIntegrator,
-                     of->simulation_part,step,t,state_global,wcycle);
+                     of->simulation_part,step,t,state_global);
          }
      }
 

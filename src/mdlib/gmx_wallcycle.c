@@ -50,7 +50,6 @@
 #ifdef GMX_THREADS
 #include "tmpi.h"
 #endif
-#include <pat_api.h>
 
 typedef struct
 {
@@ -77,7 +76,7 @@ typedef struct gmx_wallcycle
 
 /* Each name should not exceed 19 characters */
 static const char *wcn[ewcNR] =
-{ "Run", "Step", "PP during PME", "Domain decomp.", "DD comm. load", "DD comm. bounds", "Vsite constr.", "Send X to PME", "Comm. coord.", "Neighbor search", "Born radii", "Force", "Wait + Comm. F", "PME mesh", "PME redist. X/F", "PME spread/gather", "PME 3D-FFT", "PME solve", "Wait + Comm. X/F", "Wait + Recv. PME F", "Vsite spread", "Write traj.", "Update", "Constraints", "Comm. energies", "MPI IO","SYNC", "Collecting", "Compressing", "Traj. Copy", "Traj. Group", "Test" };
+{ "Run", "Step", "PP during PME", "Domain decomp.", "DD comm. load", "DD comm. bounds", "Vsite constr.", "Send X to PME", "Comm. coord.", "Neighbor search", "Born radii", "Force", "Wait + Comm. F", "PME mesh", "PME redist. X/F", "PME spread/gather", "PME 3D-FFT", "PME solve", "Wait + Comm. X/F", "Wait + Recv. PME F", "Vsite spread", "Write traj.", "Update", "Constraints", "Comm. energies", "Test" };
 
 gmx_bool wallcycle_have_counter(void)
 {
@@ -110,7 +109,6 @@ gmx_wallcycle_t wallcycle_init(FILE *fplog,int resetstep,t_commrec *cr)
             fprintf(fplog,"\nWill call MPI_Barrier before each cycle start/stop call\n\n");
         }
         wc->wc_barrier = TRUE;
-
         wc->mpi_comm_mygroup = cr->mpi_comm_mygroup;
     }
 #endif
@@ -164,7 +162,6 @@ static void wallcycle_all_stop(gmx_wallcycle_t wc,int ewc,gmx_cycles_t cycle)
 
 void wallcycle_start(gmx_wallcycle_t wc, int ewc)
 {
-    PAT_region_begin (ewc+1, wcn[ewc]);
     gmx_cycles_t cycle;
 
     if (wc == NULL)
@@ -228,7 +225,6 @@ double wallcycle_stop(gmx_wallcycle_t wc, int ewc)
         }
     }
 
-    PAT_region_end (ewc+1);
     return last;
 }
 
@@ -250,7 +246,7 @@ void wallcycle_reset_all(gmx_wallcycle_t wc)
     }
 }
 
-void wallcycle_sum(t_commrec *cr, gmx_wallcycle_t wc, double cycles[], double cycles_imbal[])
+void wallcycle_sum(t_commrec *cr, gmx_wallcycle_t wc, double cycles[])
 {
     wallcc_t *wcc;
     double cycles_n[ewcNR],buf[ewcNR],*cyc_all,*buf_all;
@@ -270,30 +266,6 @@ void wallcycle_sum(t_commrec *cr, gmx_wallcycle_t wc, double cycles[], double cy
     if (wcc[ewcDDCOMMBOUND].n > 0)
     {
         wcc[ewcDOMDEC].c -= wcc[ewcDDCOMMBOUND].c;
-    }
-    if (wcc[ewcMPIIO].n > 0)
-    {
-        wcc[ewcTRAJ].c -= wcc[ewcMPIIO].c;
-    }
-    if (wcc[ewcCOPY].n > 0)
-    {
-        wcc[ewcCOLLECT].c -= wcc[ewcCOPY].c;
-    }
-    if (wcc[ewcCOLLECT].n > 0)
-    {
-        wcc[ewcTRAJ].c -= wcc[ewcCOLLECT].c;
-    }
-    if (wcc[ewcCOMPRESS].n > 0)
-    {
-        wcc[ewcTRAJ].c -= wcc[ewcCOMPRESS].c;
-    }
-    if (wcc[ewcSYNC].n > 0)
-    {
-        wcc[ewcTRAJ].c -= wcc[ewcSYNC].c;
-    }
-    if (wcc[ewcGROUP].n > 0)
-    {
-        wcc[ewcTRAJ].c -= wcc[ewcGROUP].c;
     }
     if (cr->npmenodes == 0)
     {
@@ -332,13 +304,9 @@ void wallcycle_sum(t_commrec *cr, gmx_wallcycle_t wc, double cycles[], double cy
         MPI_Allreduce(cycles,buf,ewcNR,MPI_DOUBLE,MPI_SUM,
                       cr->mpi_comm_mysim);
 
-        MPI_Allreduce(cycles,cycles_imbal,ewcNR,MPI_DOUBLE,MPI_MAX,
-                      cr->mpi_comm_mysim);
-
         for(i=0; i<ewcNR; i++)
         {
             cycles[i] = buf[i];
-            cycles_imbal[i] = cycles_imbal[i] * cr->nnodes - buf[i];
         }
 
         if (wc->wcc_all != NULL)
@@ -383,7 +351,7 @@ static gmx_bool subdivision(int ewc)
 }
 
 void wallcycle_print(FILE *fplog, int nnodes, int npme, double realtime,
-		     gmx_wallcycle_t wc, double cycles[], double cycles_imbal[])
+		     gmx_wallcycle_t wc, double cycles[])
 {
     double c2t,tot,sum;
     int    i,j,npp;
@@ -427,13 +395,6 @@ void wallcycle_print(FILE *fplog, int nnodes, int npme, double realtime,
             print_cycles(fplog,c2t,wcn[i],
                          (i==ewcPMEMESH || i==ewcPMEWAITCOMM) ? npme : npp,
                          wc->wcc[i].n,cycles[i],tot);
-            if (cycles_imbal[i] > tot*.005)//If load imbalance is > 1/2 of 1% write a message
-            {
-                sprintf(buf,"%s imbal.",wcn[i]);
-                print_cycles(fplog,c2t,buf,//TODO: Check
-                             (i==ewcPMEMESH || i==ewcPMEWAITCOMM) ? npme : npp,
-                             wc->wcc[i].n,cycles_imbal[i],tot);
-            }
             sum += cycles[i];
         }
     }
@@ -486,19 +447,6 @@ void wallcycle_print(FILE *fplog, int nnodes, int npme, double realtime,
             fprintf(fplog,"\n%s\n",buf);
         }
         /* Only the sim master calls this function, so always print to stderr */
-        fprintf(stderr,"\n%s\n",buf);
-    }
-
-    if (cycles_imbal[ewcTRAJ] > tot*0.05)
-    {
-        sprintf(buf,
-                "NOTE: %d %% of the run time was spent waiting on writing the trajectory,\n"
-                "      you may want to increase the -nionodes option of mdrun\n",
-                (int)(100*cycles_imbal[ewcTRAJ]/tot+0.5));
-        if (fplog)
-        {
-            fprintf(fplog,"\n%s\n",buf);
-        }
         fprintf(stderr,"\n%s\n",buf);
     }
 }

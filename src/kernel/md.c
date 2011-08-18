@@ -100,7 +100,7 @@
 #ifdef GMX_FAHCORE
 #include "corewrap.h"
 #endif
-#include <pat_api.h>
+
 
 /* simulation conditions to transmit. Keep in mind that they are 
    transmitted to other nodes through an MPI_Reduce after
@@ -1619,7 +1619,6 @@ double do_md(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
     }
 
     bLastStep = (bRerunMD || (ir->nsteps >= 0 && step_rel > ir->nsteps));
-    PAT_record(PAT_STATE_ON);
     while (!bLastStep || (bRerunMD && bNotLastFrame)) {
 
         wallcycle_start(wcycle,ewcSTEP);
@@ -2164,7 +2163,7 @@ double do_md(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
             fcRequestCheckPoint();
 #endif
 
-        if (mdof_flags != 0 || bLastStep) // if noconfout is used we still need to enter write traj because some data may be stored in buffers
+        if (mdof_flags != 0 || bLastStep) /* if noconfout is used we still need to enter write traj because some data may be stored in buffers */
         {
             wallcycle_start(wcycle,ewcTRAJ);
             if (bCPT)
@@ -2189,7 +2188,7 @@ double do_md(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
             }
             write_traj(fplog,cr,outf,mdof_flags,top_global,
                     step,t,state,state_global,f,f_global,&n_xtc,
-                    &x_xtc,ir,bLastStep,&write_buf,wcycle);
+                    &x_xtc,ir,bLastStep,&write_buf);
 
             if (bCPT)
             {
@@ -2207,15 +2206,15 @@ double do_md(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
                  */
                 fprintf(stderr,"\nWriting final coordinates.\n");
                 if (ir->ePBC != epbcNONE && !ir->bPeriodicMols &&
-                        DOMAINDECOMP(cr))
+                    DOMAINDECOMP(cr))
                 {
                     /* Make molecules whole only for confout writing */
                     do_pbc_mtop(fplog,ir->ePBC,state->box,top_global,state_global->x);
                 }
                 write_sto_conf_mtop(ftp2fn(efSTO,nfile,fnm),
-                        *top_global->name,top_global,
-                        state_global->x,state_global->v,
-                        ir->ePBC,state->box);
+                                    *top_global->name,top_global,
+                                    state_global->x,state_global->v,
+                                    ir->ePBC,state->box);
                 debug_gmx();
             }
             wallcycle_stop(wcycle,ewcTRAJ);
@@ -2799,12 +2798,8 @@ double do_md(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
                        eprAVER,FALSE,mdebin,fcd,groups,&(ir->opts));
         }
     }
-    wallcycle_start(wcycle,ewcTRAJ);
-    wallcycle_start(wcycle,ewcSYNC);
+
     done_mdoutf(outf);
-    wallcycle_stop(wcycle,ewcSYNC);
-    wallcycle_stop(wcycle,ewcTRAJ);
-    PAT_record(PAT_STATE_OFF);
 
     debug_gmx();
 

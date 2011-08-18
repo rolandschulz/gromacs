@@ -26,7 +26,6 @@
 
 #include <string.h>
 #include <time.h>
-#include "gmx_wallcycle.h"
 
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
@@ -1140,7 +1139,7 @@ static int do_cpt_files(XDR *xd, gmx_bool bRead,
 void write_checkpoint(const char *fn,gmx_bool bNumberAndKeep,
                       FILE *fplog,t_commrec *cr,
                       int eIntegrator,int simulation_part,
-                      gmx_large_int_t step,double t,t_state *state, gmx_wallcycle_t wcycle)
+                      gmx_large_int_t step,double t,t_state *state)
 {
     t_fileio *fp;
     int  file_version;
@@ -1277,20 +1276,11 @@ void write_checkpoint(const char *fn,gmx_bool bNumberAndKeep,
        and all the files it depends on, out to disk. Because we've
        opened the checkpoint with gmx_fio_open(), it's in our list
        of open files.  */
-    if (wcycle != NULL)
-    {
-        wallcycle_start(wcycle, ewcSYNC);
-    }
 #ifdef GMX_THREADS  /* for threads we only want to sync on the master. Otherwise all files get synced n-times*/
     if (MASTER(cr))
 #endif
     {
         ret=gmx_fio_all_output_fsync();
-    }
-
-    if (wcycle != NULL)
-    {
-        wallcycle_stop(wcycle, ewcSYNC);
     }
 
     if (MASTER(cr))

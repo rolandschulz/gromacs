@@ -1361,9 +1361,8 @@ void finish_run(FILE *fplog,t_commrec *cr,const char *confout,
   real   delta_t;
   double nbfs,mflop;
   double cycles[ewcNR];
-  double cycles_imbal[ewcNR];
 
-  wallcycle_sum(cr,wcycle,cycles,cycles_imbal);
+  wallcycle_sum(cr,wcycle,cycles);
 
   if (cr->nnodes > 1) {
     if (SIMMASTER(cr))
@@ -1416,7 +1415,7 @@ void finish_run(FILE *fplog,t_commrec *cr,const char *confout,
 
   if (SIMMASTER(cr)) {
     wallcycle_print(fplog,cr->nnodes,cr->npmenodes,runtime->realtime,
-                    wcycle,cycles,cycles_imbal);
+                    wcycle,cycles);
 
     if (EI_DYNAMICS(inputrec->eI)) {
       delta_t = inputrec->delta_t;
@@ -1538,15 +1537,15 @@ void init_md(FILE *fplog,
 		 * to another, the number of cores is needed for setting up buffers */
         if (cr->nc.bUse)
         {
-		    if (cr->nc.comm_intra != MPI_COMM_NULL)
-		    {
-		        MPI_Comm_size (cr->nc.comm_intra, &intraCommSize);
-		    }
-		    else
-		    {
-		        intraCommSize = 1;
-		        cr->nc.rank_intra = 0;
-		    }
+            if (cr->nc.comm_intra != MPI_COMM_NULL)
+            {
+                MPI_Comm_size (cr->nc.comm_intra, &intraCommSize);
+            }
+            else
+            {
+                intraCommSize = 1;
+                cr->nc.rank_intra = 0;
+            }
 
             /* Checking to see if the system is heterogeneous. */
             if (cr->nc.comm_inter != MPI_COMM_NULL)
@@ -1576,7 +1575,7 @@ void init_md(FILE *fplog,
              * The alltoall_comm will be the same group as nc.rank_inter but with reverse ranks */
             if(!write_buf->heteroSys)
             {
-		        write_buf->coresPerNode = intraCommSize;
+                write_buf->coresPerNode = intraCommSize;
                 MPI_Comm_split (cr->dd->mpi_comm_all, cr->dd->rank/write_buf->coresPerNode, cr->dd->rank, &(write_buf->gather_comm));
                 MPI_Comm_split (cr->mpi_comm_mygroup, cr->nc.rank_intra, cr->dd->iorank, &(write_buf->alltoall_comm));
                 /* iorank is only useful to ionodes, non-ionodes still have ioranks
@@ -1586,16 +1585,7 @@ void init_md(FILE *fplog,
         }
         else
         {
-        	write_buf->heteroSys = TRUE;
-        }
-//	write_buf->heteroSys = TRUE;
-        if (write_buf->heteroSys && MASTER(cr))
-        {
-            printf("This is a HETEROGENEOUS System!\n");
-        }
-        else if (MASTER(cr))
-        {
-            printf("This is a HOMOGENEOUS System!\n");
+            write_buf->heteroSys = TRUE;
         }
     }
 

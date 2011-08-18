@@ -137,15 +137,15 @@ typedef struct {
 /* Used to store data required for buffered writing in write_traj  
 */
 typedef struct {
-        //For both dd and state_local a copy of each buffered step is stored
+        /* For both dd and state_local a copy of each buffered step is stored */
 	gmx_domdec_t **dd;
 	t_state **state_local; 
-	// Step number and time of the buffered frame
+	/* Step number and time of the buffered frame */
 	gmx_large_int_t step; 
 	double t;  
-	//first step of run or first step after checkpoint - required to compute the number of buffered frames
+	/* First step of run or first step after checkpoint - required to compute the number of buffered frames */
 	int step_after_checkpoint;
-	//For collecting dd->cg, cg indices, ncg_home, and nat_home
+	/* For collecting dd->cg, cg indices, ncg_home, and nat_home */
 	MPI_Comm gather_comm, alltoall_comm;
 	int coresPerNode, alltoall_comm_size;
 	gmx_bool heteroSys;
@@ -267,8 +267,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
 		       rvec *f_local,rvec *f_global,
 		       int *n_xtc,rvec **x_xtc,
 		       t_inputrec *ir, gmx_bool bLastStep,
-		       t_write_buffer* write_buf,
-		       gmx_wallcycle_t wcycle);
+		       t_write_buffer* write_buf);
 /* Routine that writes frames to trn, xtc and/or checkpoint.
  * What is written is determined by the mdof_flags defined above.
  * Data is collected to the master node only when necessary.

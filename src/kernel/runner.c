@@ -763,13 +763,12 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
             }
         }
     }
-//TODO RJ: L@@K! We may be having two IO cores on one node....
+
     /*initialize buffered MPI_IO writing */
 #ifdef GMX_LIB_MPI
     if (DOMAINDECOMP(cr) && integrator[inputrec->eI].func == do_md && (cr->duty & DUTY_PP))
     {
-        //const int MAXSTEPS = 100;// The maximum number of steps being buffered
-        const int MAXMEM = 20000000; // This checks that we won't be using more than 20 megabytes for storing frames
+        const int MAXMEM = 20000000; /* This checks that we won't be using more than 20 megabytes for storing frames */
         gmx_bool bIOnode = FALSE;
         int size_inter;
         if (MASTER(cr))
@@ -785,7 +784,8 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
 
             if(cr->nionodes > size_inter)
             {
-                fprintf(fplog,"Warning: you requested the use of %d IO nodes, but there are not enough physical nodes to do that!\nInstead you were given the maximum possible which was %d IO nodes.\n",cr->nionodes, size_inter);
+                fprintf(fplog,"Warning: you requested the use of %d IO nodes, but there are not enough physical nodes to do that!\n"
+                              "Instead you were given the maximum possible which was %d IO nodes.\n",cr->nionodes, size_inter);
                 cr->nionodes = size_inter;
             }
 

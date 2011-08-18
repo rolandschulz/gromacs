@@ -508,7 +508,7 @@ static int gmx_fio_close_locked(t_fileio *fio)
 }
 
 
-// Assumes fio is locked, and reads the file and supports use of MPI
+/* Assumes fio is locked, and reads the file and supports use of MPI */
 static gmx_off_t gmx_fio_int_read(void *buf, size_t size, t_fileio* fio)
 {
     gmx_off_t numread = -1;
@@ -673,21 +673,25 @@ static gmx_off_t gmx_fio_int_ftell(t_fileio* fio, gmx_bool bShared)
         MPI_Offset cur_offset;
         if (bShared)
         {
-            if (MPI_File_get_position_shared(fio->mpi_fh, &cur_offset) != MPI_SUCCESS) // takes the file handle and puts an int into cur_offset
+            /* takes the file handle and puts an int into cur_offset */
+            if (MPI_File_get_position_shared(fio->mpi_fh, &cur_offset) != MPI_SUCCESS) 
             {
                 ret = -1;
             }
         }
         else
         {
-            if (MPI_File_get_position(fio->mpi_fh, &cur_offset) != MPI_SUCCESS) // takes the file handle and puts an int into cur_offset
+            /* takes the file handle and puts an int into cur_offset */
+            if (MPI_File_get_position(fio->mpi_fh, &cur_offset) != MPI_SUCCESS) 
             {
                 ret = -1;
             }
         }
         if (ret != -1)
         {
-            ret = (gmx_off_t) cur_offset; //gmx_off_t is a gmx_large_int_t and cur_offset is an int of type MPI_Offset // NOTE: This will break exactly how it does below for 128 bit!
+            /*gmx_off_t is a gmx_large_int_t and cur_offset is an int of type MPI_Offset */
+            /* NOTE: This will break exactly how it does below for 128 bit! */
+            ret = (gmx_off_t) cur_offset; 
         }
     }
     else
@@ -717,7 +721,7 @@ static int gmx_fio_int_fsync(t_fileio *fio)
         {
             if (rc==0)
             {
-                rc = MPI_File_sync(fio->mpi_fh) != MPI_SUCCESS;// <<< Time consuming
+                rc = MPI_File_sync(fio->mpi_fh) != MPI_SUCCESS;/* <<< Time consuming */
             }
         }
         else
@@ -750,6 +754,7 @@ static int gmx_fio_int_get_file_position(t_fileio *fio, gmx_off_t *offset)
     {
         if (gmx_fio_int_flush(fio))
         {
+            char buf[STRLEN];
             sprintf(
                 buf,
                 "Cannot write file '%s'; maybe you are out of disk space or quota?",
