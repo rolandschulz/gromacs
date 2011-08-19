@@ -3156,7 +3156,7 @@ static int get_max_j4list(const gmx_nbsearch_t nbs,
     
     nj4_est = (int)(0.5*4.0/3.0*M_PI*pow(r_eff_sup,3)*grid->atom_density/(4*nbs->naps) + 0.5);
 
-    if (min_ci_balanced <= 0 || grid->nc >= min_ci_balanced)
+    if (min_ci_balanced <= 0 || grid->nc >= min_ci_balanced || grid->nc == 0)
     {
         /* We don't need to worry */
         max_j4list = -1;
