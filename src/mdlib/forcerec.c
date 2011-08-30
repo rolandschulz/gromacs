@@ -1391,7 +1391,7 @@ static void set_nsbox_cutoffs(FILE *fp,t_forcerec *fr,real nblist_lifetime)
     double rbuf;
 
     fr->rcut_nsbox  = fr->rcoulomb;
-                
+    fr->rlist_nsbox = fr->rlist;
     env = getenv("GMX_NSBOX_BUF");
     if (env != NULL)
     {
@@ -1410,7 +1410,6 @@ static void set_nsbox_cutoffs(FILE *fp,t_forcerec *fr,real nblist_lifetime)
         gmx_fatal(FARGS,"nsbox does not support rcoulomb != rvdw");
     }
     fr->rcut_nsbox  = fr->rcoulomb;
-    fr->rlist_nsbox = fr->rlist;
     rbuf = fr->rlist_nsbox - fr->rcut_nsbox;
 
     if (fp != NULL)
