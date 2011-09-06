@@ -809,7 +809,7 @@ void unshift_x(t_graph *g,matrix box,rvec x[],rvec x_s[])
   is = g->ishift;
 
   for(j=0; j<g0; j++) {
-    copy_rvec(x[j],x_s[j]);
+    copy_rvec(x_s[j],x[j]);
   }
 
   if(TRICLINIC(box)) {
@@ -835,7 +835,7 @@ void unshift_x(t_graph *g,matrix box,rvec x[],rvec x_s[])
   }
 
   for(j=g1; j<g->natoms; j++) {
-    copy_rvec(x[j],x_s[j]);
+    copy_rvec(x_s[j],x[j]);
   }
 }
 
