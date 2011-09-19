@@ -49,6 +49,7 @@
 #include "pbc.h"
 #include "nsbox.h"
 #include "gmx_cyclecounter.h"
+#include "gmxfio.h"
 
 #ifdef GMX_OPENMP
 #include <omp.h>
@@ -1487,6 +1488,15 @@ static void calc_cell_indices(const gmx_nbsearch_t nbs,
         }
     }
 
+    if (!nbs->simple)
+    {
+        grid->nsubc_tot = 0;
+        for(i=0; i<grid->nc; i++)
+        {
+            grid->nsubc_tot += grid->nsubc[i];
+        }
+    }
+
     if (debug)
     {
         if (nbs->simple)
@@ -1495,13 +1505,6 @@ static void calc_cell_indices(const gmx_nbsearch_t nbs,
         }
         else
         {
-            int c;
-            
-            grid->nsubc_tot = 0;
-            for(c=0; c<grid->nc; c++)
-            {
-                grid->nsubc_tot += grid->nsubc[c];
-            }
             fprintf(debug,"ns non-zero sub-cells: %d average atoms %.2f\n",
                     grid->nsubc_tot,(a1-a0)/(double)grid->nsubc_tot);
             
@@ -2378,6 +2381,32 @@ static void print_nblist_statistics_supersub(FILE *fp,const gmx_nblist_t *nbl,
     }
 }
 
+static void print_supersub_nsp(const char *fn,const gmx_nblist_t *nbl)
+{
+    FILE *fp;
+    int i,nsp,j4,p;
+
+    fp = ffopen(fn,"w");
+
+    for(i=0; i<nbl->nci; i++)
+    {
+        nsp = 0;
+        for(j4=nbl->ci[i].sj4_ind_start; j4<nbl->ci[i].sj4_ind_end; j4++)
+        {
+            for(p=0; p<4*NSUBCELL; p++)
+            {
+                nsp += (nbl->sj4[j4].imei[0].imask >> p) & 1;
+            }
+        }
+        fprintf(fp,"%4d %3d %3d\n",
+                i,
+                nsp,
+                nbl->ci[i].sj4_ind_end-nbl->ci[i].sj4_ind_start);
+    }
+
+    fclose(fp);
+}
+
 static void low_get_nbl_exclusions(gmx_nblist_t *nbl,int sj4,
                                    int warp,gmx_nbl_excl_t **excl)
 {
@@ -3052,12 +3081,104 @@ static void close_ci_entry_simple(gmx_nblist_t *nbl)
     }
 }
 
+static void split_ci_entry(gmx_nblist_t *nbl,
+                           int max_nsp_av,int nc_bal,
+                           int thread,int nthread)
+{
+    int nci_est;
+    int max_nsp;
+    int sj4_start,sj4_end,j4len,sj4;
+    int cci;
+    int nsp,nsp_ci,nsp_sj4,nsp_sj4_e,nsp_sj4_p;
+    int p;
+
+    /* Estimate the total numbers of ci's of the nblist combined
+     * over all threads using the target number of ci's.
+     */
+    nci_est = nc_bal*thread/nthread + nbl->nci;
+    /* The first ci blocks should be larger, to avoid overhead.
+     * The last ci blocks should be smaller, to improve load balancing.
+     */
+    max_nsp = max(1,
+                  max_nsp_av*nc_bal*3/(2*(nci_est - 1 + nc_bal)));
+
+    sj4_start = nbl->ci[nbl->nci-1].sj4_ind_start;
+    sj4_end   = nbl->ci[nbl->nci-1].sj4_ind_end;
+    j4len = sj4_end - sj4_start;
+
+    if (j4len > 1 && j4len*NSUBCELL*4 > max_nsp)
+    {
+        /* Remove the last ci entry and process the sj4's again */
+        nbl->nci -= 1;
+
+        cci       = nbl->nci;
+        sj4       = sj4_start;
+        nsp       = 0;
+        nsp_ci    = 0;
+        nsp_sj4_e = 0;
+        nsp_sj4   = 0;
+        while (sj4 < sj4_end)
+        {
+            nsp_sj4_p = nsp_sj4;
+            nsp_sj4   = 0;
+            for(p=0; p<NSUBCELL*4; p++)
+            {
+                nsp_sj4 += (nbl->sj4[sj4].imei[0].imask >> p) & 1;
+            }
+            nsp += nsp_sj4;
+
+            if (nsp > max_nsp)
+            {
+                nbl->ci[cci].sj4_ind_end = sj4;
+                cci++;
+                nbl->nci++;
+                if (nbl->nci+1 > nbl->ci_nalloc)
+                {
+                    nb_realloc_ci(nbl,nbl->nci+1);
+                }
+                nbl->ci[cci].ci            = nbl->ci[nbl->nci-1].ci;
+                nbl->ci[cci].shift         = nbl->ci[nbl->nci-1].shift;
+                nbl->ci[cci].sj4_ind_start = sj4;
+                nsp_ci    = nsp - nsp_sj4;
+                nsp_sj4_e = nsp_sj4_p;
+                nsp       = nsp_sj4;
+            }
+
+            sj4++;
+        }
+
+        /* Check if the remaining pairs can be added to the last ci */ 
+        if (nsp_ci > 0 && 2*(nsp_ci + nsp) < 3*nsp_target)
+        {
+             /* Add the remaining sj4's to the last ci entry */
+            nbl->ci[nbl->nci-1].sj4_ind_end = sj4_end;
+        }
+        else
+        {
+            /* Put the remaining sj4's in a new ci entry */
+            nbl->ci[cci].sj4_ind_end = sj4_end;
+
+            /* Possibly balance out the last two ci's
+             * by moving the last sj4 of the second last ci.
+             */
+            if (nsp_ci > 0 && nsp_ci - nsp_sj4_e >= nsp + nsp_sj4_e)
+            {
+                nbl->ci[cci-1].sj4_ind_end--;
+                nbl->ci[cci].sj4_ind_start--;
+            }
+
+            cci++;
+            nbl->nci++;
+        }
+    }
+}
+
 static void close_ci_entry_supersub(gmx_nblist_t *nbl,
-                                    int max_j4list_av,int nc_bal)
+                                    int max_nsp_av,int nc_bal,
+                                    int thread,int nthread)
 {
     int j4len,tlen;
     int nb,b;
-    int max_j4list;
 
     /* All content of the new ci entry have already been filled correctly,
      * we only need to increase the count here (for non empty lists).
@@ -3073,41 +3194,9 @@ static void close_ci_entry_supersub(gmx_nblist_t *nbl,
 
         nbl->nci++;
 
-        if (max_j4list_av > 0)
+        if (max_nsp_av > 0)
         {
-            /* The first ci blocks should be larger, to avoid overhead.
-             * The last ci blocks should be smaller, to improve load balancing.
-             */
-            max_j4list = max(1,
-                             max_j4list_av*nc_bal*3/(2*(nbl->nci - 1 + nc_bal)));
-
-            if (j4len > max_j4list)
-            {
-                /* Split ci in the minimum number of blocks <=jlen */
-                nb = (j4len + max_j4list - 1)/max_j4list;
-                /* Make blocks similar sized, last one smallest */
-                tlen = (j4len + nb - 1)/nb;
-                
-                if (nbl->nci + nb - 1 > nbl->ci_nalloc)
-                {
-                    nb_realloc_ci(nbl,nbl->nci+nb-1);
-                }
-                
-                /* Set the end of the last block to the current end */
-                nbl->ci[nbl->nci+nb-2].sj4_ind_end =
-                    nbl->ci[nbl->nci-1].sj4_ind_end;
-
-                for(b=1; b<nb; b++)
-                {
-                    nbl->ci[nbl->nci-1].sj4_ind_end =
-                        nbl->ci[nbl->nci-1].sj4_ind_start + tlen;
-                    nbl->ci[nbl->nci].sj4_ind_start =
-                        nbl->ci[nbl->nci-1].sj4_ind_end;
-                    nbl->ci[nbl->nci].ci            = nbl->ci[nbl->nci-1].ci;
-                    nbl->ci[nbl->nci].shift         = nbl->ci[nbl->nci-1].shift;
-                    nbl->nci++;
-                }
-            }
+            split_ci_entry(nbl,max_nsp_av,nc_bal,thread,nthread);
         }
     }
 }
@@ -3248,49 +3337,56 @@ static void icell_set_x_supersub_sse8(int ci,
     }
 }
 
-static int get_max_j4list(const gmx_nbsearch_t nbs,
-                          gmx_nblist_t *nbl,
-                          int min_ci_balanced)
+static int get_max_nsubpair(const gmx_nbsearch_t nbs,
+                            gmx_nblist_t *nbl,
+                            int min_ci_balanced)
 {
     const gmx_nbs_grid_t *grid;
-    real xy_diag,r_eff_sup;
-    int  nj4_est,nparts;
-    int  max_j4list;
+    rvec ls;
+    real xy_diag2,r_eff_sup,vol_est,nsp_est;
+    int  max_nsubpair;
 
     grid = &nbs->grid[0];
 
-    /* The average diagonal of a super cell */
-    xy_diag = sqrt(sqr(nbs->box[XX][XX]/grid->ncx) +
-                   sqr(nbs->box[YY][YY]/grid->ncy) +
-                   sqr(nbs->box[ZZ][ZZ]*grid->ncx*grid->ncy/grid->nc));
+    ls[XX] = nbs->box[XX][XX]/(grid->ncx*NSUBCELL_X);
+    ls[YY] = nbs->box[YY][YY]/(grid->ncy*NSUBCELL_Y);
+    ls[ZZ] = nbs->box[ZZ][ZZ]*grid->ncx*grid->ncy/(grid->nc*NSUBCELL_Z);
 
-    /* The formulas below are a heuristic estimate of the average nj per ci*/
-    r_eff_sup = nbl->rlist + 0.4*xy_diag;
+    /* The average squared length of the diagonal of a sub cell */
+    xy_diag2 = ls[XX]*ls[XX] + ls[YY]*ls[YY] + ls[ZZ]*ls[ZZ];
+
+    /* The formulas below are a heuristic estimate of the average nsj per si*/
+    r_eff_sup = nbl->rlist + 0.25*sqrt(xy_diag2);
     
-    nj4_est = (int)(0.5*4.0/3.0*M_PI*pow(r_eff_sup,3)*grid->atom_density/(4*nbs->naps) + 0.5);
+    /* Sub-cell interacts with itself */
+    vol_est  = ls[XX]*ls[YY]*ls[ZZ];
+    /* 6/2 rectangular volume on the faces */
+    vol_est += xy_diag2*r_eff_sup;
+    /* 12/2 quarter pie slices on the edges */
+    vol_est += 2*(ls[XX] + ls[YY] + ls[ZZ])*0.25*M_PI*sqr(r_eff_sup);
+    /* 4 octants of a sphere */
+    vol_est += 0.5*4.0/3.0*M_PI*pow(r_eff_sup,3);
+
+    nsp_est = grid->nsubc_tot*vol_est*grid->atom_density/nbs->naps;
 
     if (min_ci_balanced <= 0 || grid->nc >= min_ci_balanced || grid->nc == 0)
     {
         /* We don't need to worry */
-        max_j4list = -1;
+        max_nsubpair = -1;
     }
     else
     {
-        /* Estimate the number of parts we need to cut each full list
-         * for one i super cell into.
-         */
-        nparts = (min_ci_balanced + grid->nc - 1)/grid->nc;
         /* Thus the (average) maximum j-list size should be as follows */
-        max_j4list = max(1,(nj4_est + nparts - 1)/nparts);
+        max_nsubpair = max(1,(int)(nsp_est/min_ci_balanced+0.5));
     }
 
     if (debug)
     {
-        fprintf(debug,"nbl nj4 estimate %d, max_j4list %d\n",
-                nj4_est,max_j4list);
+        fprintf(debug,"nbl nsp estimate %.1f, max_nsubpair %d\n",
+                nsp_est,max_nsubpair);
     }
 
-    return max_j4list;
+    return max_nsubpair;
 }
 
 static void print_nblist_ci_cj(FILE *fp,const gmx_nblist_t *nbl)
@@ -3501,7 +3597,7 @@ static void gmx_nbsearch_make_nblist_part(const gmx_nbsearch_t nbs,
                                           int th,int nth,
                                           gmx_nblist_t *nbl)
 {
-    int  max_j4list;
+    int  max_nsubpair=0;
     matrix box;
     real rl2,rbb2;
     int  d;
@@ -3537,7 +3633,10 @@ static void gmx_nbsearch_make_nblist_part(const gmx_nbsearch_t nbs,
 
     nbl->rlist  = rlist;
 
-    max_j4list = get_max_j4list(nbs,nbl,min_ci_balanced);
+    if (!nbs->simple)
+    {
+        max_nsubpair = get_max_nsubpair(nbs,nbl,min_ci_balanced);
+    }
 
     copy_mat(nbs->box,box);
 
@@ -3911,7 +4010,9 @@ static void gmx_nbsearch_make_nblist_part(const gmx_nbsearch_t nbs,
                     }
                     else
                     {
-                        close_ci_entry_supersub(nbl,max_j4list,min_ci_balanced);
+                        close_ci_entry_supersub(nbl,
+                                                max_nsubpair,min_ci_balanced,
+                                                th,nth);
                     }
                 }
             }
@@ -4021,6 +4122,10 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
 
                 nbs_cycle_stop(&nbs->cc[enbsCCcombine]);
             }
+
+            /*
+            print_supersub_nsp("nsubpair.xvg",nbl[0]);
+            */
         }
     }
 
