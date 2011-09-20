@@ -2381,12 +2381,16 @@ static void print_nblist_statistics_supersub(FILE *fp,const gmx_nblist_t *nbl,
     }
 }
 
-static void print_supersub_nsp(const char *fn,const gmx_nblist_t *nbl)
+static void print_supersub_nsp(const char *fn,
+                               const gmx_nblist_t *nbl,
+                               gmx_bool nonLocal)
 {
+    char buf[STRLEN];
     FILE *fp;
     int i,nsp,j4,p;
 
-    fp = ffopen(fn,"w");
+    sprintf(buf,"%s_%s.xvg",fn,nonLocal ? "nl" : "l");
+    fp = ffopen(buf,"w");
 
     for(i=0; i<nbl->nci; i++)
     {
@@ -3082,7 +3086,7 @@ static void close_ci_entry_simple(gmx_nblist_t *nbl)
 }
 
 static void split_ci_entry(gmx_nblist_t *nbl,
-                           int max_nsp_av,int nc_bal,
+                           int max_nsp_av,gmx_bool progBal,int nc_bal,
                            int thread,int nthread)
 {
     int nci_est;
@@ -3096,11 +3100,18 @@ static void split_ci_entry(gmx_nblist_t *nbl,
      * over all threads using the target number of ci's.
      */
     nci_est = nc_bal*thread/nthread + nbl->nci;
-    /* The first ci blocks should be larger, to avoid overhead.
-     * The last ci blocks should be smaller, to improve load balancing.
-     */
-    max_nsp = max(1,
-                  max_nsp_av*nc_bal*3/(2*(nci_est - 1 + nc_bal)));
+    if (progBal)
+    {
+        /* The first ci blocks should be larger, to avoid overhead.
+         * The last ci blocks should be smaller, to improve load balancing.
+         */
+        max_nsp = max(1,
+                      max_nsp_av*nc_bal*3/(2*(nci_est - 1 + nc_bal)));
+    }
+    else
+    {
+        max_nsp = max_nsp_av;
+    }
 
     sj4_start = nbl->ci[nbl->nci-1].sj4_ind_start;
     sj4_end   = nbl->ci[nbl->nci-1].sj4_ind_end;
@@ -3127,7 +3138,7 @@ static void split_ci_entry(gmx_nblist_t *nbl,
             }
             nsp += nsp_sj4;
 
-            if (nsp > max_nsp)
+            if (nsp > max_nsp && nsp > nsp_sj4)
             {
                 nbl->ci[cci].sj4_ind_end = sj4;
                 cci++;
@@ -3174,7 +3185,7 @@ static void split_ci_entry(gmx_nblist_t *nbl,
 }
 
 static void close_ci_entry_supersub(gmx_nblist_t *nbl,
-                                    int max_nsp_av,int nc_bal,
+                                    int max_nsp_av,gmx_bool progBal,int nc_bal,
                                     int thread,int nthread)
 {
     int j4len,tlen;
@@ -3196,7 +3207,7 @@ static void close_ci_entry_supersub(gmx_nblist_t *nbl,
 
         if (max_nsp_av > 0)
         {
-            split_ci_entry(nbl,max_nsp_av,nc_bal,thread,nthread);
+            split_ci_entry(nbl,max_nsp_av,progBal,nc_bal,thread,nthread);
         }
     }
 }
@@ -3337,37 +3348,112 @@ static void icell_set_x_supersub_sse8(int ci,
     }
 }
 
+static real nonlocal_vol2(const gmx_domdec_zones_t *zones,rvec ls,real r)
+{
+    int  z,d;
+    real cl,ca,za;
+    real vold_est;
+    real vol2_est_tot;
+
+    vol2_est_tot = 0;
+
+    /* Here we simply add up the volumes of 1, 2 or 3 1D decomposition
+     * not home interaction volume^2. As these volumes are not additive,
+     * this is an overestimate, but it would only be significant in the limit
+     * of small cells, where we anyhow need to split the lists into
+     * as small parts as possible.
+     */
+
+    for(z=0; z<zones->n; z++)
+    {
+        if (zones->shift[z][XX] + zones->shift[z][YY] + zones->shift[z][ZZ] == 1)
+        {
+            cl = 0;
+            ca = 1;
+            za = 1;
+            for(d=0; d<DIM; d++)
+            {
+                if (zones->shift[z][d] == 0)
+                {
+                    cl += 0.5*ls[d];
+                    ca *= ls[d];
+                    za *= zones->size[z].x1[d] - zones->size[z].x0[d];
+                }
+            }
+
+            /* 4 octants of a sphere */
+            vold_est  = 0.25*M_PI*r*r*r*r;
+            /* 4 quarter pie slices on the edges */
+            vold_est += 4*cl*M_PI/6.0*r*r*r;
+            /* One rectangular volume on a face */
+            vold_est += ca*0.5*r*r;
+
+            vol2_est_tot += vold_est*za;
+        }
+    }
+
+    return vol2_est_tot;
+}
+
 static int get_max_nsubpair(const gmx_nbsearch_t nbs,
-                            gmx_nblist_t *nbl,
+                            gmx_bool nonLocal,
+                            real rlist,
                             int min_ci_balanced)
 {
     const gmx_nbs_grid_t *grid;
     rvec ls;
-    real xy_diag2,r_eff_sup,vol_est,nsp_est;
+    real xy_diag2,r_eff_sup,vol_est,nsp_est,nsp_est_nl;
     int  max_nsubpair;
 
     grid = &nbs->grid[0];
 
-    ls[XX] = nbs->box[XX][XX]/(grid->ncx*NSUBCELL_X);
-    ls[YY] = nbs->box[YY][YY]/(grid->ncy*NSUBCELL_Y);
-    ls[ZZ] = nbs->box[ZZ][ZZ]*grid->ncx*grid->ncy/(grid->nc*NSUBCELL_Z);
+    ls[XX] = (grid->c1[XX] - grid->c0[XX])/(grid->ncx*NSUBCELL_X);
+    ls[YY] = (grid->c1[YY] - grid->c0[YY])/(grid->ncy*NSUBCELL_Y);
+    ls[ZZ] = (grid->c1[ZZ] - grid->c0[ZZ])*grid->ncx*grid->ncy/(grid->nc*NSUBCELL_Z);
 
     /* The average squared length of the diagonal of a sub cell */
     xy_diag2 = ls[XX]*ls[XX] + ls[YY]*ls[YY] + ls[ZZ]*ls[ZZ];
 
     /* The formulas below are a heuristic estimate of the average nsj per si*/
-    r_eff_sup = nbl->rlist + 0.25*sqrt(xy_diag2);
-    
-    /* Sub-cell interacts with itself */
-    vol_est  = ls[XX]*ls[YY]*ls[ZZ];
-    /* 6/2 rectangular volume on the faces */
-    vol_est += xy_diag2*r_eff_sup;
-    /* 12/2 quarter pie slices on the edges */
-    vol_est += 2*(ls[XX] + ls[YY] + ls[ZZ])*0.25*M_PI*sqr(r_eff_sup);
-    /* 4 octants of a sphere */
-    vol_est += 0.5*4.0/3.0*M_PI*pow(r_eff_sup,3);
+    r_eff_sup = rlist + 0.25*sqrt(xy_diag2);
 
-    nsp_est = grid->nsubc_tot*vol_est*grid->atom_density/nbs->naps;
+    if (!nbs->DomDec || nbs->zones->n == 1)
+    {
+        nsp_est_nl = 0;
+    }
+    else
+    {
+        nsp_est_nl =
+            sqr(grid->atom_density/nbs->naps)*
+            nonlocal_vol2(nbs->zones,ls,r_eff_sup);
+    }
+
+    if (!nonLocal)
+    {
+        /* Sub-cell interacts with itself */
+        vol_est  = ls[XX]*ls[YY]*ls[ZZ];
+        /* 6/2 rectangular volume on the faces */
+        vol_est += xy_diag2*r_eff_sup;
+        /* 12/2 quarter pie slices on the edges */
+        vol_est += 2*(ls[XX] + ls[YY] + ls[ZZ])*0.25*M_PI*sqr(r_eff_sup);
+        /* 4 octants of a sphere */
+        vol_est += 0.5*4.0/3.0*M_PI*pow(r_eff_sup,3);
+
+        nsp_est = grid->nsubc_tot*vol_est*grid->atom_density/nbs->naps;
+
+        /* Subtract the non-local pair count */
+        nsp_est -= nsp_est_nl;
+
+        if (debug)
+        {
+            fprintf(debug,"nsp_est local %5.1f non-local %5.1f\n",
+                    nsp_est,nsp_est_nl);
+        }
+    }
+    else
+    {
+        nsp_est = nsp_est_nl;
+    }
 
     if (min_ci_balanced <= 0 || grid->nc >= min_ci_balanced || grid->nc == 0)
     {
@@ -3593,11 +3679,12 @@ static void gmx_nbsearch_make_nblist_part(const gmx_nbsearch_t nbs,
                                           const gmx_nb_atomdata_t *nbat,
                                           const t_blocka *excl,
                                           real rlist,
+                                          int max_nsubpair,
+                                          gmx_bool progBal,
                                           int min_ci_balanced,
                                           int th,int nth,
                                           gmx_nblist_t *nbl)
 {
-    int  max_nsubpair=0;
     matrix box;
     real rl2,rbb2;
     int  d;
@@ -3632,11 +3719,6 @@ static void gmx_nbsearch_make_nblist_part(const gmx_nbsearch_t nbs,
     nbl->TwoWay = FALSE;
 
     nbl->rlist  = rlist;
-
-    if (!nbs->simple)
-    {
-        max_nsubpair = get_max_nsubpair(nbs,nbl,min_ci_balanced);
-    }
 
     copy_mat(nbs->box,box);
 
@@ -4011,7 +4093,8 @@ static void gmx_nbsearch_make_nblist_part(const gmx_nbsearch_t nbs,
                     else
                     {
                         close_ci_entry_supersub(nbl,
-                                                max_nsubpair,min_ci_balanced,
+                                                max_nsubpair,
+                                                progBal,min_ci_balanced,
                                                 th,nth);
                     }
                 }
@@ -4048,6 +4131,7 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
 {
     const gmx_nbs_grid_t *gridi,*gridj;
     int nzi,zi,zj0,zj1,zj;
+    int max_nsubpair;
     int nth,th;
 
     if (debug)
@@ -4065,6 +4149,15 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
     else
     {
         nzi = nbs->zones->nizone;
+    }
+
+    if (!nbs->simple && min_ci_balanced > 0)
+    {
+        max_nsubpair = get_max_nsubpair(nbs,nonLocal,rlist,min_ci_balanced);
+    }
+    else
+    {
+        max_nsubpair = 0;
     }
 
     /* Clear all the neighbor lists */
@@ -4108,7 +4201,10 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
                 /* Divide the i super cell equally over the nblists */
                 gmx_nbsearch_make_nblist_part(nbs,gridi,gridj,
                                               &nbs->work[th],nbat,excl,
-                                              rlist,min_ci_balanced,
+                                              rlist,
+                                              max_nsubpair,
+                                              (!nonLocal || nbs->zones->n <= 2),
+                                              min_ci_balanced,
                                               th,nnbl,
                                               nbl[th]);
             }
@@ -4122,12 +4218,12 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
 
                 nbs_cycle_stop(&nbs->cc[enbsCCcombine]);
             }
-
-            /*
-            print_supersub_nsp("nsubpair.xvg",nbl[0]);
-            */
         }
     }
+
+    /*
+    print_supersub_nsp("nsubpair",nbl[0],nonLocal);
+    */
 
     if (nbs->print_cycles &&
         nbs->cc[enbsCCgrid].count > 0 &&
