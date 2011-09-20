@@ -460,7 +460,7 @@ gmx_mdoutf_t *init_mdoutf(int nfile,const t_filenm fnm[],int mdrun_flags,
         
 	if (MASTER(cr))
 	{
-        if (ir->eI != eiNM 
+        if ((EI_DYNAMICS(ir->eI) || EI_ENERGY_MINIMIZATION(ir->eI))
 #ifndef GMX_FAHCORE
             &&
             !(EI_DYNAMICS(ir->eI) &&
@@ -473,12 +473,15 @@ gmx_mdoutf_t *init_mdoutf(int nfile,const t_filenm fnm[],int mdrun_flags,
             of->fp_trn = open_trn(ftp2fn(efTRN,nfile,fnm), filemode);
         }
 
-        of->fp_ene = open_enx(ftp2fn(efEDR,nfile,fnm), filemode);
+        if (EI_DYNAMICS(ir->eI) || EI_ENERGY_MINIMIZATION(ir->eI))
+        {
+            of->fp_ene = open_enx(ftp2fn(efEDR,nfile,fnm), filemode);
+        }
         of->fn_cpt = opt2fn("-cpo",nfile,fnm);
         
         if (ir->efep != efepNO && ir->nstdhdl > 0 &&
             (ir->separate_dhdl_file == sepdhdlfileYES ) && 
-            !EI_ENERGY_MINIMIZATION(ir->eI))
+            EI_DYNAMICS(ir->eI))
         {
             if (bAppendFiles)
             {
