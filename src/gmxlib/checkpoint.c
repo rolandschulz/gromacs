@@ -998,8 +998,8 @@ static int do_cpt_enerhist(XDR *xd,gmx_bool bRead,
                 case eenhENERGY_DELTA_H_STARTTIME: 
                     ret=do_cpte_double(xd, 2, i, fflags, &(enerhist->dht->start_time), list); break;
                 case eenhENERGY_DELTA_H_STARTLAMBDA: 
-                    ret=do_cpte_double(xd, 2, i, fflags, &(enerhist->dht->start_lambda), list); break;
                     enerhist->dht->start_lambda_set=TRUE;
+                    ret=do_cpte_double(xd, 2, i, fflags, &(enerhist->dht->start_lambda), list); break;
                 default:
                     gmx_fatal(FARGS,"Unknown energy history entry %d\n"
                               "You are probably reading a new checkpoint file with old code",i);
@@ -1239,11 +1239,11 @@ void write_checkpoint(const char *fn,gmx_bool bNumberAndKeep,
         }
 
 
-        version = strdup(VERSION);
-        btime   = strdup(BUILD_TIME);
-        buser   = strdup(BUILD_USER);
-        bmach   = strdup(BUILD_MACHINE);
-        fprog   = strdup(Program());
+        version = gmx_strdup(VERSION);
+        btime   = gmx_strdup(BUILD_TIME);
+        buser   = gmx_strdup(BUILD_USER);
+        bmach   = gmx_strdup(BUILD_MACHINE);
+        fprog   = gmx_strdup(Program());
 
         ftime   = &(timebuf[0]);
 
@@ -1418,7 +1418,6 @@ static void check_match(FILE *fplog,
     check_string(fplog,"Build machine",BUILD_MACHINE,bmach  ,&mm);
     check_string(fplog,"Program name" ,Program()    ,fprog  ,&mm);
     
-    npp = cr->nnodes - cr->npmenodes;
     check_int   (fplog,"#nodes"       ,cr->nnodes   ,npp_f+npme_f ,&mm);
     if (bPartDecomp)
     {
@@ -1426,9 +1425,15 @@ static void check_match(FILE *fplog,
         dd_nc[YY] = 1;
         dd_nc[ZZ] = 1;
     }
-    if (npp > 1)
+    if (cr->nnodes > 1)
     {
         check_int (fplog,"#PME-nodes"  ,cr->npmenodes,npme_f     ,&mm);
+
+        npp = cr->nnodes;
+        if (cr->npmenodes >= 0)
+        {
+            npp -= cr->npmenodes;
+        }
         if (npp == npp_f)
         {
             check_int (fplog,"#DD-cells[x]",dd_nc[XX]    ,dd_nc_f[XX],&mm);
@@ -1469,23 +1474,32 @@ static void read_checkpoint(const char *fn,FILE **pfplog,
     int  natoms,ngtc,nnhpres,nhchainlength,fflags,flags_eks,flags_enh;
     int  d;
     int  ret;
-	gmx_file_position_t *outputfiles;
-	int  nfiles;
-	t_fileio *chksum_file;
-	FILE* fplog = *pfplog;
-	unsigned char digest[16];
+    gmx_file_position_t *outputfiles;
+    int  nfiles;
+    t_fileio *chksum_file;
+    FILE* fplog = *pfplog;
+    unsigned char digest[16];
 #if !((defined WIN32 || defined _WIN32 || defined WIN64 || defined _WIN64) && !defined __CYGWIN__ && !defined __CYGWIN32__)
-	struct flock fl = { 0, SEEK_SET, 0,       F_WRLCK,     0 }; 
+    struct flock fl;  /* don't initialize here: the struct order is OS 
+                         dependent! */
 #endif
-	
+
     const char *int_warn=
-        "WARNING: The checkpoint file was generator with integrator %s,\n"
-        "         while the simulation uses integrator %s\n\n";
+              "WARNING: The checkpoint file was generated with integrator %s,\n"
+              "         while the simulation uses integrator %s\n\n";
     const char *sd_note=
         "NOTE: The checkpoint file was for %d nodes doing SD or BD,\n"
         "      while the simulation uses %d SD or BD nodes,\n"
         "      continuation will be exact, except for the random state\n\n";
     
+#if !((defined WIN32 || defined _WIN32 || defined WIN64 || defined _WIN64) && !defined __CYGWIN__ && !defined __CYGWIN32__) 
+    fl.l_type=F_WRLCK;
+    fl.l_whence=SEEK_SET;
+    fl.l_start=0;
+    fl.l_len=0;
+    fl.l_pid=0;
+#endif
+
     if (PARTDECOMP(cr))
     {
         gmx_fatal(FARGS,
@@ -1560,10 +1574,12 @@ static void read_checkpoint(const char *fn,FILE **pfplog,
     if (!PAR(cr))
     {
         nppnodes = 1;
+        cr->npmenodes = 0;
     }
     else if (bPartDecomp)
     {
         nppnodes = cr->nnodes;
+        cr->npmenodes = 0;
     }
     else if (cr->nnodes == nppnodes_f + npmenodes_f)
     {
@@ -1748,8 +1764,16 @@ static void read_checkpoint(const char *fn,FILE **pfplog,
                 if (_locking(fileno(gmx_fio_getfp(chksum_file)), _LK_NBLCK, LONG_MAX)==-1)
 #endif
                 {
-                    gmx_fatal(FARGS,"Failed to lock: %s. Already running "
-                        "simulation?", outputfiles[i].filename);
+                    if (errno!=EACCES && errno!=EAGAIN)
+                    {
+                        gmx_fatal(FARGS,"Failed to lock: %s. %s.",
+                                  outputfiles[i].filename, strerror(errno));
+                    }
+                    else 
+                    {
+                        gmx_fatal(FARGS,"Failed to lock: %s. Already running "
+                                  "simulation?", outputfiles[i].filename);
+                    }
                 }
             }
             
@@ -1925,7 +1949,7 @@ read_checkpoint_state(const char *fn,int *simulation_part,
     t_fileio *fp;
     
     fp = gmx_fio_open(fn,"r");
-    read_checkpoint_data(fp,simulation_part,step,t,state,TRUE,NULL,NULL);
+    read_checkpoint_data(fp,simulation_part,step,t,state,FALSE,NULL,NULL);
     if( gmx_fio_close(fp) != 0)
 	{
 		gmx_file("Cannot read/write checkpoint; corrupt file, or maybe you are out of quota?");

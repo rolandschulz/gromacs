@@ -310,6 +310,20 @@ choose_ff(const char *ffsel,
             }
         }
         while ( pret==NULL || (sel < 0) || (sel >= nff));
+
+        /* Check for a current limitation of the fflib code.
+         * It will always read from the first ff directory in the list.
+         * This check assumes that the order of ffs matches the order
+         * in which fflib_open searches ff library files.
+         */
+        for(i=0; i<sel; i++)
+        {
+            if (strcmp(ffs[i],ffs[sel]) == 0)
+            {
+                gmx_fatal(FARGS,"Can only select the first of multiple force field entries with directory name '%s%s' in the list. If you want to use the next entry, run pdb2gmx in a different directory or rename or move the force field directory present in the current working directory.",
+                          ffs[sel],fflib_forcefield_dir_ext());
+            }
+        }
     }
     else
     {
@@ -476,8 +490,12 @@ static int name2type(t_atoms *at, int **cgnr, gpp_atomtype_t atype,
       at->atom[i].m    = get_atomtype_massA(restp[resind].atom[j].type,
 					    atype);
       cg = restp[resind].cgnr[j];
-      if ( (cg != prevcg) || (resind != prevresind) )
-	curcg++;
+      /* A charge group number -1 signals a separate charge group
+       * for this atom.
+       */
+      if ( (cg == -1) || (cg != prevcg) || (resind != prevresind) ) {
+          curcg++;
+      }
     } else {
       if (debug)
 	fprintf(debug,"atom %d%s: curcg=%d, qt=%g, is_int=%d\n",
@@ -1398,7 +1416,7 @@ void pdb2top(FILE *top_file, char *posre_fn, char *molname,
              int nrtp, t_restp rtp[],
              t_restp *restp, t_hackblock *hb,
              int nterpairs,t_hackblock **ntdb, t_hackblock **ctdb,
-             int *rn, int *rc, gmx_bool bAllowMissing,
+             gmx_bool bAllowMissing,
              gmx_bool bVsites, gmx_bool bVsiteAromatics,
              const char *ff, const char *ffdir,
              real mHmult,

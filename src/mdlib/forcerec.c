@@ -518,8 +518,7 @@ check_solvent(FILE *                fp,
 }
 
 static cginfo_mb_t *init_cginfo_mb(FILE *fplog,const gmx_mtop_t *mtop,
-                                   t_forcerec *fr,gmx_bool bNoSolvOpt,
-                                   gmx_bool *bExcl_IntraCGAll_InterCGNone)
+                                   t_forcerec *fr,gmx_bool bNoSolvOpt)
 {
     const t_block *cgs;
     const t_blocka *excl;
@@ -533,8 +532,6 @@ static cginfo_mb_t *init_cginfo_mb(FILE *fplog,const gmx_mtop_t *mtop,
 
     ncg_tot = ncg_mtop(mtop);
     snew(cginfo_mb,mtop->nmolblock);
-
-    *bExcl_IntraCGAll_InterCGNone = TRUE;
 
     excl_nalloc = 10;
     snew(bExcl,excl_nalloc);
@@ -649,11 +646,6 @@ static cginfo_mb_t *init_cginfo_mb(FILE *fplog,const gmx_mtop_t *mtop,
                     gmx_fatal(FARGS,"A charge group has size %d which is larger than the limit of %d atoms",a1-a0,MAX_CHARGEGROUP_SIZE);
                 }
                 SET_CGINFO_NATOMS(cginfo[cgm+cg],a1-a0);
-
-                if (!bExclIntraAll || bExclInter)
-                {
-                    *bExcl_IntraCGAll_InterCGNone = FALSE;
-                }
             }
         }
         cg_offset += molb->nmol*cgs->nr;
@@ -772,7 +764,7 @@ void update_forcerec(FILE *log,t_forcerec *fr,matrix box)
 
 void set_avcsixtwelve(FILE *fplog,t_forcerec *fr,const gmx_mtop_t *mtop)
 {
-    const t_atoms *atoms;
+    const t_atoms *atoms,*atoms_tpi;
     const t_blocka *excl;
     int    mb,nmol,nmolc,i,j,tpi,tpj,j1,j2,k,n,nexcl,q;
 #if (defined SIZEOF_LONG_LONG_INT) && (SIZEOF_LONG_LONG_INT >= 8)    
@@ -882,15 +874,9 @@ void set_avcsixtwelve(FILE *fplog,t_forcerec *fr,const gmx_mtop_t *mtop)
             /* Only correct for the interaction of the test particle
              * with the rest of the system.
              */
-            atoms = &mtop->moltype[mtop->molblock[mtop->nmolblock-1].type].atoms;
-            if (q == 0)
-            {
-                tpi = atoms->atom[atoms->nr-1].type;
-            }
-            else
-            {
-                tpi = atoms->atom[atoms->nr-1].typeB;
-            }
+            atoms_tpi =
+                &mtop->moltype[mtop->molblock[mtop->nmolblock-1].type].atoms;
+
             npair = 0;
             for(mb=0; mb<mtop->nmolblock; mb++) {
                 nmol  = mtop->molblock[mb].nmol;
@@ -900,9 +886,14 @@ void set_avcsixtwelve(FILE *fplog,t_forcerec *fr,const gmx_mtop_t *mtop)
                     /* Remove the interaction of the test charge group
                      * with itself.
                      */
-                    if (mb == mtop->nmolblock-1 && j >= atoms->nr - fr->n_tpi)
+                    if (mb == mtop->nmolblock-1)
                     {
                         nmolc--;
+                        
+                        if (mb == 0 && nmol == 1)
+                        {
+                            gmx_fatal(FARGS,"Old format tpr with TPI, please generate a new tpr file");
+                        }
                     }
                     if (q == 0)
                     {
@@ -912,16 +903,27 @@ void set_avcsixtwelve(FILE *fplog,t_forcerec *fr,const gmx_mtop_t *mtop)
                     {
                         tpj = atoms->atom[j].typeB;
                     }
-                    if (bBHAM)
+                    for(i=0; i<fr->n_tpi; i++)
                     {
-                        csix    += nmolc*BHAMC(nbfp,ntp,tpi,tpj);
+                        if (q == 0)
+                        {
+                            tpi = atoms_tpi->atom[i].type;
+                        }
+                        else
+                        {
+                            tpi = atoms_tpi->atom[i].typeB;
+                        }
+                        if (bBHAM)
+                        {
+                            csix    += nmolc*BHAMC(nbfp,ntp,tpi,tpj);
+                        }
+                        else
+                        {
+                            csix    += nmolc*C6 (nbfp,ntp,tpi,tpj);
+                            ctwelve += nmolc*C12(nbfp,ntp,tpi,tpj);
+                        }
+                        npair += nmolc;
                     }
-                    else
-                    {
-                        csix    += nmolc*C6 (nbfp,ntp,tpi,tpj);
-                        ctwelve += nmolc*C12(nbfp,ntp,tpi,tpj);
-                    }
-                    npair += nmolc;
                 }
             }
         }
@@ -1434,7 +1436,7 @@ void init_forcerec(FILE *fp,
         {
             if (fp)
                 fprintf(fp,"Will do PME sum in reciprocal space.\n");
-            please_cite(fp,"Essman95a");
+            please_cite(fp,"Essmann95a");
             
             if (ir->ewald_geometry == eewg3DC)
             {
@@ -1751,8 +1753,8 @@ void init_forcerec(FILE *fp,
     fr->qr         = mk_QMMMrec();
     
     /* Set all the static charge group info */
-    fr->cginfo_mb = init_cginfo_mb(fp,mtop,fr,bNoSolvOpt,
-                                   &fr->bExcl_IntraCGAll_InterCGNone);
+    fr->cginfo_mb = init_cginfo_mb(fp,mtop,fr,bNoSolvOpt);
+
     if (DOMAINDECOMP(cr)) {
         fr->cginfo = NULL;
     } else {

@@ -568,7 +568,11 @@ static void fill_table(t_tabledata *td,int tp,const t_forcerec *fr)
     r     = td->x[i];
     r2    = r*r;
     r6    = 1.0/(r2*r2*r2);
-    r12   = r6*r6;
+    if (gmx_within_tol(reppow,12.0,10*GMX_DOUBLE_EPS)) {
+      r12 = r6*r6;
+    } else {
+      r12 = pow(r,-reppow);   
+    }
     Vtab  = 0.0;
     Ftab  = 0.0;
     if (bSwitch) {
@@ -600,7 +604,7 @@ static void fill_table(t_tabledata *td,int tp,const t_forcerec *fr)
 #endif
 
     rc6 = rc*rc*rc;
-	rc6 = 1.0/(rc6*rc6);
+    rc6 = 1.0/(rc6*rc6);
 
     switch (tp) {
     case etabLJ6:
@@ -1070,7 +1074,7 @@ t_forcetable make_gb_table(FILE *out,const output_env_t oenv,
 			fprintf(fp,"%15.10e  %15.10e  %15.10e\n",x0,y0,yp);
 			
 		}
-		ffclose(fp);
+		gmx_fio_fclose(fp);
     }
 	
 	/*

@@ -791,10 +791,10 @@ int gmx_anaeig(int argc,char *argv[])
     "[TT]-last[tt] have been set explicitly, in which case all eigenvectors",
     "will be written to separate files. Chain identifiers will be added",
     "when writing a [TT].pdb[tt] file with two or three structures (you",
-    "can use [TT]rasmol -nmrpdb[tt] to view such a pdb file).[PAR]",
+    "can use [TT]rasmol -nmrpdb[tt] to view such a [TT].pdb[tt] file).[PAR]",
     
     "  Overlap calculations between covariance analysis:[BR]",
-    "  NOTE: the analysis should use the same fitting structure[PAR]",
+    "  [BB]Note:[bb] the analysis should use the same fitting structure[PAR]",
     
     "[TT]-over[tt]: calculate the subspace overlap of the eigenvectors in",
     "file [TT]-v2[tt] with eigenvectors [TT]-first[tt] to [TT]-last[tt]",

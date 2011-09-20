@@ -274,7 +274,7 @@ static int get_nthreads(int nthreads_requested, t_inputrec *inputrec,
         }
         else
         {
-            nthreads = tMPI_Get_recommended_nthreads();
+            nthreads = tMPI_Thread_get_hw_number();
         }
     }
 
@@ -446,6 +446,12 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
             );
     }
 
+    if ((Flags & MD_RERUN) &&
+        (EI_ENERGY_MINIMIZATION(inputrec->eI) || eiNM == inputrec->eI))
+    {
+        gmx_fatal(FARGS, "The .mdp file specified an energy mininization or normal mode algorithm, and these are not compatible with mdrun -rerun");
+    }
+
     if (can_use_allvsall(inputrec,mtop,TRUE,cr,fplog))
     {
         /* All-vs-all loops do not work with domain decomposition */
@@ -593,8 +599,12 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
         /* PME, if used, is done on all nodes with 1D decomposition */
         cr->npmenodes = 0;
         cr->duty = (DUTY_PP | DUTY_PME);
-        npme_major = cr->nnodes;
+        npme_major = 1;
         npme_minor = 1;
+        if (!EI_TPI(inputrec->eI))
+        {
+            npme_major = cr->nnodes;
+        }
         
         if (inputrec->ePBC == epbcSCREW)
         {
@@ -637,10 +647,6 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
         {
             if (PAR(cr))
             {
-                if (!MASTER(cr))
-                {
-                    snew(state,1);
-                }
                 bcast_state(cr,state,TRUE);
             }
         }
@@ -975,16 +981,4 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
 #endif
 
     return rc;
-}
-
-void md_print_warning(const t_commrec *cr,FILE *fplog,const char *buf)
-{
-    if (MASTER(cr))
-    {
-        fprintf(stderr,"\n%s\n",buf);
-    }
-    if (fplog)
-    {
-        fprintf(fplog,"\n%s\n",buf);
-    }
 }

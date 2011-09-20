@@ -56,6 +56,11 @@
 #include "gmx_ana.h"
 #include "maths.h"
 
+/* Suppress Cygwin compiler warnings from using newlib version of
+ * ctype.h */
+#ifdef GMX_CYGWIN
+#undef isdigit
+#endif
 
 /* the dhdl.xvg data from a simulation (actually obsolete, but still
     here for reading the dhdl.xvg file*/
@@ -1959,7 +1964,7 @@ static void read_bar_xvg_lowlevel(char *fn, real *temp, xvg_t *ba)
     {
         if (*temp <= 0)
         {
-            gmx_fatal(FARGS,"Did not find a temperature in the subtitle in file '%s', use the -temp option of g_bar",fn);
+            gmx_fatal(FARGS,"Did not find a temperature in the subtitle in file '%s', use the -temp option of [TT]g_bar[tt]",fn);
         }
         ba->temp = *temp;
     }
@@ -2096,7 +2101,9 @@ static void read_edr_rawdh_block(samples_t **smp, int *ndu, t_enxblock *blk,
          (blk->sub[0].nr < 1) ||
          (blk->sub[1].nr < 1) )
     {
-        gmx_fatal(FARGS, "Unexpected block data in file %s", filename);
+        gmx_fatal(FARGS, 
+                  "Unexpected/corrupted block data in file %s around time %g.", 
+                  filename, start_time);
     }
    
     derivative = blk->sub[0].ival[0]; 
@@ -2120,11 +2127,11 @@ static void read_edr_rawdh_block(samples_t **smp, int *ndu, t_enxblock *blk,
          (  (derivative!=0) != (s->derivative!=0) ) )
     {
         fprintf(stderr, "Got foreign lambda=%g, expected: %g\n", 
-                s->foreign_lambda, foreign_lambda);
-        fprintf(stderr, "Got derivative=%d, derivative: %d\n", 
+                foreign_lambda, s->foreign_lambda);
+        fprintf(stderr, "Got derivative=%d, expected: %d\n", 
                 derivative, s->derivative);
-        gmx_fatal(FARGS, "Inconsistent data in file %s around t=%g", filename,
-                  start_time);
+        gmx_fatal(FARGS, "Corrupted data in file %s around t=%g.", 
+                  filename, start_time);
     }
 
     /* make room for the data */
@@ -2177,7 +2184,9 @@ static samples_t *read_edr_hist_block(int *nsamples, t_enxblock *blk,
          (blk->sub[0].nr < 2)  ||
          (blk->sub[1].nr < 2) )
     {
-        gmx_fatal(FARGS, "Unexpected block data in file %s", filename);
+        gmx_fatal(FARGS, 
+                  "Unexpected/corrupted block data in file %s around time %g", 
+                  filename, start_time);
     }
 
     nhist=blk->nsub-2;
@@ -2187,7 +2196,9 @@ static samples_t *read_edr_hist_block(int *nsamples, t_enxblock *blk,
     }
     if (nhist > 2)
     {
-        gmx_fatal(FARGS, "Unexpected block data in file %s", filename);
+        gmx_fatal(FARGS, 
+                  "Unexpected/corrupted block data in file %s around time %g", 
+                  filename, start_time);
     }
 
     snew(s, 1);
@@ -2469,62 +2480,61 @@ static void read_barsim_edr(char *fn, real *temp, lambda_t *lambda_head)
 int gmx_bar(int argc,char *argv[])
 {
     static const char *desc[] = {
-        "g_bar calculates free energy difference estimates through ",
+        "[TT]g_bar[tt] calculates free energy difference estimates through ",
         "Bennett's acceptance ratio method (BAR). It also automatically",
         "adds series of individual free energies obtained with BAR into",
         "a combined free energy estimate.[PAR]",
 
         "Every individual BAR free energy difference relies on two ",
         "simulations at different states: say state A and state B, as",
-        "controlled by a parameter 'lambda' (see the mdp parameter",
-        "'init_lambda'). The BAR method calculates a ratio of weighted",
+        "controlled by a parameter, [GRK]lambda[grk] (see the [TT].mdp[tt] parameter",
+        "[TT]init_lambda[tt]). The BAR method calculates a ratio of weighted",
         "average of the Hamiltonian difference of state B given state A and",
-        "vice versa. If the Hamiltonian does not linearly depend on lambda",
+        "vice versa. If the Hamiltonian does not depend linearly on [GRK]lambda[grk]",
         "(in which case we can extrapolate the derivative of the Hamiltonian",
-        "w.r.t. lambda, as is the default when 'free_energy' is on), the",
-        "energy differences to the other state need to be calculated",
+        "with respect to [GRK]lambda[grk], as is the default when [TT]free_energy[tt] is on),",
+        "the energy differences to the other state need to be calculated",
         "explicitly during the simulation. This can be controlled with",
-        "the mdp option 'foreign_lambda'.[PAR]",
+        "the [TT].mdp[tt] option [TT]foreign_lambda[tt].[PAR]",
 
-        "Input option [TT]-f[tt] expects multiple dhdl files. ",
+        "Input option [TT]-f[tt] expects multiple [TT]dhdl.xvg[tt] files. ",
         "Two types of input files are supported:[BR]",
-        "* Files with only one y-value, for such files it is assumed ",
-        "that the y-value is dH/dlambda and that the Hamiltonian depends ",
-        "linearly on lambda. The lambda value of the simulation is inferred ",
-        "from the subtitle if present, otherwise from a number in the",
-        "subdirectory in the file name.",
+        "[TT]*[tt]  Files with only one [IT]y[it]-value, for such files it is assumed ",
+        "   that the [IT]y[it]-value is dH/d[GRK]lambda[grk] and that the Hamiltonian depends ",
+        "   linearly on [GRK]lambda[grk]. The [GRK]lambda[grk] value of the simulation is inferred ",
+        "   from the subtitle (if present), otherwise from a number in the",
+        "   subdirectory in the file name.",
         "[BR]",
-        "* Files with more than one y-value. The files should have columns ",
-        "with dH/dlambda and Delta lambda. The lambda values are inferred ",
-        "from the legends: ",
-        "lambda of the simulation from the legend of dH/dlambda ",
-        "and the foreign lambda's from the legends of Delta H.[BR]",
-        "The lambda of the simulation is parsed from dhdl.xvg file's legend ",
-        "containing the string 'dH', the foreign lambda's from the legend ",
+        "[TT]*[tt]  Files with more than one [IT]y[it]-value. The files should have columns ",
+        "   with dH/d[GRK]lambda[grk] and [GRK]Delta[grk][GRK]lambda[grk]. The [GRK]lambda[grk] values are inferred ",
+        "   from the legends: [GRK]lambda[grk] of the simulation from the legend of dH/d[GRK]lambda[grk] ",
+        "   and the foreign [GRK]lambda[grk] values from the legends of Delta H.[PAR]",
+        "The [GRK]lambda[grk] of the simulation is parsed from [TT]dhdl.xvg[tt] file's legend ",
+        "containing the string 'dH', the foreign [GRK]lambda[grk] values from the legend ",
         "containing the capitalized letters 'D' and 'H'. The temperature ",
         "is parsed from the legend line containing 'T ='.[PAR]",
 
-        "The input option [TT]-g[tt] expects multiple .edr files. ",
+        "The input option [TT]-g[tt] expects multiple [TT].edr[tt] files. ",
         "These can contain either lists of energy differences (see the",
-        "mdp option separate_dhdl_file), or a series of histograms",
-        "(see the mdp options dh_hist_size and dh_hist_spacing).",
-        "The temperature and lambda values are automatically deduced from",
-        "the ener.edr file.[PAR]"
+        "[TT].mdp[tt] option [TT]separate_dhdl_file[tt]), or a series of histograms",
+        "(see the [TT].mdp[tt] options [TT]dh_hist_size[tt] and [TT]dh_hist_spacing[tt]).",
+        "The temperature and [GRK]lambda[grk] values are automatically deduced from",
+        "the [TT]ener.edr[tt] file.[PAR]"
 
         "The free energy estimates are determined using BAR with bisection, ",
-        "the precision of the output is set with [TT]-prec[tt]. ",
+        "with the precision of the output set with [TT]-prec[tt]. ",
         "An error estimate taking into account time correlations ",
         "is made by splitting the data into blocks and determining ",
         "the free energy differences over those blocks and assuming ",
         "the blocks are independent. ",
         "The final error estimate is determined from the average variance ",
-        "over 5 blocks. A range of blocks numbers for error estimation can ",
+        "over 5 blocks. A range of block numbers for error estimation can ",
         "be provided with the options [TT]-nbmin[tt] and [TT]-nbmax[tt].[PAR]",
 
-        "g_bar tries to aggregate samples with the same 'native' and 'foreign'",
-        "lambda values, but always assumes independent samples: note that",
+        "[TT]g_bar[tt] tries to aggregate samples with the same 'native' and 'foreign'",
+        "[GRK]lambda[grk] values, but always assumes independent samples. [BB]Note[bb] that",
         "when aggregating energy differences/derivatives with different",
-        "sampling intervals, this is almost certainly not correct: usually",
+        "sampling intervals, this is almost certainly not correct. Usually",
         "subsequent energies are correlated and different time intervals mean",
         "different degrees of correlation between samples.[PAR]",
 
@@ -2534,12 +2544,12 @@ int gmx_bar(int argc,char *argv[])
         "difference estimates and phase space overlap measures in units of ",
         "kT (together with their computed error estimate). The printed ",
         "values are:[BR]",
-        "*  lam_A: the lambda values for point A.[BR]",
-        "*  lam_B: the lambda values for point B.[BR]",
-        "*     DG: the free energy estimate.[BR]",
-        "*    s_A: an estimate of the relative entropy of B in A.[BR]",
-        "*    s_A: an estimate of the relative entropy of A in B.[BR]",
-        "*  stdev: an estimate expected per-sample standard deviation.[PAR]",
+        "[TT]*[tt]  lam_A: the [GRK]lambda[grk] values for point A.[BR]",
+        "[TT]*[tt]  lam_B: the [GRK]lambda[grk] values for point B.[BR]",
+        "[TT]*[tt]     DG: the free energy estimate.[BR]",
+        "[TT]*[tt]    s_A: an estimate of the relative entropy of B in A.[BR]",
+        "[TT]*[tt]    s_A: an estimate of the relative entropy of A in B.[BR]",
+        "[TT]*[tt]  stdev: an estimate expected per-sample standard deviation.[PAR]",
         
         "The relative entropy of both states in each other's ensemble can be ",
         "interpreted as a measure of phase space overlap: ", 
@@ -2547,17 +2557,16 @@ int gmx_bar(int argc,char *argv[])
         "ensemble of lambda_A (and vice versa for s_B), is a ", 
         "measure of the 'distance' between Boltzmann distributions of ",
         "the two states, that goes to zero for identical distributions. See ",
-        "Wu & Kofke, J. Chem. Phys. 123 084109 (2009) for more information.",
+        "Wu & Kofke, J. Chem. Phys. 123 084109 (2005) for more information.",
         "[PAR]",
         "The estimate of the expected per-sample standard deviation, as given ",
-        "in Bennett's original BAR paper: ",
-        "Bennett, J. Comp. Phys. 22, p 245 (1976), Eq. 10 gives an estimate ",
-        "of the quality of sampling (not directly of the actual statistical ", 
-        "error, because it assumes independent samples).[PAR]",
+        "in Bennett's original BAR paper: Bennett, J. Comp. Phys. 22, p 245 (1976).", 
+        "Eq. 10 therein gives an estimate of the quality of sampling (not directly",  
+        "of the actual statistical error, because it assumes independent samples).[PAR]",
 
         "To get a visual estimate of the phase space overlap, use the ",
-        "-oh option to write series of histograms, together with the ",
-        "-nbin option.[PAR]"
+        "[TT]-oh[tt] option to write series of histograms, together with the ",
+        "[TT]-nbin[tt] option.[PAR]"
     };
     static real begin=0,end=-1,temp=-1;
     int nd=2,nbmin=5,nbmax=5;
@@ -2706,7 +2715,7 @@ int gmx_bar(int argc,char *argv[])
     fpb = NULL;
     if (opt2bSet("-o",NFILE,fnm))
     {
-        sprintf(buf,"%s (%s)","\\DeltaG",unit_energy);
+        sprintf(buf,"%s (%s)","\\DeltaG","kT");
         fpb = xvgropen_type(opt2fn("-o",NFILE,fnm),"Free energy differences",
                             "\\lambda",buf,exvggtXYDY,oenv);
     }
@@ -2714,7 +2723,7 @@ int gmx_bar(int argc,char *argv[])
     fpi = NULL;
     if (opt2bSet("-oi",NFILE,fnm))
     {
-        sprintf(buf,"%s (%s)","\\DeltaG",unit_energy);
+        sprintf(buf,"%s (%s)","\\DeltaG","kT");
         fpi = xvgropen(opt2fn("-oi",NFILE,fnm),"Free energy integral",
                       "\\lambda",buf,oenv);
     }

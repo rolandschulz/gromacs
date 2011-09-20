@@ -217,12 +217,7 @@ const char *gmx_fio_dbgstr(t_fileio *fio, const char *desc, char *buf)
     }
     else
     {
-#if (defined( _WIN32 ) || defined( _WIN64 ) )
-        /* windows doesn't do standard C */
-#define snprintf sprintf_s
-#endif
-        snprintf(buf, GMX_FIO_BUFLEN, "  ; %s %s", 
-                 fio->comment ? fio->comment : "", desc);
+        snprintf(buf, GMX_FIO_BUFLEN, "  ; %s %s", fio->comment ? fio->comment : "", desc);
     }
     return buf;
 }
@@ -955,6 +950,13 @@ t_fileio *mpi_fio_open(const char *fn, const char *mode, const t_commrec *cr)
             {
                 fio->fp = ffopen(fn,newmode);
             }
+        }
+
+        /* for appending seek to end of file to make sure ftell gives correct position
+         * important for checkpointing */
+        if (newmode[0]=='a')
+        {
+            gmx_fseek(fio->fp, 0, SEEK_END);
         }
     }
     else

@@ -169,8 +169,12 @@ static void check_cg_sizes(const char *topfn,t_block *cgs,warninp_t wi)
     {
         maxsize = max(maxsize,cgs->index[cg+1]-cgs->index[cg]);
     }
- 
-    if (maxsize > 10)
+    
+    if (maxsize > MAX_CHARGEGROUP_SIZE)
+    {
+        gmx_fatal(FARGS,"The largest charge group contains %d atoms. The maximum is %d.",maxsize,MAX_CHARGEGROUP_SIZE);
+    }
+    else if (maxsize > 10)
     {
         set_warning_line(wi,topfn,-1);
         sprintf(warn_buf,
@@ -222,6 +226,9 @@ static void check_bonds_timestep(gmx_mtop_t *mtop,double dt,warninp_t wi)
 
     limit2 = sqr(min_steps_note*dt);
 
+    w_a1 = w_a2 = -1;
+    w_period2 = -1.0;
+    
     w_moltype = NULL;
     for(molt=0; molt<mtop->nmoltype; molt++)
     {
@@ -682,7 +689,7 @@ static void cont_status(const char *slog,const char *ener,
 
     /* Set the relative box lengths for preserving the box shape.
      * Note that this call can lead to differences in the last bit
-     * with respect to using tpbconv to create a tpx file.
+     * with respect to using tpbconv to create a [TT].tpx[tt] file.
      */
     set_box_rel(ir,state);
 
@@ -1051,6 +1058,42 @@ static int count_constraints(gmx_mtop_t *mtop,t_molinfo *mi,warninp_t wi)
   return count;
 }
 
+static void check_gbsa_params_charged(gmx_mtop_t *sys, gpp_atomtype_t atype)
+{
+    int i,nmiss,natoms,mt;
+    real q;
+    const t_atoms *atoms;
+  
+    nmiss = 0;
+    for(mt=0;mt<sys->nmoltype;mt++)
+    {
+        atoms  = &sys->moltype[mt].atoms;
+        natoms = atoms->nr;
+
+        for(i=0;i<natoms;i++)
+        {
+            q = atoms->atom[i].q;
+            if ((get_atomtype_radius(atoms->atom[i].type,atype)    == 0  ||
+                 get_atomtype_vol(atoms->atom[i].type,atype)       == 0  ||
+                 get_atomtype_surftens(atoms->atom[i].type,atype)  == 0  ||
+                 get_atomtype_gb_radius(atoms->atom[i].type,atype) == 0  ||
+                 get_atomtype_S_hct(atoms->atom[i].type,atype)     == 0) &&
+                q != 0)
+            {
+                fprintf(stderr,"\nGB parameter(s) zero for atom type '%s' while charge is %g\n",
+                        get_atomtype_name(atoms->atom[i].type,atype),q);
+                nmiss++;
+            }
+        }
+    }
+
+    if (nmiss > 0)
+    {
+        gmx_fatal(FARGS,"Can't do GB electrostatics; the implicit_genborn_params section of the forcefield has parameters with value zero for %d atomtypes that occur as charged atoms.",nmiss);
+    }
+}
+
+
 static void check_gbsa_params(t_inputrec *ir,gpp_atomtype_t atype)
 {
     int  nmiss,i;
@@ -1069,7 +1112,7 @@ static void check_gbsa_params(t_inputrec *ir,gpp_atomtype_t atype)
             get_atomtype_gb_radius(i,atype) < 0 ||
             get_atomtype_S_hct(i,atype)     < 0)
         {
-            fprintf(stderr,"GB parameter(s) missing or negative for atom type '%s'\n",
+            fprintf(stderr,"\nGB parameter(s) missing or negative for atom type '%s'\n",
                     get_atomtype_name(i,atype));
             nmiss++;
         }
@@ -1077,8 +1120,7 @@ static void check_gbsa_params(t_inputrec *ir,gpp_atomtype_t atype)
     
     if (nmiss > 0)
     {
-        gmx_fatal(FARGS,"Can't do GB electrostatics; the forcefield is missing %d values for\n"
-                  "atomtype radii, or they might be negative\n.",nmiss);
+        gmx_fatal(FARGS,"Can't do GB electrostatics; the implicit_genborn_params section of the forcefield is missing parameters for %d atomtypes or they might be negative.",nmiss);
     }
   
 }
@@ -1097,21 +1139,21 @@ int main (int argc, char *argv[])
     "for hydrogens and heavy atoms.",
     "Then a coordinate file is read and velocities can be generated",
     "from a Maxwellian distribution if requested.",
-    "grompp also reads parameters for the mdrun ",
+    "[TT]grompp[tt] also reads parameters for the [TT]mdrun[tt] ",
     "(eg. number of MD steps, time step, cut-off), and others such as",
     "NEMD parameters, which are corrected so that the net acceleration",
     "is zero.",
     "Eventually a binary file is produced that can serve as the sole input",
     "file for the MD program.[PAR]",
     
-    "grompp uses the atom names from the topology file. The atom names",
+    "[TT]grompp[tt] uses the atom names from the topology file. The atom names",
     "in the coordinate file (option [TT]-c[tt]) are only read to generate",
     "warnings when they do not match the atom names in the topology.",
     "Note that the atom names are irrelevant for the simulation as",
     "only the atom types are used for generating interaction parameters.[PAR]",
 
-    "grompp uses a built-in preprocessor to resolve includes, macros ",
-    "etcetera. The preprocessor supports the following keywords:[BR]",
+    "[TT]grompp[tt] uses a built-in preprocessor to resolve includes, macros, ",
+    "etc. The preprocessor supports the following keywords:[PAR]",
     "#ifdef VARIABLE[BR]",
     "#ifndef VARIABLE[BR]",
     "#else[BR]",
@@ -1119,19 +1161,21 @@ int main (int argc, char *argv[])
     "#define VARIABLE[BR]",
     "#undef VARIABLE[BR]"
     "#include \"filename\"[BR]",
-    "#include <filename>[BR]",
+    "#include <filename>[PAR]",
     "The functioning of these statements in your topology may be modulated by",
-    "using the following two flags in your [TT]mdp[tt] file:[BR]",
-    "define = -DVARIABLE1 -DVARIABLE2[BR]",
-    "include = -I/home/john/doe[BR]",
+    "using the following two flags in your [TT].mdp[tt] file:[PAR]",
+    "[TT]define = -DVARIABLE1 -DVARIABLE2[BR]",
+    "include = -I/home/john/doe[tt][BR]",
     "For further information a C-programming textbook may help you out.",
     "Specifying the [TT]-pp[tt] flag will get the pre-processed",
     "topology file written out so that you can verify its contents.[PAR]",
-    
-    "If your system does not have a c-preprocessor, you can still",
-    "use grompp, but you do not have access to the features ",
-    "from the cpp. Command line options to the c-preprocessor can be given",
-    "in the [TT].mdp[tt] file. See your local manual (man cpp).[PAR]",
+   
+    /* cpp has been unnecessary for some time, hasn't it?
+        "If your system does not have a C-preprocessor, you can still",
+        "use [TT]grompp[tt], but you do not have access to the features ",
+        "from the cpp. Command line options to the C-preprocessor can be given",
+        "in the [TT].mdp[tt] file. See your local manual (man cpp).[PAR]",
+    */
     
     "When using position restraints a file with restraint coordinates",
     "can be supplied with [TT]-r[tt], otherwise restraining will be done",
@@ -1142,17 +1186,24 @@ int main (int argc, char *argv[])
     
     "Starting coordinates can be read from trajectory with [TT]-t[tt].",
     "The last frame with coordinates and velocities will be read,",
-    "unless the [TT]-time[tt] option is used.",
+    "unless the [TT]-time[tt] option is used. Only if this information",
+    "is absent will the coordinates in the [TT]-c[tt] file be used.",
     "Note that these velocities will not be used when [TT]gen_vel = yes[tt]",
     "in your [TT].mdp[tt] file. An energy file can be supplied with",
     "[TT]-e[tt] to read Nose-Hoover and/or Parrinello-Rahman coupling",
-    "variables. Note that for continuation it is better and easier to supply",
-    "a checkpoint file directly to mdrun, since that always contains",
-    "the complete state of the system and you don't need to generate",
-    "a new run input file. Note that if you only want to change the number",
-    "of run steps tpbconv is more convenient than grompp.[PAR]",
+    "variables.[PAR]",
 
-    "By default all bonded interactions which have constant energy due to",
+    "[TT]grompp[tt] can be used to restart simulations (preserving",
+    "continuity) by supplying just a checkpoint file with [TT]-t[tt].",
+    "However, for simply changing the number of run steps to extend",
+    "a run, using [TT]tpbconv[tt] is more convenient than [TT]grompp[tt].",
+    "You then supply the old checkpoint file directly to [TT]mdrun[tt]",
+    "with [TT]-cpi[tt]. If you wish to change the ensemble or things",
+    "like output frequency, then supplying the checkpoint file to",
+    "[TT]grompp[tt] with [TT]-t[tt] along with a new [TT].mdp[tt] file",
+    "with [TT]-f[tt] is the recommended procedure.[PAR]",
+
+    "By default, all bonded interactions which have constant energy due to",
     "virtual site constructions will be removed. If this constant energy is",
     "not zero, this will result in a shift in the total energy. All bonded",
     "interactions can be kept by turning off [TT]-rmvsbds[tt]. Additionally,",
@@ -1160,14 +1211,21 @@ int main (int argc, char *argv[])
     "of virtual site constructions will be removed. If any constraints remain",
     "which involve virtual sites, a fatal error will result.[PAR]"
     
-    "To verify your run input file, please make notice of all warnings",
+    "To verify your run input file, please take note of all warnings",
     "on the screen, and correct where necessary. Do also look at the contents",
-    "of the [TT]mdout.mdp[tt] file, this contains comment lines, as well as",
-    "the input that [TT]grompp[tt] has read. If in doubt you can start grompp",
+    "of the [TT]mdout.mdp[tt] file; this contains comment lines, as well as",
+    "the input that [TT]grompp[tt] has read. If in doubt, you can start [TT]grompp[tt]",
     "with the [TT]-debug[tt] option which will give you more information",
-    "in a file called grompp.log (along with real debug info). Finally, you",
+    "in a file called [TT]grompp.log[tt] (along with real debug info). You",
     "can see the contents of the run input file with the [TT]gmxdump[tt]",
-    "program."
+    "program. [TT]gmxcheck[tt] can be used to compare the contents of two",
+    "run input files.[PAR]"
+
+    "The [TT]-maxwarn[tt] option can be used to override warnings printed",
+    "by [TT]grompp[tt] that otherwise halt output. In some cases, warnings are",
+    "harmless, but usually they are not. The user is advised to carefully",
+    "interpret the output messages before attempting to bypass them with",
+    "this option."
   };
   t_gromppopts *opts;
   gmx_mtop_t   *sys;
@@ -1195,7 +1253,7 @@ int main (int argc, char *argv[])
   char         warn_buf[STRLEN];
 
   t_filenm fnm[] = {
-    { efMDP, NULL,  NULL,        ffOPTRD },
+    { efMDP, NULL,  NULL,        ffREAD  },
     { efMDP, "-po", "mdout",     ffWRITE },
     { efSTX, "-c",  NULL,        ffREAD  },
     { efSTX, "-r",  NULL,        ffOPTRD },
@@ -1222,7 +1280,7 @@ int main (int argc, char *argv[])
     { "-rmvsbds",FALSE, etBOOL, {&bRmVSBds},
       "Remove constant bonded interactions with virtual sites" },
     { "-maxwarn", FALSE, etINT,  {&maxwarn},
-      "Number of allowed warnings during input processing" },
+      "Number of allowed warnings during input processing. Not for normal use and may generate unstable systems" },
     { "-zero",    FALSE, etBOOL, {&bZero},
       "Set parameters for bonded interactions without defaults to zero instead of generating an error" },
     { "-renum",   FALSE, etBOOL, {&bRenum},
@@ -1377,6 +1435,11 @@ int main (int argc, char *argv[])
     {
         /* Now we have renumbered the atom types, we can check the GBSA params */
         check_gbsa_params(ir,atype);
+      
+      /* Check that all atoms that have charge and/or LJ-parameters also have 
+       * sensible GB-parameters
+       */
+      check_gbsa_params_charged(sys,atype);
     }
 
 	/* PELA: Copy the atomtype data to the topology atomtype list */
@@ -1416,6 +1479,11 @@ int main (int argc, char *argv[])
   if (EI_DYNAMICS(ir->eI) && ir->eI != eiBD)
   {
       check_bonds_timestep(sys,ir->delta_t,wi);
+  }
+
+  if (EI_ENERGY_MINIMIZATION(ir->eI) && 0 == ir->nsteps)
+  {
+      warning_note(wi,"Zero-step energy minimization will alter the coordinates before calculating the energy. If you just want the energy of a single point, try zero-step MD (with unconstrained_start = yes). To do multiple single-point energy evaluations of different configurations of the same topology, use mdrun -rerun.");
   }
 
   check_warning_error(wi,FARGS);

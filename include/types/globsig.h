@@ -30,44 +30,35 @@
  * For more info, check our website at http://www.gromacs.org
  * 
  * And Hey:
- * GROningen Mixture of Alchemy and Childrens' Stories
+ * GRoups of Organic Molecules in ACtion for Science
  */
-/* This file is completely threadsafe - keep it that way! */
-#ifdef HAVE_CONFIG_H
-#include <config.h>
+#ifndef _globsig_h
+#define _globsig_h
+
+#ifdef __cplusplus
+extern "C" {
 #endif
 
-int ftocstr(char *ds, int dl, char *ss, int sl)
-    /* dst, src ptrs */
-    /* dst max len */
-    /* src len */
-{
-    char *p;
-
-    p = ss + sl;
-    while ( --p >= ss && *p == ' ' );
-    sl = p - ss + 1;
-    dl--;
-    ds[0] = 0;
-    if (sl > dl)
-      return 1;
-    while (sl--)
-      (*ds++ = *ss++);
-    *ds = '\0';
-    return 0;
+#if 0
 }
+/* Hack to make automatic indenting work */
+#endif
 
+/* simulation conditions to transmit. Keep in mind that they are 
+   transmitted to other nodes through an MPI_Reduce after
+   casting them to a real (so the signals can be sent together with other 
+   data). This means that the only meaningful values are positive, 
+   negative or zero. */
+enum { eglsNABNSB, eglsCHKPT, eglsSTOPCOND, eglsRESETCOUNTERS, eglsNR };
 
-int ctofstr(char *ds, int dl, char *ss)
-     /* dest space */
-     /* max dest length */
-     /* src string (0-term) */
-{
-    while (dl && *ss) {
-	*ds++ = *ss++;
-	dl--;
-    }
-    while (dl--)
-	*ds++ = ' ';
-    return 0;
+typedef struct {
+    int nstms;       /* The frequency for intersimulation communication */
+    int sig[eglsNR]; /* The signal set by one process in do_md */
+    int set[eglsNR]; /* The communicated signal, equal for all processes */
+} globsig_t;
+
+#ifdef __cplusplus
 }
+#endif
+
+#endif

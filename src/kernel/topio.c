@@ -69,6 +69,7 @@
 #include "gmxcpp.h"
 #include "gpp_bond_atomtype.h"
 #include "genborn.h"
+#include "maths.h"
 
 #define CPPMARK  	'#'	/* mark from cpp			*/
 #define OPENDIR  	'['	/* starting sign for directive		*/
@@ -298,14 +299,6 @@ static char ** cpp_opts(const char *define,const char *include,
 	}
       }
     }
-  }
-  if ((rptr=strrchr(infile,DIR_SEPARATOR)) != NULL) {
-    buf = strdup(infile);
-    buf[(int)(rptr-infile)] = '\0';
-    srenew(cppopts,++ncppopts);
-    snew(cppopts[ncppopts-1],strlen(buf)+4);
-    sprintf(cppopts[ncppopts-1],"-I%s",buf);
-    sfree(buf);
   }
   srenew(cppopts,++ncppopts);
   cppopts[ncppopts-1] = NULL;
@@ -538,7 +531,10 @@ static char **read_topol(const char *infile,const char *outfile,
   gmx_cpp_t  handle;
   char     *tmp_line=NULL;
   char       warn_buf[STRLEN];
-
+  const char *floating_point_arithmetic_tip =
+      "Total charge should normally be an integer. See\n"
+      "http://www.gromacs.org/Documentation/Floating_Point_Arithmetic\n"
+      "for discussion on how close it should be to an integer.\n";
   /* We need to open the output file before opening the input file,
    * because cpp_open_file can change the current working directory.
    */
@@ -929,11 +925,11 @@ static char **read_topol(const char *infile,const char *outfile,
   if(!title)
     title=put_symtab(symtab,"");
   if (fabs(qt) > 1e-4) {
-    sprintf(warn_buf,"System has non-zero total charge: %e\n\n",qt);
+    sprintf(warn_buf,"System has non-zero total charge: %.6f\n%s\n",qt,floating_point_arithmetic_tip);
     warning_note(wi,warn_buf);
   }
-  if (fabs(qBt) > 1e-4 && qBt != qt) {
-    sprintf(warn_buf,"State B has non-zero total charge: %e\n\n",qBt);
+  if (fabs(qBt) > 1e-4 && !gmx_within_tol(qBt,qt,1e-6)) {
+    sprintf(warn_buf,"State B has non-zero total charge: %.6f\n%s\n",qBt,floating_point_arithmetic_tip);
     warning_note(wi,warn_buf);
   }
   DS_Done (&DS);

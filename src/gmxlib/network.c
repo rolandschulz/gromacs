@@ -563,6 +563,63 @@ void gmx_sumi(int nr,int r[],const t_commrec *cr)
 #endif
 }
 
+void gmx_sumli(int nr,gmx_large_int_t r[],const t_commrec *cr)
+{
+#ifndef GMX_MPI
+    gmx_call("gmx_sumli");
+#else
+#if defined(MPI_IN_PLACE_EXISTS) || defined(GMX_THREADS)
+    if (cr->nc.bUse) {
+        /* Use two step summing */
+        if (cr->nc.rank_intra == 0) 
+        {
+            MPI_Reduce(MPI_IN_PLACE,r,nr,GMX_MPI_LARGE_INT,MPI_SUM,0,
+                       cr->nc.comm_intra);
+            /* Sum with the buffers reversed */
+            MPI_Allreduce(MPI_IN_PLACE,r,nr,GMX_MPI_LARGE_INT,MPI_SUM,
+                          cr->nc.comm_inter);
+        }
+        else
+        {
+            /* This is here because of the silly MPI specification
+                that MPI_IN_PLACE should be put in sendbuf instead of recvbuf */
+            MPI_Reduce(r,NULL,nr,GMX_MPI_LARGE_INT,MPI_SUM,0,cr->nc.comm_intra);
+        }
+        MPI_Bcast(r,nr,GMX_MPI_LARGE_INT,0,cr->nc.comm_intra);
+    } 
+    else 
+    {
+        MPI_Allreduce(MPI_IN_PLACE,r,nr,GMX_MPI_LARGE_INT,MPI_SUM,cr->mpi_comm_mygroup);
+    }
+#else
+    int i;
+
+    if (nr > cr->mpb->libuf_alloc) {
+        cr->mpb->libuf_alloc = nr;
+        srenew(cr->mpb->libuf,cr->mpb->libuf_alloc);
+    }
+    if (cr->nc.bUse) {
+        /* Use two step summing */
+        MPI_Allreduce(r,cr->mpb->libuf,nr,GMX_MPI_LARGE_INT,MPI_SUM,
+                      cr->nc.comm_intra);
+        if (cr->nc.rank_intra == 0) {
+            /* Sum with the buffers reversed */
+            MPI_Allreduce(cr->mpb->libuf,r,nr,GMX_MPI_LARGE_INT,MPI_SUM,
+                          cr->nc.comm_inter);
+        }
+        MPI_Bcast(r,nr,GMX_MPI_LARGE_INT,0,cr->nc.comm_intra);
+    } else {
+        MPI_Allreduce(r,cr->mpb->libuf,nr,GMX_MPI_LARGE_INT,MPI_SUM,
+                      cr->mpi_comm_mygroup);
+        for(i=0; i<nr; i++)
+            r[i] = cr->mpb->libuf[i];
+    }
+#endif
+#endif
+}
+
+
+
 #ifdef GMX_MPI
 void gmx_sumd_comm(int nr,double r[],MPI_Comm mpi_comm)
 {
@@ -608,7 +665,7 @@ void gmx_sumf_comm(int nr,float r[],MPI_Comm mpi_comm)
 void gmx_sumd_sim(int nr,double r[],const gmx_multisim_t *ms)
 {
 #ifndef GMX_MPI
-  gmx_call("gmx_sumd");
+  gmx_call("gmx_sumd_sim");
 #else
   gmx_sumd_comm(nr,r,ms->mpi_comm_masters);
 #endif
@@ -617,7 +674,7 @@ void gmx_sumd_sim(int nr,double r[],const gmx_multisim_t *ms)
 void gmx_sumf_sim(int nr,float r[],const gmx_multisim_t *ms)
 {
 #ifndef GMX_MPI
-  gmx_call("gmx_sumf");
+  gmx_call("gmx_sumf_sim");
 #else
   gmx_sumf_comm(nr,r,ms->mpi_comm_masters);
 #endif
@@ -626,7 +683,7 @@ void gmx_sumf_sim(int nr,float r[],const gmx_multisim_t *ms)
 void gmx_sumi_sim(int nr,int r[], const gmx_multisim_t *ms)
 {
 #ifndef GMX_MPI
-    gmx_call("gmx_sumd");
+    gmx_call("gmx_sumi_sim");
 #else
 #if defined(MPI_IN_PLACE_EXISTS) || defined(GMX_THREADS)
     MPI_Allreduce(MPI_IN_PLACE,r,nr,MPI_INT,MPI_SUM,ms->mpi_comm_masters);
@@ -644,6 +701,31 @@ void gmx_sumi_sim(int nr,int r[], const gmx_multisim_t *ms)
 #endif
 #endif
 }
+
+void gmx_sumli_sim(int nr,gmx_large_int_t r[], const gmx_multisim_t *ms)
+{
+#ifndef GMX_MPI
+    gmx_call("gmx_sumli_sim");
+#else
+#if defined(MPI_IN_PLACE_EXISTS) || defined(GMX_THREADS)
+    MPI_Allreduce(MPI_IN_PLACE,r,nr,GMX_MPI_LARGE_INT,MPI_SUM,
+                  ms->mpi_comm_masters);
+#else
+    /* this is thread-unsafe, but it will do for now: */
+    int i;
+
+    if (nr > ms->mpb->libuf_alloc) {
+        ms->mpb->libuf_alloc = nr;
+        srenew(ms->mpb->libuf,ms->mpb->libuf_alloc);
+    }
+    MPI_Allreduce(r,ms->mpb->libuf,nr,GMX_MPI_LARGE_INT,MPI_SUM,
+                  ms->mpi_comm_masters);
+    for(i=0; i<nr; i++)
+        r[i] = ms->mpb->libuf[i];
+#endif
+#endif
+}
+
 
 void gmx_finalize(void)
 {
