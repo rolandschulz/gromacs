@@ -3086,11 +3086,11 @@ static void close_ci_entry_simple(gmx_nblist_t *nbl)
 }
 
 static void split_ci_entry(gmx_nblist_t *nbl,
-                           int max_nsp_av,gmx_bool progBal,int nc_bal,
+                           int nsp_max_av,gmx_bool progBal,int nc_bal,
                            int thread,int nthread)
 {
     int nci_est;
-    int max_nsp;
+    int nsp_max;
     int sj4_start,sj4_end,j4len,sj4;
     int cci;
     int nsp,nsp_ci,nsp_sj4,nsp_sj4_e,nsp_sj4_p;
@@ -3105,19 +3105,19 @@ static void split_ci_entry(gmx_nblist_t *nbl,
         /* The first ci blocks should be larger, to avoid overhead.
          * The last ci blocks should be smaller, to improve load balancing.
          */
-        max_nsp = max(1,
-                      max_nsp_av*nc_bal*3/(2*(nci_est - 1 + nc_bal)));
+        nsp_max = max(1,
+                      nsp_max_av*nc_bal*3/(2*(nci_est - 1 + nc_bal)));
     }
     else
     {
-        max_nsp = max_nsp_av;
+        nsp_max = nsp_max_av;
     }
 
     sj4_start = nbl->ci[nbl->nci-1].sj4_ind_start;
     sj4_end   = nbl->ci[nbl->nci-1].sj4_ind_end;
     j4len = sj4_end - sj4_start;
 
-    if (j4len > 1 && j4len*NSUBCELL*4 > max_nsp)
+    if (j4len > 1 && j4len*NSUBCELL*4 > nsp_max)
     {
         /* Remove the last ci entry and process the sj4's again */
         nbl->nci -= 1;
@@ -3138,7 +3138,7 @@ static void split_ci_entry(gmx_nblist_t *nbl,
             }
             nsp += nsp_sj4;
 
-            if (nsp > max_nsp && nsp > nsp_sj4)
+            if (nsp > nsp_max && nsp > nsp_sj4)
             {
                 nbl->ci[cci].sj4_ind_end = sj4;
                 cci++;
@@ -3158,34 +3158,26 @@ static void split_ci_entry(gmx_nblist_t *nbl,
             sj4++;
         }
 
-        /* Check if the remaining pairs can be added to the last ci */ 
-        if (nsp_ci > 0 && 2*(nsp_ci + nsp) < 3*nsp_target)
-        {
-             /* Add the remaining sj4's to the last ci entry */
-            nbl->ci[nbl->nci-1].sj4_ind_end = sj4_end;
-        }
-        else
-        {
-            /* Put the remaining sj4's in a new ci entry */
-            nbl->ci[cci].sj4_ind_end = sj4_end;
+        /* Put the remaining sj4's in a new ci entry */
+        nbl->ci[cci].sj4_ind_end = sj4_end;
 
-            /* Possibly balance out the last two ci's
-             * by moving the last sj4 of the second last ci.
-             */
-            if (nsp_ci > 0 && nsp_ci - nsp_sj4_e >= nsp + nsp_sj4_e)
-            {
-                nbl->ci[cci-1].sj4_ind_end--;
-                nbl->ci[cci].sj4_ind_start--;
-            }
-
-            cci++;
-            nbl->nci++;
+        /* Possibly balance out the last two ci's
+         * by moving the last sj4 of the second last ci.
+         */
+        if (nsp_ci - nsp_sj4_e >= nsp + nsp_sj4_e)
+        {
+            nbl->ci[cci-1].sj4_ind_end--;
+            nbl->ci[cci].sj4_ind_start--;
         }
+
+        cci++;
+        nbl->nci++;
     }
 }
 
 static void close_ci_entry_supersub(gmx_nblist_t *nbl,
-                                    int max_nsp_av,gmx_bool progBal,int nc_bal,
+                                    int nsp_max_av,
+                                    gmx_bool progBal,int nc_bal,
                                     int thread,int nthread)
 {
     int j4len,tlen;
@@ -3205,9 +3197,9 @@ static void close_ci_entry_supersub(gmx_nblist_t *nbl,
 
         nbl->nci++;
 
-        if (max_nsp_av > 0)
+        if (nsp_max_av > 0)
         {
-            split_ci_entry(nbl,max_nsp_av,progBal,nc_bal,thread,nthread);
+            split_ci_entry(nbl,nsp_max_av,progBal,nc_bal,thread,nthread);
         }
     }
 }
@@ -3395,7 +3387,7 @@ static real nonlocal_vol2(const gmx_domdec_zones_t *zones,rvec ls,real r)
     return vol2_est_tot;
 }
 
-static int get_max_nsubpair(const gmx_nbsearch_t nbs,
+static int get_nsubpair_max(const gmx_nbsearch_t nbs,
                             gmx_bool nonLocal,
                             real rlist,
                             int min_ci_balanced)
@@ -3403,7 +3395,7 @@ static int get_max_nsubpair(const gmx_nbsearch_t nbs,
     const gmx_nbs_grid_t *grid;
     rvec ls;
     real xy_diag2,r_eff_sup,vol_est,nsp_est,nsp_est_nl;
-    int  max_nsubpair;
+    int  nsubpair_max;
 
     grid = &nbs->grid[0];
 
@@ -3458,21 +3450,30 @@ static int get_max_nsubpair(const gmx_nbsearch_t nbs,
     if (min_ci_balanced <= 0 || grid->nc >= min_ci_balanced || grid->nc == 0)
     {
         /* We don't need to worry */
-        max_nsubpair = -1;
+        nsubpair_max = -1;
     }
     else
     {
         /* Thus the (average) maximum j-list size should be as follows */
-        max_nsubpair = max(1,(int)(nsp_est/min_ci_balanced+0.5));
+        nsubpair_max = max(1,(int)(nsp_est/min_ci_balanced+0.5));
+
+        /* Since the target value is a maximum (this avoid high outlyers,
+         * which lead to load imbalance), not average, we get more lists
+         * than we ask for (to compensate we need to add NSUBCELL*4/4).
+         * But more importantly, the optimal GPU performance moves
+         * to lower number of block for very small blocks.
+         * To compensate we add the maximum pair count per sj4.
+         */
+        nsubpair_max += NSUBCELL*4;
     }
 
     if (debug)
     {
-        fprintf(debug,"nbl nsp estimate %.1f, max_nsubpair %d\n",
-                nsp_est,max_nsubpair);
+        fprintf(debug,"nbl nsp estimate %.1f, nsubpair_max %d\n",
+                nsp_est,nsubpair_max);
     }
 
-    return max_nsubpair;
+    return nsubpair_max;
 }
 
 static void print_nblist_ci_cj(FILE *fp,const gmx_nblist_t *nbl)
@@ -3679,7 +3680,7 @@ static void gmx_nbsearch_make_nblist_part(const gmx_nbsearch_t nbs,
                                           const gmx_nb_atomdata_t *nbat,
                                           const t_blocka *excl,
                                           real rlist,
-                                          int max_nsubpair,
+                                          int nsubpair_max,
                                           gmx_bool progBal,
                                           int min_ci_balanced,
                                           int th,int nth,
@@ -4093,7 +4094,7 @@ static void gmx_nbsearch_make_nblist_part(const gmx_nbsearch_t nbs,
                     else
                     {
                         close_ci_entry_supersub(nbl,
-                                                max_nsubpair,
+                                                nsubpair_max,
                                                 progBal,min_ci_balanced,
                                                 th,nth);
                     }
@@ -4131,7 +4132,7 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
 {
     const gmx_nbs_grid_t *gridi,*gridj;
     int nzi,zi,zj0,zj1,zj;
-    int max_nsubpair;
+    int nsubpair_max;
     int nth,th;
 
     if (debug)
@@ -4153,11 +4154,11 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
 
     if (!nbs->simple && min_ci_balanced > 0)
     {
-        max_nsubpair = get_max_nsubpair(nbs,nonLocal,rlist,min_ci_balanced);
+        nsubpair_max = get_nsubpair_max(nbs,nonLocal,rlist,min_ci_balanced);
     }
     else
     {
-        max_nsubpair = 0;
+        nsubpair_max = 0;
     }
 
     /* Clear all the neighbor lists */
@@ -4202,7 +4203,7 @@ void gmx_nbsearch_make_nblist(const gmx_nbsearch_t nbs,
                 gmx_nbsearch_make_nblist_part(nbs,gridi,gridj,
                                               &nbs->work[th],nbat,excl,
                                               rlist,
-                                              max_nsubpair,
+                                              nsubpair_max,
                                               (!nonLocal || nbs->zones->n <= 2),
                                               min_ci_balanced,
                                               th,nnbl,
