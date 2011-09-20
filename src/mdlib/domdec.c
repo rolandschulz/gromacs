@@ -1452,7 +1452,7 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
     iorank = cr->dd->iorank;
     real *sendBuf,
          *recvBuf,
-         *aBuf;        /* Used for storing the atom coordinates until they are ready to be sorted */
+         *aBuf=NULL;        /* Used for storing the atom coordinates until they are ready to be sorted */
 
     snew (sendBuf, cr->nnodes * 2 * cr->nionodes);
     snew (recvBuf, cr->nnodes * 2 * cr->nionodes);

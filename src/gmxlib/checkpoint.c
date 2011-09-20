@@ -1141,14 +1141,14 @@ void write_checkpoint(const char *fn,gmx_bool bNumberAndKeep,
                       int eIntegrator,int simulation_part,
                       gmx_large_int_t step,double t,t_state *state)
 {
-    t_fileio *fp;
+    t_fileio *fp=NULL;
     int  file_version;
     char *version;
     char *btime;
     char *buser;
     char *bmach;
     char *fprog;
-    char *fntemp; /* the temporary checkpoint file name */
+    char *fntemp=NULL; /* the temporary checkpoint file name */
     time_t now;
     char timebuf[STRLEN];
     int  nppnodes,npmenodes,flag_64bit;
