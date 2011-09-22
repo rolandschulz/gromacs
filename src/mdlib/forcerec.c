@@ -1668,6 +1668,18 @@ void init_forcerec(FILE *fp,
         }
     }
 
+    fr->bNonbonded = TRUE;
+    if (getenv("GMX_NO_NONBONDED") != NULL)
+    {
+        /* turn off non-bonded calculations */
+        fr->bNonbonded = FALSE;
+        if (fp)
+        {
+            fprintf(fp, "Found environment varialbe GMX_NO_NONBONDED.\n"
+                        "Disabling nonbonded calculations.\n\n");
+        }
+    }
+
     bGenericKernelOnly = FALSE;
     if (getenv("GMX_NB_GENERIC") != NULL)
     {
@@ -1680,7 +1692,7 @@ void init_forcerec(FILE *fp,
         bGenericKernelOnly = TRUE;
         bNoSolvOpt         = TRUE;
     }
-    
+
     fr->UseOptimizedKernels = (getenv("GMX_NOOPTIMIZEDKERNELS") == NULL);
     if(fp && fr->UseOptimizedKernels==FALSE)
     {

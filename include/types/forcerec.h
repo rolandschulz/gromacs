@@ -256,6 +256,7 @@ typedef struct {
   t_nblists *nblists;
 
   gmx_bool cutoff_scheme; /* old- or Verlet-style cutoff */
+  gmx_bool bNonbonded;    /* true if nonbonded calculations are turned off */
   nonbonded_verlet_t *nbv;
 
   /* The wall tables (if used) */

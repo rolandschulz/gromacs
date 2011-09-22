@@ -577,12 +577,12 @@ static void do_nb_verlet(t_forcerec *fr,
                          int flags,
                          gmx_bool clearF, gmx_bool nonLocal)
 {
-    int nnbl, kernel_type;
-    nonbonded_verlet_t *nbv;
-    gmx_nblist_t **nbl;
-    char *env;
+    int     nnbl, kernel_type;
+    char    *env;
+    nonbonded_verlet_t  *nbv;
+    gmx_nblist_t        **nbl;
 
-    if (getenv("GMX_NO_NONBONDED") != NULL)
+    if (!(flags & GMX_FORCE_NONBONDED))
     {
         /* skip non-bonded calculation */
         return;
@@ -1696,6 +1696,12 @@ void do_force(FILE *fplog,t_commrec *cr,
               gmx_bool bBornRadii,
               int flags)
 {
+    /* modify force flag if not doing nonbonded */
+    if (!fr->bNonbonded)
+    {
+        flags &= ~GMX_FORCE_NONBONDED;
+    }
+
     switch (inputrec->cutoff_scheme)
     {
         case ecutsVERLET:
