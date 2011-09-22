@@ -795,6 +795,18 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
                 cr->nionodes = size_inter;
             }
 
+            /* nionodes represents the total number of frames to be buffered
+             * sizeof(real) * 3 * state->natoms represents the size of each frame
+             *
+             */
+            if (cr->nionodes * sizeof(real) * 3 * state->natoms > MAXMEM)
+            {
+            	fprintf(fplog , "Warning: you have requested the use of %d IO nodes, but that would create %i MB per core.\n"
+            			        "We do not recommend exceeding %i MB. To avoid this, you were given %i IO nodes.\n"
+            			        , cr->nionodes , (int)(cr->nionodes*sizeof(real)*3*state->natoms / 1000000) , MAXMEM / 1000000 , (int)(MAXMEM / cr->nionodes*sizeof(real)*3*state->natoms));
+            	cr->nionodes = MAXMEM / cr->nionodes*sizeof(real)*3*state->natoms;
+            }
+
             if(cr->nionodes==-1)
             {
 /*                cr->nionodes = min(min(MAXSTEPS, size_inter),
