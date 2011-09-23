@@ -184,6 +184,7 @@ typedef struct {
     gmx_cache_protect_t cp0;
 
     int *cxy_na;
+    int cxy_na_nalloc;
 
     int  *sort_work;
     int  sort_work_nalloc;
@@ -399,7 +400,9 @@ void gmx_nbsearch_init(gmx_nbsearch_t * nbs_ptr,
     snew(nbs->work,nbs->nthread_max);
     for(t=0; t<nbs->nthread_max; t++)
     {
-        nbs->work[t].sort_work   = NULL;
+        nbs->work[t].cxy_na           = NULL;
+        nbs->work[t].cxy_na_nalloc    = 0;
+        nbs->work[t].sort_work        = NULL;
         nbs->work[t].sort_work_nalloc = 0;
 
         snew_aligned(nbs->work[t].bb_tmp,SIMD_WIDTH*NNBSBB_D,16);
@@ -470,10 +473,13 @@ static int set_grid_size_xy(const gmx_nbsearch_t nbs,
         grid->cxy_nalloc = over_alloc_large(grid->ncx*grid->ncy+1);
         srenew(grid->cxy_na,grid->cxy_nalloc);
         srenew(grid->cxy_ind,grid->cxy_nalloc+1);
-
-        for(t=0; t<nbs->nthread_max; t++)
+    }
+    for(t=0; t<nbs->nthread_max; t++)
+    {
+        if (grid->ncx*grid->ncy+1 > nbs->work[t].cxy_na_nalloc)
         {
-            srenew(nbs->work[t].cxy_na,grid->cxy_nalloc);
+            nbs->work[t].cxy_na_nalloc = over_alloc_large(grid->ncx*grid->ncy+1);
+            srenew(nbs->work[t].cxy_na,nbs->work[t].cxy_na_nalloc);
         }
     }
 
@@ -4475,7 +4481,7 @@ static void set_combination_rule_data(gmx_nb_atomdata_t *nbat)
         }
         break;
     case ljcrNONE:
-        nbat->alloc((void **)&nbat->nbfp_s4,nt*nt*4*sizeof(nbat->nbfp_s4[0]));
+        nbat->alloc((void **)&nbat->nbfp_s4,nt*nt*4*sizeof(*nbat->nbfp_s4));
         for(i=0; i<nt; i++)
         {
             for(j=0; j<nt; j++)
