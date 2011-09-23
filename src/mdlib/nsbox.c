@@ -1565,36 +1565,36 @@ static void gmx_nb_atomdata_realloc(gmx_nb_atomdata_t *nbat,int n)
     int t;
 
     nb_realloc_void((void **)&nbat->type,
-                    nbat->natoms*sizeof(nbat->type),
-                    n*sizeof(nbat->type),
+                    nbat->natoms*sizeof(*nbat->type),
+                    n*sizeof(*nbat->type),
                     nbat->alloc,nbat->free);
     nb_realloc_void((void **)&nbat->lj_comb,
-                    nbat->natoms*2*sizeof(nbat->lj_comb),
-                    n*2*sizeof(nbat->lj_comb),
+                    nbat->natoms*2*sizeof(*nbat->lj_comb),
+                    n*2*sizeof(*nbat->lj_comb),
                     nbat->alloc,nbat->free);
     if (nbat->XFormat != nbatXYZQ)
     {
         nb_realloc_void((void **)&nbat->q,
-                        nbat->natoms*sizeof(nbat->q),
-                        n*sizeof(nbat->q),
+                        nbat->natoms*sizeof(*nbat->q),
+                        n*sizeof(*nbat->q),
                         nbat->alloc,nbat->free);
     }
     if (nbat->nenergrp > 1)
     {
         nb_realloc_void((void **)&nbat->energrp,
-                        nbat->natoms/nbat->naps*sizeof(nbat->energrp),
-                        n/nbat->naps*sizeof(nbat->energrp),
+                        nbat->natoms/nbat->naps*sizeof(*nbat->energrp),
+                        n/nbat->naps*sizeof(*nbat->energrp),
                         nbat->alloc,nbat->free);
     }
     nb_realloc_void((void **)&nbat->x,
-                    nbat->natoms*nbat->xstride*sizeof(nbat->x),
-                    n*nbat->xstride*sizeof(nbat->x),
+                    nbat->natoms*nbat->xstride*sizeof(*nbat->x),
+                    n*nbat->xstride*sizeof(*nbat->x),
                     nbat->alloc,nbat->free);
     for(t=0; t<nbat->nout; t++)
     {
         nb_realloc_void((void **)&nbat->out[t].f,
-                        nbat->natoms*nbat->xstride*sizeof(nbat->out[t].f[0]),
-                        n*nbat->xstride*sizeof(nbat->out[t].f[0]),
+                        nbat->natoms*nbat->xstride*sizeof(*nbat->out[t].f),
+                        n*nbat->xstride*sizeof(*nbat->out[t].f),
                         nbat->alloc,nbat->free);
     }
     nbat->nalloc = n;
@@ -3724,7 +3724,6 @@ static void combine_nblists(int nnbl,gmx_nblist_t **nbl,
             {
                 nblc->excl[nblc->nexcl+j4] = nbli->excl[j4];
             }
-            //memcpy(nbli->excl,nblc->excl+nblc->nexcl+j0,(j1-j0)*sizeof(*nblc->excl));
         }
 
         nblc->nsj4  += nbli->nsj4;
@@ -4419,15 +4418,15 @@ static void gmx_nb_atomdata_output_init(gmx_nb_atomdata_output_t *out,
                                         gmx_nbat_alloc_t *ma)
 {
     out->f = NULL;
-    ma((void **)&out->fshift,SHIFTS*DIM*sizeof(out->fshift[0]));
+    ma((void **)&out->fshift,SHIFTS*DIM*sizeof(*out->fshift));
     out->nV = nenergrp*nenergrp;
-    ma((void **)&out->Vvdw,out->nV*sizeof(out->Vvdw));
-    ma((void **)&out->Vc  ,out->nV*sizeof(out->Vc  ));
+    ma((void **)&out->Vvdw,out->nV*sizeof(*out->Vvdw));
+    ma((void **)&out->Vc  ,out->nV*sizeof(*out->Vc  ));
     if (nbs->simple)
     {
         out->nVS = nenergrp*nenergrp*nenergrp*nenergrp*nenergrp*4;
-        ma((void **)&out->VSvdw,out->nVS*sizeof(out->VSvdw));
-        ma((void **)&out->VSc  ,out->nVS*sizeof(out->VSc  ));
+        ma((void **)&out->VSvdw,out->nVS*sizeof(*out->VSvdw));
+        ma((void **)&out->VSc  ,out->nVS*sizeof(*out->VSc  ));
     }
     else
     {
