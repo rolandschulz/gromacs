@@ -2204,7 +2204,7 @@ static void check_subcell_list_space_supersub(gmx_nblist_t *nbl,
 
 static void nblist_alloc_aligned(void **ptr,size_t nbytes)
 {
-    *ptr = save_calloc_aligned("ptr",__FILE__,__LINE__,nbytes,1,16);
+    *ptr = save_calloc_aligned("ptr",__FILE__,__LINE__,nbytes,1,16,0);
 }
 
 static void nblist_free_aligned(void *ptr)
