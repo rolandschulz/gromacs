@@ -774,12 +774,9 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
     if (DOMAINDECOMP(cr) && integrator[inputrec->eI].func == do_md && (cr->duty & DUTY_PP))
     {
         const size_t MAXMEM = 20000000; /* This checks that we won't be using more than 20 megabytes for storing frames */
-        /* Every single frame is at least this size (This size info came from allocate_dd_buf); however, if the core is an IOnode then one frame is significantly larger */
-        size_t frame_size = sizeof (gmx_domdec_t) + sizeof (int) * cr->dd->cg_nalloc
-                          + sizeof (gmx_domdec_comm_p_t) + sizeof (atom_id) * cr->dd->comm->cgs_gl.nalloc_index
-                          + sizeof (gmx_domdec_master_p_t);
-        /* This is only tracking the potentially huge arrays */
-        size_t master_frame_size =  sizeof (int) * cr->dd->nnodes * 5 + sizeof (rvec) * cr->dd->nat_tot;
+
+        /* This is only tracking the potentially huge arrays found in cr->dd->ma*/
+        size_t frame_size =  sizeof (int) * cr->dd->nnodes * 5 + sizeof (int) * 3 * state->natoms;
         gmx_bool bIOnode = FALSE;
         int size_inter;
         if (MASTER(cr))
@@ -796,23 +793,23 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
             if(cr->nionodes > size_inter)
             {
                 fprintf(fplog,"Warning: you requested the use of %d IO nodes, but there are not enough physical nodes to do that!\n"
-                              "Instead you were given the maximum possible which was %d IO nodes.\n",cr->nionodes, size_inter);
-                cr->nionodes = size_inter;
+                              "Instead you will be given the maximum possible IO nodes.\n",cr->nionodes);
+                cr->nionodes = -1;
             }
 
-            if (frame_size * cr->nionodes + master_frame_size > MAXMEM)
+            if (cr->nionodes != -1 && frame_size * cr->nionodes > MAXMEM)
             {
             	fprintf(fplog , "Warning: you have requested the use of %d IO nodes, but that would require %lu MB per core.\n"
-            			        "We do not recommend exceeding %lu MB. To avoid this, you were given %lu IO nodes.\n"
-            			        , cr->nionodes , (size_t)((cr->nionodes * frame_size + master_frame_size) / 1000000)
-            			        , MAXMEM / 1000000 , (size_t)(MAXMEM / (cr->nionodes * frame_size + master_frame_size)));
-            	cr->nionodes = MAXMEM / (cr->nionodes * frame_size + master_frame_size);
+            			        "We do not recommend exceeding %lu MB.\n"
+            			        , cr->nionodes , (size_t)(cr->nionodes * frame_size / 1000000)
+            			        , MAXMEM / 1000000); //TODO RJ: Add flag for changing the MAXMEM size
+            	cr->nionodes = -1;
             }
 
             if(cr->nionodes==-1)
             {
                 cr->nionodes = min(size_inter,
-                                        MAXMEM * cr->dd->nnodes / (frame_size + master_frame_size));
+                                        MAXMEM * cr->dd->nnodes / frame_size);
             }
 
             cr->nionodes = max(cr->nionodes, 1);  /* make sure to have at least one */
