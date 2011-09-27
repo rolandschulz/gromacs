@@ -802,8 +802,8 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
 
             if (frame_size * cr->nionodes + master_frame_size > MAXMEM)
             {
-            	fprintf(fplog , "Warning: you have requested the use of %d IO nodes, but that would require %d MB per core.\n"
-            			        "We do not recommend exceeding %d MB. To avoid this, you were given %d IO nodes.\n"
+            	fprintf(fplog , "Warning: you have requested the use of %d IO nodes, but that would require %lu MB per core.\n"
+            			        "We do not recommend exceeding %lu MB. To avoid this, you were given %lu IO nodes.\n"
             			        , cr->nionodes , (size_t)((cr->nionodes * frame_size + master_frame_size) / 1000000)
             			        , MAXMEM / 1000000 , (size_t)(MAXMEM / (cr->nionodes * frame_size + master_frame_size)));
             	cr->nionodes = MAXMEM / (cr->nionodes * frame_size + master_frame_size);
