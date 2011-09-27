@@ -5916,6 +5916,7 @@ int allocate_dd_buf(gmx_domdec_t ***dd_buf, t_commrec *cr)
         snew((*dd_buf)[i],1);
         snew((*dd_buf)[i]->index_gl, dd->cg_nalloc);
         snew((*dd_buf)[i]->comm, 1);
+        snew((*dd_buf)[i]->comm->cgs_gl.index, cr->dd->comm->cgs_gl.nalloc_index);
         snew((*dd_buf)[i]->ma, 1);
 
         if (dd->iorank == i)
@@ -5929,7 +5930,6 @@ int allocate_dd_buf(gmx_domdec_t ***dd_buf, t_commrec *cr)
 /* Copies orig_dd into copy_dd */
 int copy_dd (gmx_domdec_t *copy_dd,gmx_domdec_t *orig_dd)
 {
-
     int j;
     int *index_gl_new;
     gmx_domdec_comm_p_t comm_new;
@@ -5938,27 +5938,26 @@ int copy_dd (gmx_domdec_t *copy_dd,gmx_domdec_t *orig_dd)
 
     srenew (copy_dd->index_gl,orig_dd->cg_nalloc);
 
-
     /* Rescuing the pointer of the deep copied substructes that would be lost in the memcpy */
     index_gl_new = copy_dd->index_gl;
     comm_new = copy_dd->comm;
     ma_new = copy_dd->ma;
-    memcpy (copy_dd,orig_dd, sizeof(gmx_domdec_t)); /* copy dd */
+    memcpy (copy_dd , orig_dd , sizeof (gmx_domdec_t)); /* copy dd */
     copy_dd->index_gl = index_gl_new;
     copy_dd->comm = comm_new;
     copy_dd->ma = ma_new;
 
     /* copy dd->index_gl */
-    memcpy (copy_dd->index_gl,orig_dd->index_gl, sizeof(int) * orig_dd->ncg_home);
+    memcpy (copy_dd->index_gl , orig_dd->index_gl , sizeof (int) * orig_dd->ncg_home);
     /* ma doesn't need to be copied. Its only used as receive buffer */
 
     /* copy dd->comm */
     cgs_gl_new_index = copy_dd->comm->cgs_gl.index;
-    memcpy (copy_dd->comm,orig_dd->comm, sizeof(gmx_domdec_comm_t));  //copy dd->comm
+    memcpy (copy_dd->comm , orig_dd->comm , sizeof (gmx_domdec_comm_t));  /* copy dd->comm */
     copy_dd->comm->cgs_gl.index = cgs_gl_new_index;
     /* copy dd->comm->cgs_gl.index */
-    srenew (copy_dd->comm->cgs_gl.index, orig_dd->comm->cgs_gl.nalloc_index);
-    memcpy (copy_dd->comm->cgs_gl.index, orig_dd->comm->cgs_gl.index,
+    srenew (copy_dd->comm->cgs_gl.index , orig_dd->comm->cgs_gl.nalloc_index);
+    memcpy (copy_dd->comm->cgs_gl.index , orig_dd->comm->cgs_gl.index,
             sizeof(int) * (orig_dd->comm->cgs_gl.nr+1));
     /* This prevents an error during collection where some MPI buffers are never setup */
     copy_dd->comm->master_cg_ddp_count = -1;

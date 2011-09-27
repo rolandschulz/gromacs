@@ -328,6 +328,23 @@ static int get_nthreads(int nthreads_requested, t_inputrec *inputrec,
 }
 #endif
 
+size_t calculate_write_buf_size (gmx_domdec_t dd , t_state state)//TODO RJ: Only look at stuff the size of natoms and nnodes
+{
+	size_t size = 0;
+
+	//Calculate about how big state will be
+
+	size += sizeof (int)    * (state->cg_gl_nalloc + state->nrngi)
+	     +  sizeof (double) * (state->nosehoover_xi + state->nosehoover_vxi + state->therm_integral + state->nhpres_xi + state->nhpres_vxi)
+	     +  sizeof (real)*3 * (state->natoms) * 4;
+
+	//Calculate about how big dd will be
+
+	size += sizeof (int)    * (dd->gatindex_nalloc + dd->nnodes + dd->ncg_home + dd->cg_nalloc + dd->la2lc_nalloc)
+         +  sizeof (real)*3 * (dd->pme_recv_f_alloc);
+
+	return size;
+}
 
 int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
              const t_filenm fnm[], const output_env_t oenv, gmx_bool bVerbose,
@@ -774,7 +791,13 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
 #ifdef GMX_LIB_MPI
     if (DOMAINDECOMP(cr) && integrator[inputrec->eI].func == do_md && (cr->duty & DUTY_PP))
     {
-        const int MAXMEM = 20000000; /* This checks that we won't be using more than 20 megabytes for storing frames */
+        const size_t MAXMEM = 20000000; /* This checks that we won't be using more than 20 megabytes for storing frames */
+        /* Every single frame is at least this size (This size info came from allocate_dd_buf); however, if the core is an IOnode then one frame is significantly larger */
+        size_t frame_size = sizeof (gmx_domdec_t) + sizeof (int) * cr->dd->cg_nalloc
+                          + sizeof (gmx_domdec_comm) + sizeof (atom_id) * cr->dd->comm->cgs_gl.nalloc_index
+                          + sizeof (gmx_domdec_master);
+        /* This is only tracking the potentially huge arrays */
+        size_t master_frame_size =  sizeof (int) * cr->dd->nnodes * 5 + sizeof (rvec) * cr->dd->natoms;
         gmx_bool bIOnode = FALSE;
         int size_inter;
         if (MASTER(cr))
@@ -795,28 +818,22 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
                 cr->nionodes = size_inter;
             }
 
-            /* nionodes represents the total number of frames to be buffered
-             * sizeof(real) * 3 * state->natoms represents the size of each frame
-             *
-             */
-            if (cr->nionodes * sizeof(real) * 3 * state->natoms > MAXMEM)
+            if (frame_size * cr->nionodes + master_frame_size > MAXMEM)
             {
-            	fprintf(fplog , "Warning: you have requested the use of %d IO nodes, but that would create %i MB per core.\n"
+            	fprintf(fplog , "Warning: you have requested the use of %d IO nodes, but that would require %i MB per core.\n"
             			        "We do not recommend exceeding %i MB. To avoid this, you were given %i IO nodes.\n"
-            			        , cr->nionodes , (int)(cr->nionodes*sizeof(real)*3*state->natoms / 1000000) , MAXMEM / 1000000 , (int)(MAXMEM / cr->nionodes*sizeof(real)*3*state->natoms));
-            	cr->nionodes = MAXMEM / cr->nionodes*sizeof(real)*3*state->natoms;
+            			        , cr->nionodes , (size_t)((cr->nionodes * frame_size + master_frame_size) / 1000000)
+            			        , MAXMEM / 1000000 , (size_t)(MAXMEM / (cr->nionodes * frame_size + master_frame_size));
+            	cr->nionodes = MAXMEM / (cr->nionodes * frame_size + master_frame_size);
             }
 
             if(cr->nionodes==-1)
             {
-/*                cr->nionodes = min(min(MAXSTEPS, size_inter),
-                        MAXMEM * cr->dd->nnodes / (sizeof(real) * 3 * state->natoms)  );
-*/
                 cr->nionodes = min(size_inter,
-                                        MAXMEM * cr->dd->nnodes / (sizeof(real) * 3 * state->natoms)  );
+                                        MAXMEM * cr->dd->nnodes / (frame_size + master_frame_size));
             }
 
-            cr->nionodes = max(cr->nionodes, 1);  /*make sure to have at least one*/
+            cr->nionodes = max(cr->nionodes, 1);  /* make sure to have at least one */
 
             if (cr->nionodes > 1)
             {

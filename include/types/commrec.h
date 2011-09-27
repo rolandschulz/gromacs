@@ -191,7 +191,7 @@ typedef struct {
   /* The local to global charge group index and local cg to local atom index */
   int  ncg_home;
   int  ncg_tot;
-  int  *index_gl;// size is ncg_home 
+  int  *index_gl;/* size is ncg_home */
   int  *cgindex;
   int  cg_nalloc;
   /* Local atom to local cg index, only for special cases */

@@ -544,24 +544,22 @@ void done_mdoutf(gmx_mdoutf_t *of)
     sfree(of);
 }
 
-// This is used for use with write_buf inside write_traj, it copies the 
-// original state_local (old_sl) and copies it into new_sl
-static int copy_state_local(t_state *new_sl,t_state *old_sl) 
+/* This is used for use with write_buf inside write_traj, it copies the
+ * original state_local (old_sl) and copies it into new_sl */
+static int copy_state_local (t_state *new_sl , t_state *old_sl)
 {
 	int *cg_gl_new = new_sl->cg_gl;
 	rvec *x_new = new_sl->x;
 
-	memcpy(new_sl,old_sl,sizeof(t_state));
+	memcpy(new_sl , old_sl , sizeof (t_state));
 	new_sl->cg_gl = cg_gl_new;
 	new_sl->x = x_new;
-        srenew(new_sl->cg_gl,old_sl->cg_gl_nalloc);
-        srenew(new_sl->x,old_sl->nalloc);
-	memcpy(new_sl->cg_gl, old_sl->cg_gl, sizeof(int) * old_sl->cg_gl_nalloc);
-	memcpy(new_sl->x, old_sl->x, sizeof(rvec) * old_sl->natoms);
+	srenew(new_sl->cg_gl , old_sl->cg_gl_nalloc);
+	srenew(new_sl->x , old_sl->nalloc);
+	memcpy(new_sl->cg_gl , old_sl->cg_gl , sizeof(int) * old_sl->cg_gl_nalloc);
+	memcpy(new_sl->x , old_sl->x , sizeof(rvec) * old_sl->natoms);
 	return 0;
 }
-
-
 
 void write_traj(FILE *fplog,t_commrec *cr,
                 gmx_mdoutf_t *of,
