@@ -328,24 +328,6 @@ static int get_nthreads(int nthreads_requested, t_inputrec *inputrec,
 }
 #endif
 
-size_t calculate_write_buf_size (gmx_domdec_t dd , t_state state)//TODO RJ: Only look at stuff the size of natoms and nnodes
-{
-	size_t size = 0;
-
-	//Calculate about how big state will be
-
-	size += sizeof (int)    * (state->cg_gl_nalloc + state->nrngi)
-	     +  sizeof (double) * (state->nosehoover_xi + state->nosehoover_vxi + state->therm_integral + state->nhpres_xi + state->nhpres_vxi)
-	     +  sizeof (real)*3 * (state->natoms) * 4;
-
-	//Calculate about how big dd will be
-
-	size += sizeof (int)    * (dd->gatindex_nalloc + dd->nnodes + dd->ncg_home + dd->cg_nalloc + dd->la2lc_nalloc)
-         +  sizeof (real)*3 * (dd->pme_recv_f_alloc);
-
-	return size;
-}
-
 int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
              const t_filenm fnm[], const output_env_t oenv, gmx_bool bVerbose,
              gmx_bool bCompact, int nstglobalcomm,
@@ -794,10 +776,10 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
         const size_t MAXMEM = 20000000; /* This checks that we won't be using more than 20 megabytes for storing frames */
         /* Every single frame is at least this size (This size info came from allocate_dd_buf); however, if the core is an IOnode then one frame is significantly larger */
         size_t frame_size = sizeof (gmx_domdec_t) + sizeof (int) * cr->dd->cg_nalloc
-                          + sizeof (gmx_domdec_comm) + sizeof (atom_id) * cr->dd->comm->cgs_gl.nalloc_index
-                          + sizeof (gmx_domdec_master);
+                          + sizeof (gmx_domdec_comm_p_t) + sizeof (atom_id) * cr->dd->comm->cgs_gl.nalloc_index
+                          + sizeof (gmx_domdec_master_p_t);
         /* This is only tracking the potentially huge arrays */
-        size_t master_frame_size =  sizeof (int) * cr->dd->nnodes * 5 + sizeof (rvec) * cr->dd->natoms;
+        size_t master_frame_size =  sizeof (int) * cr->dd->nnodes * 5 + sizeof (rvec) * cr->dd->nat_tot;
         gmx_bool bIOnode = FALSE;
         int size_inter;
         if (MASTER(cr))
