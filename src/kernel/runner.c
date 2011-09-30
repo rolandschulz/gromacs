@@ -776,7 +776,7 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
         const size_t MAXMEM = 20000000; /* This checks that we won't be using more than 20 megabytes for storing frames */
 
         /* This is only tracking the potentially huge arrays found in cr->dd->ma*/
-        size_t frame_size =  sizeof (int) * cr->dd->nnodes * 5 + sizeof (int) * 3 * state->natoms;
+        size_t frame_size =  (sizeof (int) * get_t_block_nalloc (cr->dd->comm)) + (sizeof (real) * 3 * state->natoms);
         gmx_bool bIOnode = FALSE;
         int size_inter;
         if (MASTER(cr))
@@ -797,7 +797,7 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
                 cr->nionodes = -1;
             }
 
-            if (cr->nionodes != -1 && frame_size * cr->nionodes > MAXMEM)
+            if (cr->nionodes != -1 && MAXMEM * cr->dd->nnodes / frame_size)
             {
             	fprintf(fplog , "Warning: you have requested the use of %d IO nodes, but that would require %lu MB per core.\n"
             			        "We do not recommend exceeding %lu MB.\n"

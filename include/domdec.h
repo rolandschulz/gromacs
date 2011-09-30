@@ -35,6 +35,9 @@
 extern "C" {
 #endif
 
+int get_t_block_nalloc (gmx_domdec_comm_p_t comm);
+/* Returns comm->cgs_gl.nalloc_index */
+
 int ddglatnr(gmx_domdec_t *dd,int i);
 /* Returns the global topology atom number belonging to local atom index i.
  * This function is intended for writing ascii output

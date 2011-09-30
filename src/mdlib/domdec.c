@@ -456,6 +456,11 @@ static gmx_bool dynamic_dd_box(gmx_ddbox_t *ddbox,t_inputrec *ir)
     return (ddbox->nboundeddim < DIM || DYNAMIC_BOX(*ir));
 }
 
+int get_t_block_nalloc (gmx_domdec_comm_p_t comm)
+{
+	return comm->cgs_gl.nalloc_index;
+}
+
 int ddglatnr(gmx_domdec_t *dd,int i)
 {
     int atnr;
