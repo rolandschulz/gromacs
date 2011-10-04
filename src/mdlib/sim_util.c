@@ -574,8 +574,8 @@ static void post_process_forces(FILE *fplog,
 static void do_nb_verlet(t_forcerec *fr,
                          interaction_const_t *ic,
                          gmx_enerdata_t *enerd,
-                         int flags,
-                         gmx_bool clearF, int ilocaity)
+                         int flags, int ilocaity,
+                         gmx_bool clearF) /* FIXME this argument is very uncool */
 {
     int     nnbl, kernel_type;
     char    *env;
@@ -670,7 +670,7 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
     int     nb_kernel_type;
     double mu[2*DIM]; 
     gmx_bool   bSepDVDL,bStateChanged,bNS,bFillGrid,bCalcCGCM,bBS;
-    gmx_bool   bDoLongRange,bDoForces,bSepLRF,bUseGPU,bUseEmulateGPU;
+    gmx_bool   bDoLongRange,bDoForces,bSepLRF,bUseGPU,bUseOrEmulGPU;
     matrix boxs;
     rvec   vzero,box_diag;
     real   e,v,dvdl;
@@ -710,7 +710,7 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
     bDoForces     = (flags & GMX_FORCE_FORCES);
     bSepLRF       = (bDoLongRange && bDoForces && (flags & GMX_FORCE_SEPLRF));
     bUseGPU       = fr->nbv->useGPU;
-    bUseEmulateGPU = bUseGPU || (nbv->kernel_type == nbk8x8x8PlainC);
+    bUseOrEmulGPU = bUseGPU || (nbv->kernel_type == nbk8x8x8PlainC);
 
     if (bStateChanged)
     {
@@ -860,7 +860,7 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
     { 
         wallcycle_start(wcycle,ewcSEND_X_GPU);
         /* launch local nonbonded F on GPU */
-        do_nb_verlet(fr, ic, enerd, flags, FALSE, FALSE);
+        do_nb_verlet(fr, ic, enerd, flags, eintLocal, FALSE);
         wallcycle_stop(wcycle,ewcSEND_X_GPU);
     }
 #endif
@@ -911,7 +911,7 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
         { 
             wallcycle_start(wcycle,ewcSEND_X_GPU);
             /* launch non-local nonbonded F on GPU */
-            do_nb_verlet(fr, ic, enerd, flags, FALSE, TRUE);
+            do_nb_verlet(fr, ic, enerd, flags, eintNonlocal, FALSE);
             wallcycle_stop(wcycle,ewcSEND_X_GPU);
         }
 #endif
@@ -1055,15 +1055,14 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
                         ? flags&~GMX_FORCE_NONBONDED : flags),
                       &cycles_pme);
 
-    /* FIXME this test is stupid! */
-    if (nbv->kernel_type == nbk4x4SSE || nbv->kernel_type == nbk4x4PlainC)
+    if (!bUseOrEmulGPU)
     {
         /* Maybe we should move this into do_force_lowlevel */
-        do_nb_verlet(fr, ic, enerd, flags, TRUE, FALSE);
+        do_nb_verlet(fr, ic, enerd, flags, eintLocal, TRUE);
         
         if (DOMAINDECOMP(cr))
         {
-            do_nb_verlet(fr, ic, enerd, flags, FALSE, TRUE);
+            do_nb_verlet(fr, ic, enerd, flags, eintNonlocal, FALSE);
         }
 
         /* Add all the non-bonded force to the normal force array.
@@ -1087,7 +1086,7 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
         do_flood(fplog,cr,x,f,ed,box,step);
     }
 
-    if (bUseEmulateGPU)
+    if (bUseOrEmulGPU)
     {
         /* wait for non-local forces (or calculate in emulation mode) */
         if (DOMAINDECOMP(cr))
@@ -1105,7 +1104,7 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
             else
             {
                 wallcycle_start_nocount(wcycle,ewcFORCE);
-                do_nb_verlet(fr, ic, enerd, flags, TRUE, TRUE);
+                do_nb_verlet(fr, ic, enerd, flags, eintNonlocal, TRUE);
                 wallcycle_stop(wcycle,ewcFORCE);
             }            
             gmx_nb_atomdata_add_nbat_f_to_f(nbv->nbs,eatNonlocal,nbv->nbat,f);
@@ -1155,7 +1154,7 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
         }
     }
  
-    if (bUseEmulateGPU)
+    if (bUseOrEmulGPU)
     {
         /* wait for local forces (or calculate in emulation mode) */
         if (bUseGPU)
@@ -1175,7 +1174,7 @@ void do_force_cutsVERLET(FILE *fplog,t_commrec *cr,
         else
         {            
             wallcycle_start_nocount(wcycle,ewcFORCE);
-            do_nb_verlet(fr, ic, enerd, flags, !DOMAINDECOMP(cr), FALSE);
+            do_nb_verlet(fr, ic, enerd, flags, eintLocal, !DOMAINDECOMP(cr));
             wallcycle_stop(wcycle,ewcFORCE);
         }
         gmx_nb_atomdata_add_nbat_f_to_f(nbv->nbs,eatLocal,nbv->nbat,f);
