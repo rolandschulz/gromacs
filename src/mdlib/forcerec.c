@@ -61,6 +61,7 @@
 #include "qmmm.h"
 #include "copyrite.h"
 #include "mtop_util.h"
+#include "nsbox.h"
 
 
 #ifdef _MSC_VER
@@ -68,6 +69,17 @@
 #include <intrin.h>
 #endif
 
+#ifdef GMX_OPENMP
+#include <omp.h>
+#else
+#include "no_omp.h"
+#endif
+
+#ifdef GMX_GPU
+#include "cutypedefs_ext.h"
+#include "cuda_data_mgmt.h"
+#include "cupmalloc.h"
+#endif
 
 
 t_forcerec *mk_forcerec(void)
@@ -525,13 +537,29 @@ static cginfo_mb_t *init_cginfo_mb(FILE *fplog,const gmx_mtop_t *mtop,
     const gmx_moltype_t *molt;
     const gmx_molblock_t *molb;
     cginfo_mb_t *cginfo_mb;
+    gmx_bool *type_LJ;
     int  *cginfo;
     int  cg_offset,a_offset,cgm,am;
     int  mb,m,ncg_tot,cg,a0,a1,gid,ai,j,aj,excl_nalloc;
-    gmx_bool bId,*bExcl,bExclIntraAll,bExclInter;
+    int  *a_con;
+    int  ia;
+    gmx_bool bId,*bExcl,bExclIntraAll,bExclInter,bHaveLJ,bHaveQ;
 
     ncg_tot = ncg_mtop(mtop);
     snew(cginfo_mb,mtop->nmolblock);
+
+    snew(type_LJ,fr->ntype);
+    for(ai=0; ai<fr->ntype; ai++)
+    {
+        type_LJ[ai] = FALSE;
+        for(j=0; j<fr->ntype; j++)
+        {
+            type_LJ[ai] = type_LJ[ai] ||
+                fr->bBHAM ||
+                C6(fr->nbfp,fr->ntype,ai,j) != 0 ||
+                C12(fr->nbfp,fr->ntype,ai,j) != 0;
+        }
+    }
 
     excl_nalloc = 10;
     snew(bExcl,excl_nalloc);
@@ -582,6 +610,24 @@ static cginfo_mb_t *init_cginfo_mb(FILE *fplog,const gmx_mtop_t *mtop,
         snew(cginfo_mb[mb].cginfo,cginfo_mb[mb].cg_mod);
         cginfo = cginfo_mb[mb].cginfo;
 
+        snew(a_con,molt->atoms.nr);
+        for(ia=0; ia<molt->ilist[F_CONSTR].nr; ia+=3)
+        {
+            a_con[molt->ilist[F_CONSTR].iatoms[ia+1]] = 1;
+            a_con[molt->ilist[F_CONSTR].iatoms[ia+2]] = 1;
+        }
+        for(ia=0; ia<molt->ilist[F_CONSTRNC].nr; ia+=3)
+        {
+            a_con[molt->ilist[F_CONSTRNC].iatoms[ia+1]] = 1;
+            a_con[molt->ilist[F_CONSTRNC].iatoms[ia+2]] = 1;
+        }
+        for(ia=0; ia<molt->ilist[F_SETTLE].nr; ia+=4)
+        {
+            a_con[molt->ilist[F_SETTLE].iatoms[ia+1]] = 2;
+            a_con[molt->ilist[F_SETTLE].iatoms[ia+2]] = 2;
+            a_con[molt->ilist[F_SETTLE].iatoms[ia+3]] = 2;
+        }
+
         for(m=0; m<(bId ? 1 : molb->nmol); m++)
         {
             cgm = m*cgs->nr;
@@ -605,7 +651,13 @@ static cginfo_mb_t *init_cginfo_mb(FILE *fplog,const gmx_mtop_t *mtop,
                  */
                 bExclIntraAll = TRUE;
                 bExclInter    = FALSE;
+                bHaveLJ       = FALSE;
+                bHaveQ        = FALSE;
                 for(ai=a0; ai<a1; ai++) {
+                    /* Here we only check for the A, not B topology */
+                    bHaveLJ = bHaveLJ || type_LJ[molt->atoms.atom[ai].type];
+                    bHaveQ  = bHaveQ  || (molt->atoms.atom[ai].q != 0);
+
                     /* Clear the exclusion list for atom ai */
                     for(aj=a0; aj<a1; aj++) {
                         bExcl[aj-a0] = FALSE;
@@ -631,6 +683,15 @@ static cginfo_mb_t *init_cginfo_mb(FILE *fplog,const gmx_mtop_t *mtop,
                             bExclIntraAll = FALSE;
                         }
                     }
+
+                    if (a_con[ai] == 1)
+                    {
+                        SET_CGINFO_CONSTR(cginfo[cgm+cg]);
+                    }
+                    else if (a_con[ai] == 2)
+                    {
+                        SET_CGINFO_SETTLE(cginfo[cgm+cg]);
+                    }
                 }
                 if (bExclIntraAll)
                 {
@@ -645,9 +706,21 @@ static cginfo_mb_t *init_cginfo_mb(FILE *fplog,const gmx_mtop_t *mtop,
                     /* The size in cginfo is currently only read with DD */
                     gmx_fatal(FARGS,"A charge group has size %d which is larger than the limit of %d atoms",a1-a0,MAX_CHARGEGROUP_SIZE);
                 }
+                if (bHaveLJ)
+                {
+                    SET_CGINFO_HAS_LJ(cginfo[cgm+cg]);  
+                }
+                if (bHaveQ)
+                {
+                    SET_CGINFO_HAS_Q(cginfo[cgm+cg]);  
+                }
+                /* Store the charge group size */
                 SET_CGINFO_NATOMS(cginfo[cgm+cg],a1-a0);
             }
         }
+
+        sfree(a_con);
+
         cg_offset += molb->nmol*cgs->nr;
         a_offset  += molb->nmol*cgs->index[cgs->nr];
     }
@@ -710,38 +783,47 @@ static int *cginfo_expand(int nmb,cginfo_mb_t *cgi_mb)
 
 static void set_chargesum(FILE *log,t_forcerec *fr,const gmx_mtop_t *mtop)
 {
-    double qsum;
+    double qsum,q2sum,q;
     int    mb,nmol,i;
     const t_atoms *atoms;
     
-    qsum = 0;
+    qsum  = 0;
+    q2sum = 0;
     for(mb=0; mb<mtop->nmolblock; mb++)
     {
         nmol  = mtop->molblock[mb].nmol;
         atoms = &mtop->moltype[mtop->molblock[mb].type].atoms;
         for(i=0; i<atoms->nr; i++)
         {
-            qsum += nmol*atoms->atom[i].q;
+            q = atoms->atom[i].q;
+            qsum  += nmol*q;
+            q2sum += nmol*q*q;
         }
     }
-    fr->qsum[0] = qsum;
+    fr->qsum[0]  = qsum;
+    fr->q2sum[0] = q2sum;
     if (fr->efep != efepNO)
     {
-        qsum = 0;
+        qsum  = 0;
+        q2sum = 0;
         for(mb=0; mb<mtop->nmolblock; mb++)
         {
             nmol  = mtop->molblock[mb].nmol;
             atoms = &mtop->moltype[mtop->molblock[mb].type].atoms;
             for(i=0; i<atoms->nr; i++)
             {
-                qsum += nmol*atoms->atom[i].qB;
+                q = atoms->atom[i].qB;
+                qsum  += nmol*q;
+                q2sum += nmol*q*q;
             }
-            fr->qsum[1] = qsum;
+            fr->qsum[1]  = qsum;
+            fr->q2sum[1] = q2sum;
         }
     }
     else
     {
-        fr->qsum[1] = fr->qsum[0];
+        fr->qsum[1]  = fr->qsum[0];
+        fr->q2sum[1] = fr->q2sum[0];
     }
     if (log) {
         if (fr->efep == efepNO)
@@ -1279,7 +1361,309 @@ forcerec_check_sse2()
 }
 
 
+static void init_forcerec_f_threads(t_forcerec *fr,int grpp_nener)
+{
+    int t,i;
 
+    fr->nthreads = omp_get_max_threads();
+
+    snew(fr->f_t,fr->nthreads);
+    /* Thread 0 uses the global force and energy arrays */
+    for(t=1; t<fr->nthreads; t++)
+    {
+        fr->f_t[t].f = NULL;
+        fr->f_t[t].f_nalloc = 0;
+        snew(fr->f_t[t].fshift,SHIFTS);
+        /* snew(fr->f_t[t].ener,F_NRE); */
+        fr->f_t[t].grpp.nener = grpp_nener;
+        for(i=0; i<egNR; i++)
+        {
+            snew(fr->f_t[t].grpp.ener[i],grpp_nener);
+        }
+    }
+}
+
+/* Selects the non-bonded (Verlet) kernel to be used. */
+static void pick_nb_kernel(FILE *fp, const t_commrec *cr,
+                           nonbonded_verlet_t *nbv, int *napc)
+{
+    char *env;
+    gmx_bool emulateGPU;
+
+    /* by default we'll use the 4x4 SSE kernels */
+    if (nbv->kernel_type == nbkNotSet)
+    {
+#if ( defined(GMX_IA32_SSE2) || defined(GMX_X86_64_SSE2) || defined(GMX_IA32_SSE) || defined(GMX_X86_64_SSE)|| defined(GMX_SSE2) ) && ! defined GMX_DOUBLE
+        if (getenv("GMX_NOOPTIMIZEDKERNELS") == NULL)
+        {
+            nbv->kernel_type = nbk4x4SSE;
+        }
+        else
+#endif
+        {
+            nbv->kernel_type = nbk4x4PlainC;
+        }
+    }
+
+    /* Run GPU emulation mode if GMX_EMULATE_GPU is defined and also if nobonded 
+       calculations are turned off via GMX_NO_NONBONDED. This is the simple way 
+       to also turn off GPU/CUDA initializations. */
+    emulateGPU = (((env = getenv("GMX_EMULATE_GPU")) != NULL) ||
+                  (getenv("GMX_NO_NONBONDED") != NULL));
+
+    nbv->useGPU = FALSE;
+    if (emulateGPU)
+    {
+        nbv->kernel_type = nbk8x8x8PlainC;
+
+        if (env != NULL)
+        {
+            sscanf(env,"%d",napc);
+        }
+
+        if (*napc == 0 || env == NULL)
+        {
+            *napc = GPU_NS_CELL_SIZE;
+        }
+        if (fp != NULL)
+        {
+            fprintf(fp, "Emulating GPU, using %d atoms per sub-cell\n", *napc);
+        }
+    }    
+    else
+    {
+#ifdef GMX_GPU
+        /* Try to use a GPU if GMX_GPU is not defined */
+        if (getenv("GMX_NO_GPU") == NULL)
+        {
+            int gpu_device_id;
+
+            nbv->kernel_type = nbk8x8x8CUDA;
+
+            /* TODO: do the multi-GPU initilization properly */
+            /* for now to enable parallel runs, unless GMX_GPU_ID is set, 
+               each process will try to use the GPU with id = procid
+               (within the node). */
+            gpu_device_id = cr->nc.rank_intra;
+            env = getenv("GMX_GPU_ID");
+            if (env != NULL)
+            {
+                sscanf(env, "%d",&gpu_device_id);
+                if (DOMAINDECOMP(cr) && MASTER(cr))
+                gmx_warning("Running in parallel and GMX_GPU_ID is set, "
+                            "all processes on the same node will share GPU #%d.");
+            }
+            if (init_gpu(fp, gpu_device_id) != 0)
+            {
+                gmx_fatal(FARGS, "Could not initialize GPU #%d", gpu_device_id);
+            }
+            else
+            {
+                nbv->useGPU = TRUE;
+            }
+
+            *napc = GPU_NS_CELL_SIZE;
+        }
+        else 
+        {
+            if (MASTER(cr) == 0)
+            {
+                gmx_warning("GPU mode turned off by GMX_NO_GPU env var!");
+            }
+        }
+#endif
+    }
+
+    if (fp != NULL)
+    {
+        fprintf(fp,"Using %s non-bonded kernels\n\n",nbk_name[nbv->kernel_type]);
+    }
+}
+
+gmx_bool is_nbl_type_simple(int nb_kernel_type)
+{
+    if (nb_kernel_type == nbkNotSet)
+    {
+        gmx_fatal(FARGS, "Non-bonded kernel type not set for Verlet-style neighbor list.");
+    }
+
+    switch (nb_kernel_type)
+    {
+        case nbk8x8x8CUDA:
+        case nbk8x8x8PlainC:
+            return FALSE;
+
+        case nbk4x4PlainC:
+        case nbk4x4SSE:
+            return TRUE;
+
+        default:
+            gmx_incons("Invalid nonbonded kernel type passed!");
+            return FALSE;
+    }
+}
+
+void init_interaction_const_tables(FILE *fp, 
+                                   interaction_const_t *ic,
+                                   int verlet_kernel_type)
+{
+    real spacing;
+
+    if ((ic->eeltype == eelEWALD || EEL_PME(ic->eeltype)) &&
+        (verlet_kernel_type == nbk4x4PlainC ||
+         verlet_kernel_type == nbk4x4SSE))
+    {
+        /* With a spacing of 0.0005 we are at the force summation accuracy
+         * for the SSE kernels for "normal" atomistic simulations.
+         */
+        spacing = 0.0005;
+        ic->tabq_scale = 1/spacing;
+        ic->tabq_size    = (int)(ic->rvdw*ic->tabq_scale) + 1;
+        snew(ic->tabq_coul_FDV0,ic->tabq_size*4);
+        table_spline3_fill_ewald(ic->tabq_coul_FDV0,ic->tabq_size,
+                                 tableformatFDV0,
+                                 spacing,ic->ewaldcoeff);
+    }
+}
+
+void init_interaction_const(FILE *fp, 
+                            interaction_const_t **interaction_const,
+                            const t_forcerec *fr)
+{
+    interaction_const_t *ic;
+
+    snew(ic, 1);
+
+    ic->rvdw        = fr->rvdw;
+    ic->rlist       = fr->rlist;
+    ic->ewaldcoeff  = fr->ewaldcoeff;
+    ic->epsilon_r   = fr->epsilon_r;
+    ic->epsilon_rf  = fr->epsilon_rf;
+    ic->epsfac      = fr->epsfac;
+
+    ic->k_rf        = fr->k_rf;
+    ic->c_rf        = fr->c_rf;
+
+    ic->eeltype     = fr->eeltype;
+
+    *interaction_const = ic;
+
+    if (fr->nbv != NULL && fr->nbv->useGPU)
+    {
+#ifdef GMX_GPU
+        init_cudata_ff(fp, fr->nbv->gpu_nb, ic, fr->nbv);
+#endif
+    }
+
+    if (fr->cutoff_scheme == ecutsVERLET)
+    {
+        init_interaction_const_tables(fp,ic,fr->nbv->kernel_type);
+    }
+}
+
+static void init_nb_verlet(FILE *fp, 
+                           nonbonded_verlet_t **nb_verlet,
+                           int *napc,
+                           const t_inputrec *ir,
+                           const t_forcerec *fr,
+                           const t_commrec *cr)
+{
+    nonbonded_verlet_t *nbv;
+    char *env;
+
+    gmx_nbat_alloc_t *nb_alloc = NULL;
+    gmx_nbat_free_t  *nb_free  = NULL;
+
+    snew(nbv, 1);
+
+    nbv->nbs                     = NULL;
+    nbv->nbl_lists[eintLocal]    = NULL;
+    nbv->nbl_lists[eintNonlocal] = NULL;
+    nbv->nbat                    = NULL;
+    nbv->kernel_type             = nbkNotSet;
+
+    pick_nb_kernel(fp, cr, nbv, napc);
+
+    if (nbv->useGPU)
+    {
+#ifdef GMX_GPU
+        init_cu_nonbonded(fp, &(nbv->gpu_nb), DOMAINDECOMP(cr));
+        env = getenv("GMX_NB_MIN_CI");
+        if (env)
+        {
+            sscanf(env, "%d", &nbv->min_ci_balanced);
+            if (debug)
+            {
+                fprintf(debug, "Neighbor-list balancing parameter: %d (passed as env. var.)\n", 
+                        nbv->min_ci_balanced);
+            }
+        }
+        else
+        {
+            nbv->min_ci_balanced = cu_calc_min_ci_balanced(nbv->gpu_nb);
+            if (debug)
+            {
+                fprintf(debug, "Neighbor-list balancing parameter: %d (auto-adjusted to the number of GPU multi-processors)\n",
+                        nbv->min_ci_balanced);
+            }
+        }
+#endif
+    }
+    else
+    {
+        nbv->min_ci_balanced = 0;
+    }
+
+    *nb_verlet = nbv;
+
+
+    if (nbv->kernel_type == nbk8x8x8CUDA)
+    {
+#ifdef GMX_GPU
+        nb_alloc = &pmalloc;
+        nb_free  = &pfree;
+#endif
+    }
+
+    gmx_nbsearch_init(&nbv->nbs,
+                      DOMAINDECOMP(cr) ? & cr->dd->nc : NULL,
+                      DOMAINDECOMP(cr) ? domdec_zones(cr->dd) : NULL,
+                      is_nbl_type_simple(nbv->kernel_type),
+                      *napc,
+                      fr->nthreads);
+
+    snew(nbv->nbl_lists[eintLocal], 1);
+    gmx_nbl_list_init(nbv->nbl_lists[eintLocal],
+                      is_nbl_type_simple(nbv->kernel_type),
+                      /* 8x8x8 "non-simple" lists are ATM always combined */
+                      !is_nbl_type_simple(nbv->kernel_type),
+                      nb_alloc, nb_free);
+
+    if (DOMAINDECOMP(cr))
+    {
+        snew(nbv->nbl_lists[eintNonlocal], 1);
+        gmx_nbl_list_init(nbv->nbl_lists[eintNonlocal],
+                          is_nbl_type_simple(nbv->kernel_type),
+                          /* 8x8x8 "non-simple" lists are ATM always combined */
+                          !is_nbl_type_simple(nbv->kernel_type),
+                          nb_alloc, nb_free);
+    }
+    else
+    {
+        nbv->nbl_lists[eintNonlocal] = NULL;
+    }
+
+    snew(nbv->nbat,1);
+    gmx_nb_atomdata_init(fp,
+                         nbv->nbat,
+                         nbv->nbs,
+                         nbv->kernel_type == nbk4x4SSE,
+                         fr->ntype,fr->nbfp,
+                         ir->opts.ngener,
+                         is_nbl_type_simple(nbv->kernel_type) ? fr->nthreads : 1,
+                         nb_alloc, nb_free);
+
+}
 
 void init_forcerec(FILE *fp,
                    const output_env_t oenv,
@@ -1306,6 +1690,7 @@ void init_forcerec(FILE *fp,
     gmx_bool    bTab,bSep14tab,bNormalnblists;
     t_nblists *nbl;
     int     *nm_ind,egp_flags;
+    int     napc;
     
     fr->bDomDec = DOMAINDECOMP(cr);
 
@@ -1362,6 +1747,18 @@ void init_forcerec(FILE *fp,
         }
     }
 
+    fr->bNonbonded = TRUE;
+    if (getenv("GMX_NO_NONBONDED") != NULL)
+    {
+        /* turn off non-bonded calculations */
+        fr->bNonbonded = FALSE;
+        if (fp)
+        {
+            fprintf(fp, "Found environment varialbe GMX_NO_NONBONDED.\n"
+                        "Disabling nonbonded calculations.\n\n");
+        }
+    }
+
     bGenericKernelOnly = FALSE;
     if (getenv("GMX_NB_GENERIC") != NULL)
     {
@@ -1374,7 +1771,7 @@ void init_forcerec(FILE *fp,
         bGenericKernelOnly = TRUE;
         bNoSolvOpt         = TRUE;
     }
-    
+
     fr->UseOptimizedKernels = (getenv("GMX_NOOPTIMIZEDKERNELS") == NULL);
     if(fp && fr->UseOptimizedKernels==FALSE)
     {
@@ -1751,6 +2148,8 @@ void init_forcerec(FILE *fp,
     
     fr->bQMMM      = ir->bQMMM;   
     fr->qr         = mk_QMMMrec();
+
+    fr->cutoff_scheme = ir->cutoff_scheme;
     
     /* Set all the static charge group info */
     fr->cginfo_mb = init_cginfo_mb(fp,mtop,fr,bNoSolvOpt);
@@ -1783,6 +2182,29 @@ void init_forcerec(FILE *fp,
     
     if (cr->duty & DUTY_PP)
         gmx_setup_kernels(fp,bGenericKernelOnly);
+
+#ifndef GMX_OPENMP
+    fr->nthreads = 1;
+#else
+    init_forcerec_f_threads(fr,mtop->groups.grps[egcENER].nr);
+#endif
+    
+    snew(fr->excl_load,fr->nthreads+1);
+
+    if (fr->cutoff_scheme == ecutsVERLET)
+    {
+        if (ir->rcoulomb != ir->rvdw)
+        {
+            gmx_fatal(FARGS,"With Verlet lists rcoulomb and rvdw should be identical");
+        }
+
+        init_nb_verlet(fp, &fr->nbv, &napc, ir, fr, cr);
+
+        /* initilize interaction constants; 
+           TODO should be moved out during modularizzation.
+         */
+        init_interaction_const(fp, &fr->ic, fr);
+    }
 }
 
 #define pr_real(fp,r) fprintf(fp,"%s: %e\n",#r,r)
@@ -1807,3 +2229,57 @@ void pr_forcerec(FILE *fp,t_forcerec *fr,t_commrec *cr)
   
   fflush(fp);
 }
+
+void forcerec_set_excl_load(t_forcerec *fr,
+                            const gmx_localtop_t *top,const t_commrec *cr)
+{
+    const int *ind,*a;
+    int start,end;
+    int t,i,j,ntot,n,ntarget;
+
+    ind = top->excls.index;
+    a   = top->excls.a;
+
+    if (cr != NULL && PARTDECOMP(cr))
+    {
+        pd_at_range(cr,&start,&end);
+    }
+    else
+    {
+        start = 0;
+        end   = top->excls.nr;
+    }
+
+    ntot = 0;
+    for(i=start; i<end; i++)
+    {
+        for(j=ind[i]; j<ind[i+1]; j++)
+        {
+            if (a[j] > i)
+            {
+                ntot++;
+            }
+        }
+    }
+
+    fr->excl_load[0] = 0;
+    n = 0;
+    i = start;
+    for(t=1; t<=fr->nthreads; t++)
+    {
+        ntarget = (ntot*t)/fr->nthreads;
+        while(i < end && n < ntarget)
+        {
+            for(j=ind[i]; j<ind[i+1]; j++)
+            {
+                if (a[j] > i)
+                {
+                    n++;
+                }
+            }
+            i++;
+        }
+        fr->excl_load[t] = i;
+    }
+}
+

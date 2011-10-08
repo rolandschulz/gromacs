@@ -52,6 +52,10 @@
 #include "vcm.h"
 #include "nrnb.h"
 
+#ifdef GMX_GPU
+#include "cuda_data_mgmt.h"
+#endif
+
 /* Is the signal in one simulation independent of other simulations? */
 gmx_bool gs_simlocal[eglsNR] = { TRUE, FALSE, FALSE, TRUE };
 
@@ -522,7 +526,8 @@ void reset_all_counters(FILE *fplog,t_commrec *cr,
                         gmx_large_int_t step,
                         gmx_large_int_t *step_rel,t_inputrec *ir,
                         gmx_wallcycle_t wcycle,t_nrnb *nrnb,
-                        gmx_runtime_t *runtime)
+                        gmx_runtime_t *runtime,
+                        cu_nonbonded_t gpu_nb)
 {
     char buf[STRLEN],sbuf[STEPSTRSIZE];
 
@@ -530,6 +535,13 @@ void reset_all_counters(FILE *fplog,t_commrec *cr,
     sprintf(buf,"Step %s: resetting all time and cycle counters\n",
             gmx_step_str(step,sbuf));
     md_print_warning(cr,fplog,buf);
+
+#ifdef GMX_GPU
+    if (gpu_nb)
+    {
+        reset_gpu_timings(gpu_nb);
+    }
+#endif 
 
     wallcycle_stop(wcycle,ewcRUN);
     wallcycle_reset_all(wcycle);
@@ -546,7 +558,7 @@ void reset_all_counters(FILE *fplog,t_commrec *cr,
     print_date_and_time(fplog,cr->nodeid,"Restarted time",runtime);
 }
 
-void min_zero(int *n,int i)
+static void min_zero(int *n,int i)
 {
     if (i > 0 && (*n == 0 || i < *n))
     {
@@ -554,7 +566,7 @@ void min_zero(int *n,int i)
     }
 }
 
-int lcd4(int i1,int i2,int i3,int i4)
+static int lcd4(int i1,int i2,int i3,int i4)
 {
     int nst;
 

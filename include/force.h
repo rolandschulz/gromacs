@@ -44,6 +44,7 @@
 #include "vsite.h"
 #include "genborn.h"
 
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -96,6 +97,18 @@ t_forcerec *mk_forcerec(void);
 #define GMX_MAKETABLES_FORCEUSER  (1<<0)
 #define GMX_MAKETABLES_14ONLY     (1<<1)
 
+enum { tableformatF, tableformatFDV0 };
+
+void table_spline3_fill_ewald(real *tab,int ntab,int tableformat,
+			      real dr,real beta);
+/* Fill table tab of size ntab with spacing dr with the ewald force
+ * and optionally energy.
+ * With tabelformatFDV0 the size of the tab array should be ntab*4.
+ * This function interpolates the Ewald particle-particle potential
+ * with coefficient beta using a quadratic spline.
+ * The force can then be interpolated linearly.
+ */
+
 t_forcetable make_tables(FILE *fp,const output_env_t oenv,
                                 const t_forcerec *fr, gmx_bool bVerbose,
                                 const char *fn, real rtab,int flags);
@@ -130,6 +143,17 @@ gmx_bool can_use_allvsall(const t_inputrec *ir, const gmx_mtop_t *mtop,
  * and fp (if !=NULL) on the master node.
  */
 
+gmx_bool is_nbl_type_simple(int nb_kernel_type);
+/* Return TRUE if the Verlet-style neighborlist has simple type.
+ */
+
+void init_interaction_const(FILE *fp, 
+                            interaction_const_t **interaction_const,
+                            const t_forcerec *fr);
+/* Initializes the interaction constant data structure. Currently it 
+ * uses forcerec as input. 
+ */
+
 void init_forcerec(FILE       *fplog,     
                           const output_env_t oenv,
 			  t_forcerec *fr,   
@@ -150,6 +174,10 @@ void init_forcerec(FILE       *fplog,
  * bMolEpot: Use the free energy stuff per molecule
  * print_force >= 0: print forces for atoms with force >= print_force
  */
+
+void forcerec_set_excl_load(t_forcerec *fr,
+			    const gmx_localtop_t *top,const t_commrec *cr);
+  /* Set the exclusion load for the local exclusions and possibly threads */
 
 void init_enerdata(int ngener,int n_flambda,gmx_enerdata_t *enerd);
 /* Intializes the energy storage struct */
@@ -199,7 +227,11 @@ void set_avcsixtwelve(FILE *fplog,t_forcerec *fr,
 /* Normally one want all energy terms and forces */
 #define GMX_FORCE_ALLFORCES    (GMX_FORCE_BONDED | GMX_FORCE_NONBONDED | GMX_FORCE_FORCES)
 
-void do_force(FILE *log,t_commrec *cr,
+/* Calculate energies */
+#define GMX_FORCE_ENERGY       GMX_FORCE_VIRIAL
+
+
+extern void do_force(FILE *log,t_commrec *cr,
 		     t_inputrec *inputrec,
 		     gmx_large_int_t step,t_nrnb *nrnb,gmx_wallcycle_t wcycle,
 		     gmx_localtop_t *top,
@@ -211,10 +243,12 @@ void do_force(FILE *log,t_commrec *cr,
 		     t_mdatoms *mdatoms,
 		     gmx_enerdata_t *enerd,t_fcdata *fcd,
 		     real lambda,t_graph *graph,
-		     t_forcerec *fr,gmx_vsite_t *vsite,rvec mu_tot,
+		     t_forcerec *fr,
+                     gmx_vsite_t *vsite,rvec mu_tot,
 		     double t,FILE *field,gmx_edsam_t ed,
 		     gmx_bool bBornRadii,
 		     int flags);
+
 /* Communicate coordinates (if parallel).
  * Do neighbor searching (if necessary).
  * Calculate forces.
@@ -243,7 +277,7 @@ void ns(FILE       *fplog,
 	       rvec       *f);
 /* Call the neighborsearcher */
 
-void do_force_lowlevel(FILE         *fplog,  
+extern void do_force_lowlevel(FILE         *fplog,  
 			      gmx_large_int_t   step,
 			      t_forcerec   *fr,
 			      t_inputrec   *ir,

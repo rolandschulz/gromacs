@@ -1,0 +1,52 @@
+#ifndef _CUDA_DATA_MGMT_H_
+#define _CUDA_DATA_MGMT_H_
+
+#include "typedefs.h" 
+#include "cutypedefs_ext.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+void init_cu_nonbonded(FILE * /*fplog*/,
+                       cu_nonbonded_t * /*p_cu_nb*/,
+                       gmx_bool /*bDomDec*/);
+
+void init_cudata_ff(FILE * /*fplog*/, 
+                    cu_nonbonded_t /*p_cu_nb*/,
+                    const interaction_const_t * /*ic*/,
+                    const nonbonded_verlet_t * /*nbv*/);
+
+void init_cudata_nblist(cu_nonbonded_t /*cu_nb*/,
+                        const gmx_nblist_t * /*h_nblist*/,
+                        int /*enbatATOMS*/);
+
+void init_cudata_atoms(cu_nonbonded_t /*cu_nb*/,
+                       const gmx_nb_atomdata_t * /*atomdata*/);
+
+void cu_move_shift_vec(cu_nonbonded_t /*cu_nb*/, 
+                       const gmx_nb_atomdata_t * /*nbatom*/);
+
+void cu_clear_nb_f_out(cu_nonbonded_t /*cu_nb*/);
+void cu_clear_nb_e_fs_out(cu_nonbonded_t /*cu_nb*/);
+
+void destroy_cudata(FILE * /*fplog*/, cu_nonbonded_t /*cu_nb*/,
+                    gmx_bool /*bDomDec*/);
+
+void cu_blockwait_atomdata(cu_nonbonded_t /*cu_nb*/);
+void cu_synchstream_atomdata(cu_nonbonded_t /*cu_nb*/, int /*enbatATOMS*/);
+
+cu_timings_t * get_gpu_timings(cu_nonbonded_t /*cu_nb*/);
+
+void reset_gpu_timings(cu_nonbonded_t /*cu_nb*/);
+
+int cu_calc_min_ci_balanced(cu_nonbonded_t /*cu_nb*/);
+
+int cu_upload_X(cu_nonbonded_t /*cu_nb*/, real * /*h_x*/);
+int cu_download_F(real * /*h_f*/, cu_nonbonded_t /*cu_nb*/);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // _CUDA_DATA_MGMT_H_

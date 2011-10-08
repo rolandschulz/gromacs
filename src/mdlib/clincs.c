@@ -53,6 +53,10 @@
 #include "mtop_util.h"
 #include "gmxfio.h"
 
+#ifdef GMX_OPENMP
+#include <omp.h>
+#endif
+
 typedef struct gmx_lincsdata {
     int  ncg;         /* the global number of constraints */
     int  ncg_flex;    /* the global number of flexible constraints */
@@ -84,6 +88,7 @@ typedef struct gmx_lincsdata {
     real *tmp1;
     real *tmp2;
     real *tmp3;
+    real *tmp4;
     real *lambda;  /* the Lagrange multipliers */
     /* storage for the constraint RMS relative deviation output */
     real rmsd_data[3];
@@ -107,22 +112,23 @@ real lincs_rmsd(struct gmx_lincsdata *lincsd,gmx_bool bSD2)
 }
 
 static void lincs_matrix_expand(const struct gmx_lincsdata *lincsd,
+                                int b0,int b1,
                                 const real *blcc,
                                 real *rhs1,real *rhs2,real *sol)
 {
-    int  nrec,rec,ncons,b,j,n,nr0,nr1;
+    int  nrec,rec,b,j,n,nr0,nr1;
     real mvb,*swap;
     int  ntriangle,tb,bits;
     const int *blnr=lincsd->blnr,*blbnb=lincsd->blbnb;
     const int *triangle=lincsd->triangle,*tri_bits=lincsd->tri_bits;
     
-    ncons     = lincsd->nc;
     ntriangle = lincsd->ntriangle;
     nrec      = lincsd->nOrder;
     
     for(rec=0; rec<nrec; rec++)
     {
-        for(b=0; b<ncons; b++)
+#pragma omp barrier
+        for(b=b0; b<b1; b++)
         {
             mvb = 0;
             for(n=blnr[b]; n<blnr[b+1]; n++)
@@ -151,34 +157,39 @@ static void lincs_matrix_expand(const struct gmx_lincsdata *lincsd,
          * for constraints involved in triangles are updated
          * and then the pointers are swapped.
          */
-        for(b=0; b<ncons; b++)
+        for(b=b0; b<b1; b++)
         {
             rhs2[b] = rhs1[b];
         }
-        for(rec=0; rec<nrec; rec++)
+#pragma omp barrier
+#pragma omp master
         {
-            for(tb=0; tb<ntriangle; tb++)
+            for(rec=0; rec<nrec; rec++)
             {
-                b    = triangle[tb];
-                bits = tri_bits[tb];
-                mvb = 0;
-                nr0 = blnr[b];
-                nr1 = blnr[b+1];
-                for(n=nr0; n<nr1; n++)
+                for(tb=0; tb<ntriangle; tb++)
                 {
-                    if (bits & (1<<(n-nr0)))
+                    b    = triangle[tb];
+                    bits = tri_bits[tb];
+                    mvb = 0;
+                    nr0 = blnr[b];
+                    nr1 = blnr[b+1];
+                    for(n=nr0; n<nr1; n++)
                     {
-                        j = blbnb[n];
-                        mvb = mvb + blcc[n]*rhs1[j];
+                        if (bits & (1<<(n-nr0)))
+                        {
+                            j = blbnb[n];
+                            mvb = mvb + blcc[n]*rhs1[j];
                     }
+                    }
+                    rhs2[b] = mvb;
+                    sol[b]  = sol[b] + mvb;
                 }
-                rhs2[b] = mvb;
-                sol[b]  = sol[b] + mvb;
+                swap = rhs1;
+                rhs1 = rhs2;
+                rhs2 = swap;
             }
-            swap = rhs1;
-            rhs1 = rhs2;
-            rhs2 = swap;
         } /* flops count is missing here */
+#pragma omp barrier
     }
 }
 
@@ -260,7 +271,7 @@ static void do_lincsp(rvec *x,rvec *f,rvec *fp,t_pbc *pbc,
     }
     /* Together: 23*ncons + 6*nrtot flops */
     
-    lincs_matrix_expand(lincsd,blcc,rhs1,rhs2,sol);
+    lincs_matrix_expand(lincsd,0,ncons,blcc,rhs1,rhs2,sol);
     /* nrec*(ncons+2*nrtot) flops */
     
     if (econq != econqForce)
@@ -340,18 +351,20 @@ static void do_lincsp(rvec *x,rvec *f,rvec *fp,t_pbc *pbc,
 }
 
 static void do_lincs(rvec *x,rvec *xp,matrix box,t_pbc *pbc,
-                     struct gmx_lincsdata *lincsd,real *invmass,
+                     struct gmx_lincsdata *lincsd,int b0,int b1,
+                     real *invmass,
 					 t_commrec *cr,
+                     gmx_bool bCalcLambda,
                      real wangle,int *warn,
                      real invdt,rvec *v,
                      gmx_bool bCalcVir,tensor rmdr)
 {
     int     b,i,j,k,n,iter;
-    real    tmp0,tmp1,tmp2,im1,im2,mvb,rlen,len,len2,dlen2,wfac,lam;  
+    real    tmp0,tmp1,tmp2,im1,im2,mvb,rlen,len,len2,dlen2,wfac;
     rvec    dx;
     int     ncons,*bla,*blnr,*blbnb;
     rvec    *r;
-    real    *blc,*blmf,*bllen,*blcc,*rhs1,*rhs2,*sol,*lambda;
+    real    *blc,*blmf,*bllen,*blcc,*rhs1,*rhs2,*sol,*blc_sol,*lambda;
     int     *nlocat;
     
     ncons  = lincsd->nc;
@@ -366,6 +379,7 @@ static void do_lincs(rvec *x,rvec *xp,matrix box,t_pbc *pbc,
     rhs1   = lincsd->tmp1;
     rhs2   = lincsd->tmp2;
     sol    = lincsd->tmp3;
+    blc_sol= lincsd->tmp4;
     lambda = lincsd->lambda;
     
     if (DOMAINDECOMP(cr) && cr->dd->constraints)
@@ -386,12 +400,13 @@ static void do_lincs(rvec *x,rvec *xp,matrix box,t_pbc *pbc,
     if (pbc)
     {
         /* Compute normalized i-j vectors */
-        for(b=0; b<ncons; b++)
+        for(b=b0; b<b1; b++)
         {
             pbc_dx_aiuc(pbc,x[bla[2*b]],x[bla[2*b+1]],dx);
             unitv(dx,r[b]);
-        }  
-        for(b=0; b<ncons; b++)
+        }
+#pragma omp barrier
+        for(b=b0; b<b1; b++)
         {
             for(n=blnr[b]; n<blnr[b+1]; n++)
             {
@@ -406,7 +421,7 @@ static void do_lincs(rvec *x,rvec *xp,matrix box,t_pbc *pbc,
     else
     {
         /* Compute normalized i-j vectors */
-        for(b=0; b<ncons; b++)
+        for(b=b0; b<b1; b++)
         {
             i = bla[2*b];
             j = bla[2*b+1];
@@ -418,8 +433,9 @@ static void do_lincs(rvec *x,rvec *xp,matrix box,t_pbc *pbc,
             r[b][1] = rlen*tmp1;
             r[b][2] = rlen*tmp2;
         } /* 16 ncons flops */
-        
-        for(b=0; b<ncons; b++)
+
+#pragma omp barrier
+        for(b=b0; b<b1; b++)
         {
             tmp0 = r[b][0];
             tmp1 = r[b][1];
@@ -442,27 +458,35 @@ static void do_lincs(rvec *x,rvec *xp,matrix box,t_pbc *pbc,
         /* Together: 26*ncons + 6*nrtot flops */
     }
     
-    lincs_matrix_expand(lincsd,blcc,rhs1,rhs2,sol);
+    lincs_matrix_expand(lincsd,b0,b1,blcc,rhs1,rhs2,sol);
     /* nrec*(ncons+2*nrtot) flops */
-    
-    for(b=0; b<ncons; b++)
+
+    for(b=b0; b<b1; b++)
     {
-        i = bla[2*b];
-        j = bla[2*b+1];
-        mvb = blc[b]*sol[b];
-        lambda[b] = -mvb;
-        im1 = invmass[i];
-        im2 = invmass[j];
-        tmp0 = r[b][0]*mvb;
-        tmp1 = r[b][1]*mvb;
-        tmp2 = r[b][2]*mvb;
-        xp[i][0] -= tmp0*im1;
-        xp[i][1] -= tmp1*im1;
-        xp[i][2] -= tmp2*im1;
-        xp[j][0] += tmp0*im2;
-        xp[j][1] += tmp1*im2;
-        xp[j][2] += tmp2*im2;
-    } /* 16 ncons flops */
+        lambda[b] = -blc[b]*sol[b]; 
+    }
+
+#pragma omp barrier
+#pragma omp master
+    {    
+        for(b=0; b<ncons; b++)
+        {
+            i = bla[2*b];
+            j = bla[2*b+1];
+            mvb = -lambda[b];
+            im1 = invmass[i];
+            im2 = invmass[j];
+            tmp0 = r[b][0]*mvb;
+            tmp1 = r[b][1]*mvb;
+            tmp2 = r[b][2]*mvb;
+            xp[i][0] -= tmp0*im1;
+            xp[i][1] -= tmp1*im1;
+            xp[i][2] -= tmp2*im1;
+            xp[j][0] += tmp0*im2;
+            xp[j][1] += tmp1*im2;
+            xp[j][2] += tmp2*im2;
+        } /* 16 ncons flops */
+    }
 
 
     /*     
@@ -474,17 +498,26 @@ static void do_lincs(rvec *x,rvec *xp,matrix box,t_pbc *pbc,
 	
     for(iter=0; iter<lincsd->nIter; iter++)
     {
-        if (DOMAINDECOMP(cr) && cr->dd->constraints)
+        if ((DOMAINDECOMP(cr) && cr->dd->constraints) ||
+            PARTDECOMP(cr))
         {
-            /* Communicate the corrected non-local coordinates */
-            dd_move_x_constraints(cr->dd,box,xp,NULL);
-        } 
-		else if (PARTDECOMP(cr))
-		{
-			pd_move_x_constraints(cr,xp,NULL);
-		}	
+#pragma omp barrier
+#pragma omp master
+            {
+                 /* Communicate the corrected non-local coordinates */
+                if (DOMAINDECOMP(cr))
+                {
+                    dd_move_x_constraints(cr->dd,box,xp,NULL);
+                }
+                else
+                {
+                    pd_move_x_constraints(cr,xp,NULL);
+                }
+            }
+        }
         
-        for(b=0; b<ncons; b++)
+#pragma omp barrier
+        for(b=b0; b<b1; b++)
         {
             len = bllen[b];
             if (pbc)
@@ -513,72 +546,88 @@ static void do_lincs(rvec *x,rvec *xp,matrix box,t_pbc *pbc,
             sol[b]  = mvb;
         } /* 20*ncons flops */
         
-        lincs_matrix_expand(lincsd,blcc,rhs1,rhs2,sol);
+        lincs_matrix_expand(lincsd,b0,b1,blcc,rhs1,rhs2,sol);
         /* nrec*(ncons+2*nrtot) flops */
-        
-        for(b=0; b<ncons; b++)
+
+        for(b=b0; b<b1; b++)
         {
-            i = bla[2*b];
-            j = bla[2*b+1];
-            lam = lambda[b];
             mvb = blc[b]*sol[b];
-            lambda[b] = lam - mvb;
-            im1 = invmass[i];
-            im2 = invmass[j];
-            tmp0 = r[b][0]*mvb;
-            tmp1 = r[b][1]*mvb;
-            tmp2 = r[b][2]*mvb;
-            xp[i][0] -= tmp0*im1;
-            xp[i][1] -= tmp1*im1;
-            xp[i][2] -= tmp2*im1;
-            xp[j][0] += tmp0*im2;
-            xp[j][1] += tmp1*im2;
-            xp[j][2] += tmp2*im2;
-        } /* 17 ncons flops */
+            blc_sol[b] =  mvb;
+            lambda[b] += -mvb;
+        }
+
+#pragma omp barrier
+#pragma omp single
+        {        
+            for(b=0; b<ncons; b++)
+            {
+                i = bla[2*b];
+                j = bla[2*b+1];
+                mvb = blc_sol[b];
+                im1 = invmass[i];
+                im2 = invmass[j];
+                tmp0 = r[b][0]*mvb;
+                tmp1 = r[b][1]*mvb;
+                tmp2 = r[b][2]*mvb;
+                xp[i][0] -= tmp0*im1;
+                xp[i][1] -= tmp1*im1;
+                xp[i][2] -= tmp2*im1;
+                xp[j][0] += tmp0*im2;
+                xp[j][1] += tmp1*im2;
+                xp[j][2] += tmp2*im2;
+            } /* 17 ncons flops */
+        }
     } /* nit*ncons*(37+9*nrec) flops */
-    
+
     if (v)
     {
-        /* Correct the velocities */
-        for(b=0; b<ncons; b++)
-        {
-            i = bla[2*b];
-            j = bla[2*b+1];
-            im1 = invmass[i]*lambda[b]*invdt;
-            im2 = invmass[j]*lambda[b]*invdt;
-            v[i][0] += im1*r[b][0];
-            v[i][1] += im1*r[b][1];
-            v[i][2] += im1*r[b][2];
-            v[j][0] -= im2*r[b][0];
-            v[j][1] -= im2*r[b][1];
-            v[j][2] -= im2*r[b][2];
-        } /* 16 ncons flops */
-    }
-    
-    if (nlocat)
-    {
-        /* Only account for local atoms */
-        for(b=0; b<ncons; b++)
-        {
-            lambda[b] *= 0.5*nlocat[b];
+#pragma omp single
+        {        
+            /* Correct the velocities */
+            for(b=0; b<ncons; b++)
+            {
+                i = bla[2*b];
+                j = bla[2*b+1];
+                im1 = invmass[i]*lambda[b]*invdt;
+                im2 = invmass[j]*lambda[b]*invdt;
+                v[i][0] += im1*r[b][0];
+                v[i][1] += im1*r[b][1];
+                v[i][2] += im1*r[b][2];
+                v[j][0] -= im2*r[b][0];
+                v[j][1] -= im2*r[b][1];
+                v[j][2] -= im2*r[b][2];
+            } /* 16 ncons flops */
         }
     }
     
+    if (nlocat && bCalcLambda)
+    {
+        /* Only account for local atoms */
+        for(b=b0; b<b1; b++)
+        {
+            lambda[b] *= 0.5*nlocat[b];
+        }
+#pragma omp barrier
+    }
+
     if (bCalcVir)
     {
-        /* Constraint virial */
-        for(b=0; b<ncons; b++)
-        {
-            tmp0 = bllen[b]*lambda[b];
-            for(i=0; i<DIM; i++)
+#pragma omp master
+        {        
+            /* Constraint virial */
+            for(b=0; b<ncons; b++)
             {
-                tmp1 = tmp0*r[b][i];
-                for(j=0; j<DIM; j++)
+                tmp0 = bllen[b]*lambda[b];
+                for(i=0; i<DIM; i++)
                 {
-                    rmdr[i][j] -= tmp1*r[b][j];
+                    tmp1 = tmp0*r[b][i];
+                    for(j=0; j<DIM; j++)
+                    {
+                        rmdr[i][j] -= tmp1*r[b][j];
+                    }
                 }
-            }
-        } /* 22 ncons flops */
+            } /* 22 ncons flops */
+        }
     }
     
     /* Total:
@@ -880,6 +929,7 @@ void set_lincs(t_idef *idef,t_mdatoms *md,
         srenew(li->tmp1,li->nc_alloc);
         srenew(li->tmp2,li->nc_alloc);
         srenew(li->tmp3,li->nc_alloc);
+        srenew(li->tmp4,li->nc_alloc);
         srenew(li->lambda,li->nc_alloc);
         if (li->ncg_triangle > 0)
         {
@@ -1192,7 +1242,8 @@ gmx_bool constrain_lincs(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
     /* We do not need full pbc when constraints do not cross charge groups,
      * i.e. when dd->constraint_comm==NULL
      */
-    if ((cr->dd || ir->bPeriodicMols) && !(cr->dd && cr->dd->constraint_comm==NULL))
+    if (ir->ePBC != epbcNONE &&
+        (cr->dd || ir->bPeriodicMols) && !(cr->dd && cr->dd->constraint_comm==NULL))
     {
         /* With pbc=screw the screw has been changed to a shift
          * by the constraint coordinate communication routine,
@@ -1204,16 +1255,6 @@ gmx_bool constrain_lincs(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
     {
         pbc_null = NULL;
     }
-    if (cr->dd)
-    {
-        /* Communicate the coordinates required for the non-local constraints */
-        dd_move_x_constraints(cr->dd,box,x,xprime);
-        /* dump_conf(dd,lincsd,NULL,"con",TRUE,xprime,box); */
-    }
-	else if (PARTDECOMP(cr))
-	{
-		pd_move_x_constraints(cr,x,xprime);
-	}	
 	
     if (econq == econqCoord)
     {
@@ -1262,10 +1303,38 @@ gmx_bool constrain_lincs(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
             cconerr(cr->dd,lincsd->nc,lincsd->bla,lincsd->bllen,xprime,pbc_null,
                     &ncons_loc,&p_ssd,&p_max,&p_imax);
         }
-        
-        do_lincs(x,xprime,box,pbc_null,lincsd,md->invmass,cr,
+
+#ifdef GMX_OPENMP
+        {
+            int nth,th;
+
+            /* do_lincs can run on any number of threads */
+            nth = omp_get_max_threads();
+            if (debug)
+            {
+                fprintf(debug,"LINCS: using %d threads\n",nth);
+            }
+#pragma omp parallel for num_threads(nth) schedule(static)
+            for(th=0; th<nth; th++)
+            {
+                int b0,b1;
+
+                b0 = (lincsd->nc* th   )/nth;
+                b1 = (lincsd->nc*(th+1))/nth;
+                do_lincs(x,xprime,box,pbc_null,lincsd,b0,b1,
+                         md->invmass,cr,
+                         bCalcVir || (ir->efep != efepNO),
+                         ir->LincsWarnAngle,&warn,
+                         invdt,v,bCalcVir,rmdr);
+            }
+        }
+#else
+        do_lincs(x,xprime,box,pbc_null,lincsd,0,lincsd->nc,
+                 md->invmass,cr,
+                 bCalcVir || (ir->efep != efepNO),
                  ir->LincsWarnAngle,&warn,
                  invdt,v,bCalcVir,rmdr);
+#endif
         
         if (ir->efep != efepNO)
         {

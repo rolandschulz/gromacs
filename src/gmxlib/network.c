@@ -1,4 +1,4 @@
-/*
+/* -*- mode: c; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4; c-file-style: "stroustrup"; -*-
  * 
  *                This source code is part of
  * 
@@ -254,68 +254,82 @@ int gmx_node_rank(void)
 #endif
 }
 
+
+int gmx_host_num() 
+{
+#ifndef GMX_MPI
+  return 0;
+#else
+  int  resultlen,hostnum,i,j;
+  char mpi_hostname[MPI_MAX_PROCESSOR_NAME],num[MPI_MAX_PROCESSOR_NAME];
+
+  MPI_Get_processor_name(mpi_hostname,&resultlen);
+  /* This procedure can only differentiate nodes with host names
+   * that end on unique numbers.
+   */
+  i = 0;
+  j = 0;
+  /* Only parse the host name up to the first dot */
+  while(i < resultlen && mpi_hostname[i] != '.') {
+    if (isdigit(mpi_hostname[i])) {
+      num[j++] = mpi_hostname[i];
+    }
+    i++;
+  }
+  num[j] = '\0';
+  if (j == 0) {
+    hostnum = 0;
+  } else {
+    /* Use only the last 9 decimals, so we don't overflow an int */
+    hostnum = strtol(num + max(0,j-9), NULL, 10); 
+  }
+  
+  if (debug) {
+    fprintf(debug,"In gmx_setup_nodecomm: hostname '%s', hostnum %d\n",
+	    mpi_hostname,hostnum);
+  }
+  return hostnum;
+#endif
+}
+
 void gmx_setup_nodecomm(FILE *fplog,t_commrec *cr)
 {
-  gmx_nodecomm_t *nc;
-  int  n,rank,resultlen,hostnum,i,j,ng,ni;
-#ifdef GMX_MPI
-  char mpi_hostname[MPI_MAX_PROCESSOR_NAME],num[MPI_MAX_PROCESSOR_NAME];
-#endif
+    gmx_nodecomm_t *nc;
+    int  n,rank,hostnum,ng,ni;
 
-  /* Many MPI implementations do not optimize MPI_Allreduce
-   * (and probably also other global communication calls)
-   * for multi-core nodes connected by a network.
-   * We can optimize such communication by using one MPI call
-   * within each node and one between the nodes.
-   * For MVAPICH2 and Intel MPI this reduces the time for
-   * the global_stat communication by 25%
-   * for 2x2-core 3 GHz Woodcrest connected by mixed DDR/SDR Infiniband.
-   * B. Hess, November 2007
-   */
+    /* Many MPI implementations do not optimize MPI_Allreduce
+     * (and probably also other global communication calls)
+     * for multi-core nodes connected by a network.
+     * We can optimize such communication by using one MPI call
+     * within each node and one between the nodes.
+     * For MVAPICH2 and Intel MPI this reduces the time for
+     * the global_stat communication by 25%
+     * for 2x2-core 3 GHz Woodcrest connected by mixed DDR/SDR Infiniband.
+     * B. Hess, November 2007
+     */
 
-  nc = &cr->nc;
+    nc = &cr->nc;
 
-  nc->bUse = FALSE;
+    nc->bUse = FALSE;
 #ifndef GMX_THREADS
-  if (getenv("GMX_NO_NODECOMM") == NULL) {
 #ifdef GMX_MPI
     MPI_Comm_size(cr->mpi_comm_mygroup,&n);
     MPI_Comm_rank(cr->mpi_comm_mygroup,&rank);
-    MPI_Get_processor_name(mpi_hostname,&resultlen);
-    /* This procedure can only differentiate nodes with host names
-     * that end on unique numbers.
-     */
-    i = 0;
-    j = 0;
-    /* Only parse the host name up to the first dot */
-    while(i < resultlen && mpi_hostname[i] != '.') {
-      if (isdigit(mpi_hostname[i])) {
-	num[j++] = mpi_hostname[i];
-      }
-      i++;
-    }
-    num[j] = '\0';
-    if (j == 0) {
-      hostnum = 0;
-    } else {
-      /* Use only the last 9 decimals, so we don't overflow an int */
-      hostnum = strtol(num + max(0,j-9), NULL, 10); 
-    }
 
-    if (debug) {
-      fprintf(debug,
-	      "In gmx_setup_nodecomm: splitting communicator of size %d\n",
-	      n);
-      fprintf(debug,"In gmx_setup_nodecomm: hostname '%s', hostnum %d\n",
-	      mpi_hostname,hostnum);
+    hostnum = gmx_host_num();
+
+    if (debug)
+    {
+        fprintf(debug,"In gmx_setup_nodecomm: splitting communicator of size %d\n",n);
     }
 
     /* The intra-node communicator, split on node number */
     MPI_Comm_split(cr->mpi_comm_mygroup,hostnum,rank,&nc->comm_intra);
     MPI_Comm_rank(nc->comm_intra,&nc->rank_intra);
-    if (debug) {
-      fprintf(debug,"In gmx_setup_nodecomm: node rank %d rank_intra %d\n",
-          rank,nc->rank_intra);
+    if (debug)
+    {
+        fprintf(debug,"In gmx_setup_nodecomm: node rank %d rank_intra %d\n",
+                rank,nc->rank_intra);
     }
 
     /* The inter-node communicator, split on rank_intra.
@@ -326,27 +340,46 @@ void gmx_setup_nodecomm(FILE *fplog,t_commrec *cr)
     /* Check if this really created two step communication */
     MPI_Comm_size(nc->comm_inter,&ng);
     MPI_Comm_size(nc->comm_intra,&ni);
-    if (debug) {
-      fprintf(debug,"In gmx_setup_nodecomm: groups %d, my group size %d\n",
-	      ng,ni);
+    if (debug)
+    {
+        fprintf(debug,"In gmx_setup_nodecomm: groups %d, my group size %d\n",
+                ng,ni);
     }
-    if ((ng > 1 && ng < n) || (ni > 1 && ni < n)) {
+
+    if (getenv("GMX_NO_NODECOMM") == NULL &&
+        ((ng > 1 && ng < n) || (ni > 1 && ni < n)))
+    {
         nc->bUse = TRUE;
         if (fplog)
-            fprintf(fplog,"Using two step summing over %d groups of on average %.1f processes\n\n",ng,(real)n/(real)ng);
+        {
+            fprintf(fplog,"Using two step summing over %d groups of on average %.1f processes\n\n",
+                    ng,(real)n/(real)ng);
+        }
         MPI_Comm_rank(nc->comm_inter,&nc->rank_inter);
         if (MASTER(cr))
         {
             nc->masterrank_inter = nc->rank_inter;
         }
         gmx_bcast(sizeof(int),&nc->masterrank_inter,cr);
-    } else {
-      /* One group or all processes in a separate group, use normal summing */
-      MPI_Comm_free(&nc->comm_inter);
-      MPI_Comm_free(&nc->comm_intra);
+        if (nc->rank_intra > 0)
+        {
+            MPI_Comm_free(&nc->comm_inter);
+        }
+    }
+    else
+    {
+        /* One group or all processes in a separate group, use normal summing */
+        MPI_Comm_free(&nc->comm_inter);
+        MPI_Comm_free(&nc->comm_intra);
+        if (debug)
+        {
+            fprintf(debug,"In gmx_setup_nodecomm: not unsing separate inter- and intra-node communicators.\n",n);
+        }
     }
 #endif
-  }
+#else
+    /* tMPI runs only on a single node so just use the nodeid */
+    nc->rank_intra = cr->nodeid;
 #endif
 }
 

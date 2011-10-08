@@ -56,11 +56,20 @@
 #include "mtop_util.h"
 #include "gmxfio.h"
 
+#ifdef GMX_OPENMP
+#include <omp.h>
+#else
+#include "no_omp.h"
+#endif
+
 typedef struct gmx_constr {
   int              ncon_tot;     /* The total number of constraints    */
   int              nflexcon;     /* The number of flexible constraints */
   int              n_at2con_mt;  /* The size of at2con = #moltypes     */
   t_blocka         *at2con_mt;   /* A list of atoms to constraints     */
+  int              n_at2settle_mt; /* The size of at2settle = #moltypes  */
+  int              **at2settle_mt; /* A list of atoms to settles         */
+  gmx_bool         bInterCGsettles;
   gmx_lincsdata_t  lincsd;       /* LINCS data                         */
   gmx_shakedata_t  shaked;       /* SHAKE data                         */
   gmx_settledata_t settled;      /* SETTLE data                        */
@@ -73,6 +82,9 @@ typedef struct gmx_constr {
   int              warncount_lincs;
   int              warncount_settle;
   gmx_edsam_t      ed;           /* The essential dynamics data        */
+
+    tensor           *rmdr_th;   /* Thread local working data          */
+    int              *settle_error; /* Thread local working data          */
 
   gmx_mtop_t       *warn_mtop;   /* Only used for printing warnings    */
 } t_gmx_constr;
@@ -301,7 +313,7 @@ gmx_bool constrain(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
     gmx_bool    bOK,bDump;
     int     start,homenr,nrend;
     int     i,j,d;
-    int     ncons,error;
+    int     ncons,settle_error;
     tensor  rmdr;
     rvec    *vstor;
     real    invdt,vir_fac,t;
@@ -310,6 +322,7 @@ gmx_bool constrain(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
     t_pbc   pbc;
     char    buf[22];
     t_vetavars vetavar;
+    int     nth,th,th_ss;
 
     if (econq == econqForceDispl && !EI_ENERGY_MINIMIZATION(ir->eI))
     {
@@ -350,7 +363,44 @@ gmx_bool constrain(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
     }
     
     where();
-    if (constr->lincsd)
+
+    settle  = &idef->il[F_SETTLE];
+    nsettle = settle->nr/4;
+
+#ifdef GMX_OPENMP
+    if (nsettle > 0)
+    {
+        nth = omp_get_max_threads();
+    }
+    else
+    {
+        nth = 1;
+    }
+#else
+    nth = 1;
+#endif
+
+    if (nth > 1 && constr->rmdr_th == NULL)
+    {
+        snew(constr->rmdr_th,nth);
+        snew(constr->settle_error,nth);
+    }
+    
+    settle_error = -1;
+
+    /* Communicate the coordinates required for the non-local constraints
+     * for LINCS and/or SETTLE.
+     */
+    if (cr->dd)
+    {
+        dd_move_x_constraints(cr->dd,box,x,xprime);
+    }
+	else if (PARTDECOMP(cr))
+	{
+		pd_move_x_constraints(cr,x,xprime);
+	}	
+
+    if (constr->lincsd != NULL)
     {
         bOK = constrain_lincs(fplog,bLog,bEner,ir,step,constr->lincsd,md,cr,
                               x,xprime,min_proj,box,lambda,dvdlambda,
@@ -376,22 +426,20 @@ gmx_bool constrain(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
                           homenr,md->invmass,constr->nblocks,constr->sblock,
                           idef,ir,box,x,xprime,nrnb,
                           constr->lagr,lambda,dvdlambda,
-                          invdt,v,vir!=NULL,rmdr,constr->maxwarn>=0,econq,
-                          &vetavar);
+                          invdt,v,vir!=NULL,rmdr,constr->maxwarn>=0,econq,&vetavar);
             break;
         case (econqVeloc):
             bOK = bshakef(fplog,constr->shaked,
                           homenr,md->invmass,constr->nblocks,constr->sblock,
                           idef,ir,box,x,min_proj,nrnb,
                           constr->lagr,lambda,dvdlambda,
-                          invdt,NULL,vir!=NULL,rmdr,constr->maxwarn>=0,econq,
-                          &vetavar);
+                          invdt,NULL,vir!=NULL,rmdr,constr->maxwarn>=0,econq,&vetavar);
             break;
         default:
             gmx_fatal(FARGS,"Internal error, SHAKE called for constraining something else than coordinates");
             break;
         }
-
+        
         if (!bOK && constr->maxwarn >= 0)
         {
             if (fplog != NULL)
@@ -402,18 +450,57 @@ gmx_bool constrain(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
             bDump = TRUE;
         }
     }
-        
-    settle  = &idef->il[F_SETTLE];
-    if (settle->nr > 0)
+    
+    if (nsettle > 0)
     {
-        nsettle = settle->nr/2;
-        
+        t_pbc pbc,*pbc_null;
+        int CalcVirAtomEnd;
+
+        if (ir->ePBC != epbcNONE && constr->bInterCGsettles)
+        {
+            pbc_null = set_pbc_dd(&pbc,ir->ePBC,cr->dd,FALSE,box);
+        }
+        else
+        {
+            pbc_null = NULL;
+        }
+
+        if (vir == NULL)
+        {
+            CalcVirAtomEnd = 0;
+        }
+        else
+        {
+            CalcVirAtomEnd = md->start + md->homenr;
+        }
+
         switch (econq)
         {
         case econqCoord:
-            csettle(constr->settled,
-                    nsettle,settle->iatoms,x[0],xprime[0],
-                    invdt,v[0],vir!=NULL,rmdr,&error,&vetavar);
+#pragma omp parallel for schedule(static)
+            for(th=0; th<nth; th++)
+            {
+                int start_th,end_th;
+
+                if (th > 0)
+                {
+                    clear_mat(constr->rmdr_th[th]);
+                }
+
+                start_th = (nsettle* th   )/nth;
+                end_th   = (nsettle*(th+1))/nth;
+                if (start_th >= 0 && end_th - start_th > 0)
+                {
+                    csettle(constr->settled,
+                            end_th-start_th,settle->iatoms+start_th*4,
+                            pbc_null,
+                            x[0],xprime[0],
+                            invdt,v[0],CalcVirAtomEnd,
+                            th == 0 ? rmdr : constr->rmdr_th[th],
+                            th == 0 ? &settle_error : &constr->settle_error[th],
+                            &vetavar);
+                }
+            }
             inc_nrnb(nrnb,eNR_SETTLE,nsettle);
             if (v != NULL)
             {
@@ -423,15 +510,62 @@ gmx_bool constrain(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
             {
                 inc_nrnb(nrnb,eNR_CONSTR_VIR,nsettle*3);
             }
-            
-            bOK = (error < 0);
-            if (!bOK && constr->maxwarn >= 0)
+            break;
+        case econqVeloc:
+        case econqDeriv:
+        case econqForce:
+        case econqForceDispl:
+#pragma omp parallel for schedule(static)
+            for(th=0; th<nth; th++)
+            {
+                int start_th,end_th;
+
+                clear_mat(constr->rmdr_th[th]);
+                
+                start_th = (nsettle*(th-th_ss  ))/(nth-th_ss);
+                end_th   = (nsettle*(th-th_ss+1))/(nth-th_ss);
+
+                if (start_th >= 0 && end_th - start_th > 0)
+                {
+                    settle_proj(fplog,constr->settled,econq,
+                                end_th-start_th,settle->iatoms+start_th*4,
+                                pbc_null,
+                                x,
+                                xprime,min_proj,CalcVirAtomEnd,
+                                th == 0 ? rmdr : constr->rmdr_th[th],
+                                &vetavar);
+                }
+            }
+            /* This is an overestimate */
+            inc_nrnb(nrnb,eNR_SETTLE,nsettle);
+            break;
+        case econqDeriv_FlexCon:
+            /* Nothing to do, since the are no flexible constraints in settles */
+            break;
+        default:
+            gmx_incons("Unknown constraint quantity for settle");
+        }
+    }
+
+    if (settle->nr > 0)
+    {
+        /* Combine virial and error info of the other threads */
+        for(i=1; i<nth; i++)
+        {
+            m_add(rmdr,constr->rmdr_th[i],rmdr);
+            settle_error = constr->settle_error[i];
+        } 
+
+        if (econq == econqCoord && settle_error >= 0)
+        {
+            bOK = FALSE;
+            if (constr->maxwarn >= 0)
             {
                 char buf[256];
                 sprintf(buf,
                         "\nstep " gmx_large_int_pfmt ": Water molecule starting at atom %d can not be "
                         "settled.\nCheck for bad contacts and/or reduce the timestep if appropriate.\n",
-                        step,ddglatnr(cr->dd,settle->iatoms[error*2+1]));
+                        step,ddglatnr(cr->dd,settle->iatoms[settle_error*4+1]));
                 if (fplog)
                 {
                     fprintf(fplog,"%s",buf);
@@ -443,26 +577,10 @@ gmx_bool constrain(FILE *fplog,gmx_bool bLog,gmx_bool bEner,
                     too_many_constraint_warnings(-1,constr->warncount_settle);
                 }
                 bDump = TRUE;
-                break;
-            case econqVeloc:
-            case econqDeriv:
-            case econqForce:
-            case econqForceDispl:
-                settle_proj(fplog,constr->settled,econq,
-                            nsettle,settle->iatoms,x,
-                            xprime,min_proj,vir!=NULL,rmdr,&vetavar);
-                /* This is an overestimate */
-                inc_nrnb(nrnb,eNR_SETTLE,nsettle);
-                break;
-            case econqDeriv_FlexCon:
-                /* Nothing to do, since the are no flexible constraints in settles */
-                break;
-            default:
-                gmx_incons("Unknown constraint quantity for settle");
             }
         }
     }
-
+        
     free_vetavars(&vetavar);
     
     if (vir != NULL)
@@ -733,6 +851,28 @@ t_blocka make_at2con(int start,int natoms,
   return at2con;
 }
 
+static int *make_at2settle(int natoms,const t_ilist *ilist)
+{
+    int *at2s;
+    int a,s;
+  
+    snew(at2s,natoms);
+    /* Set all to no settle */
+    for(a=0; a<natoms; a++)
+    {
+        at2s[a] = -1;
+    }
+
+    for(s=0; s<ilist->nr; s+=4)
+    {
+        at2s[ilist->iatoms[s+1]] = s/4;
+        at2s[ilist->iatoms[s+2]] = s/4;
+        at2s[ilist->iatoms[s+3]] = s/4;
+    }
+
+    return at2s;
+}
+
 void set_constraints(struct gmx_constr *constr,
                      gmx_localtop_t *top,t_inputrec *ir,
                      t_mdatoms *md,t_commrec *cr)
@@ -782,7 +922,7 @@ void set_constraints(struct gmx_constr *constr,
     {
         settle = &idef->il[F_SETTLE];
         iO = settle->iatoms[1];
-        iH = settle->iatoms[1]+1;
+        iH = settle->iatoms[2];
         constr->settled =
             settle_init(md->massT[iO],md->massT[iH],
                         md->invmass[iO],md->invmass[iH],
@@ -1040,13 +1180,15 @@ gmx_constr_t init_constraints(FILE *fplog,
   
     if (nset > 0) {
         please_cite(fplog,"Miyamoto92a");
-        
+
+        constr->bInterCGsettles = inter_charge_group_settles(mtop);
+
         /* Check that we have only one settle type */
         settle_type = -1;
         iloop = gmx_mtop_ilistloop_init(mtop);
         while (gmx_mtop_ilistloop_next(iloop,&ilist,&nmol)) 
         {
-            for (i=0; i<ilist[F_SETTLE].nr; i+=2) 
+            for (i=0; i<ilist[F_SETTLE].nr; i+=4) 
             {
                 if (settle_type == -1) 
                 {
@@ -1063,6 +1205,15 @@ gmx_constr_t init_constraints(FILE *fplog,
                               "block of molecules with SETTLE constraints into 3 normal constraints.");
                 }
             }
+        }
+
+        constr->n_at2settle_mt = mtop->nmoltype;
+        snew(constr->at2settle_mt,constr->n_at2settle_mt);
+        for(mt=0; mt<mtop->nmoltype; mt++) 
+        {
+            constr->at2settle_mt[mt] =
+                make_at2settle(mtop->moltype[mt].atoms.nr,
+                               &mtop->moltype[mt].ilist[F_SETTLE]);
         }
     }
     
@@ -1105,44 +1256,127 @@ gmx_constr_t init_constraints(FILE *fplog,
     return constr;
 }
 
-t_blocka *atom2constraints_moltype(gmx_constr_t constr)
+const t_blocka *atom2constraints_moltype(gmx_constr_t constr)
 {
   return constr->at2con_mt;
+}
+
+const int **atom2settle_moltype(gmx_constr_t constr)
+{
+    return (const int **)constr->at2settle_mt;
 }
 
 
 gmx_bool inter_charge_group_constraints(gmx_mtop_t *mtop)
 {
-  const gmx_moltype_t *molt;
-  const t_block *cgs;
-  const t_ilist *il;
-  int  mb;
-  int  nat,*at2cg,cg,a,ftype,i;
-  gmx_bool bInterCG;
+    const gmx_moltype_t *molt;
+    const t_block *cgs;
+    const t_ilist *il;
+    int  mb;
+    int  nat,*at2cg,cg,a,ftype,i;
+    gmx_bool bInterCG;
 
-  bInterCG = FALSE;
-  for(mb=0; mb<mtop->nmolblock && !bInterCG; mb++) {
-    molt = &mtop->moltype[mtop->molblock[mb].type];
+    bInterCG = FALSE;
+    for(mb=0; mb<mtop->nmolblock && !bInterCG; mb++)
+    {
+        molt = &mtop->moltype[mtop->molblock[mb].type];
 
-    if (molt->ilist[F_CONSTR].nr   > 0 ||
-	molt->ilist[F_CONSTRNC].nr > 0) {
-      cgs  = &molt->cgs;
-      snew(at2cg,molt->atoms.nr);
-      for(cg=0; cg<cgs->nr; cg++) {
-	for(a=cgs->index[cg]; a<cgs->index[cg+1]; a++)
-	  at2cg[a] = cg;
-      }
-      
-      for(ftype=F_CONSTR; ftype<=F_CONSTRNC; ftype++) {
-	il = &molt->ilist[ftype];
-	for(i=0; i<il->nr && !bInterCG; i+=3) {
-	  if (at2cg[il->iatoms[i+1]] != at2cg[il->iatoms[i+2]])
-	    bInterCG = TRUE;
-	}
-      }
-      sfree(at2cg);
+        if (molt->ilist[F_CONSTR].nr   > 0 ||
+            molt->ilist[F_CONSTRNC].nr > 0 ||
+            molt->ilist[F_SETTLE].nr > 0)
+        {
+            cgs  = &molt->cgs;
+            snew(at2cg,molt->atoms.nr);
+            for(cg=0; cg<cgs->nr; cg++)
+            {
+                for(a=cgs->index[cg]; a<cgs->index[cg+1]; a++)
+                    at2cg[a] = cg;
+            }
+
+            for(ftype=F_CONSTR; ftype<=F_CONSTRNC; ftype++)
+            {
+                il = &molt->ilist[ftype];
+                for(i=0; i<il->nr && !bInterCG; i+=3)
+                {
+                    if (at2cg[il->iatoms[i+1]] != at2cg[il->iatoms[i+2]])
+                    {
+                        bInterCG = TRUE;
+                    }
+                }
+            }
+
+            for(ftype=F_SETTLE; ftype<=F_SETTLE; ftype++)
+            {
+                il = &molt->ilist[ftype];
+                for(i=0; i<il->nr && !bInterCG; i+=4)
+                {
+                    if (at2cg[il->iatoms[i+1]] != at2cg[il->iatoms[i+2]] ||
+                        at2cg[il->iatoms[i+1]] != at2cg[il->iatoms[i+3]])
+                    {
+                        bInterCG = TRUE;
+                    }
+                }
+            }       
+            
+            sfree(at2cg);
+        }
     }
-  }
 
-  return bInterCG;
+    return bInterCG;
+}
+
+gmx_bool inter_charge_group_settles(gmx_mtop_t *mtop)
+{
+    const gmx_moltype_t *molt;
+    const t_block *cgs;
+    const t_ilist *il;
+    int  mb;
+    int  nat,*at2cg,cg,a,ftype,i;
+    gmx_bool bInterCG;
+
+    bInterCG = FALSE;
+    for(mb=0; mb<mtop->nmolblock && !bInterCG; mb++)
+    {
+        molt = &mtop->moltype[mtop->molblock[mb].type];
+
+        if (molt->ilist[F_SETTLE].nr > 0)
+        {
+            cgs  = &molt->cgs;
+            snew(at2cg,molt->atoms.nr);
+            for(cg=0; cg<cgs->nr; cg++)
+            {
+                for(a=cgs->index[cg]; a<cgs->index[cg+1]; a++)
+                    at2cg[a] = cg;
+            }
+
+            for(ftype=F_CONSTR; ftype<=F_CONSTRNC; ftype++)
+            {
+                il = &molt->ilist[ftype];
+                for(i=0; i<il->nr && !bInterCG; i+=3)
+                {
+                    if (at2cg[il->iatoms[i+1]] != at2cg[il->iatoms[i+2]])
+                    {
+                        bInterCG = TRUE;
+                    }
+                }
+            }
+
+            for(ftype=F_SETTLE; ftype<=F_SETTLE; ftype++)
+            {
+                il = &molt->ilist[ftype];
+                for(i=0; i<il->nr && !bInterCG; i+=4)
+                {
+                    if (at2cg[il->iatoms[i+1]] != at2cg[il->iatoms[i+2]] ||
+                        at2cg[il->iatoms[i+1]] != at2cg[il->iatoms[i+3]])
+                    {
+                        bInterCG = TRUE;
+                    }
+                }
+            }       
+            
+            sfree(at2cg);
+        }
+    }
+
+    return bInterCG;
 }

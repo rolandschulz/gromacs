@@ -245,7 +245,8 @@ void reset_all_counters(FILE *fplog,t_commrec *cr,
                         gmx_large_int_t step,
                         gmx_large_int_t *step_rel,t_inputrec *ir,
                         gmx_wallcycle_t wcycle,t_nrnb *nrnb,
-                        gmx_runtime_t *runtime);
+                        gmx_runtime_t *runtime,
+			cu_nonbonded_t gpu_nb);
 
 
 
@@ -341,6 +342,8 @@ void finish_run(FILE *log,t_commrec *cr,const char *confout,
 		       t_inputrec *inputrec,
 		       t_nrnb nrnb[],gmx_wallcycle_t wcycle,
 		       gmx_runtime_t *runtime,
+                       cu_timings_t *gputimes,
+                       int omp_nth_pp,
 		       gmx_bool bWriteStat);
 
 void calc_enervirdiff(FILE *fplog,int eDispCorr,t_forcerec *fr);
@@ -422,7 +425,7 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
              gmx_bool bCompact, int nstglobalcomm, ivec ddxyz,int dd_node_order,
              real rdd, real rconstr, const char *dddlb_opt,real dlb_scale,
 	     const char *ddcsx,const char *ddcsy,const char *ddcsz,
-	     int nstepout, int resetstep, int nmultisim, int repl_ex_nst,
+	     int nsteps_cmdline, int nstepout, int resetstep, int nmultisim, int repl_ex_nst,
              int repl_ex_seed, real pforce,real cpt_period,real max_hours,
 	     const char *deviceOptions, unsigned long Flags);
 /* Driver routine, that calls the different methods */

@@ -51,6 +51,10 @@
 #include "tmpi.h"
 #endif
 
+#ifdef GMX_GPU
+#include "cuda_data_mgmt.h"
+#endif
+
 typedef struct
 {
     int          n;
@@ -72,18 +76,30 @@ typedef struct gmx_wallcycle
 #ifdef GMX_MPI
     MPI_Comm     mpi_comm_mygroup;
 #endif
+    int          nthreads_pp;
+    int          nthreads_pme;
+#ifdef GMX_CYCLE_SUB
+    wallcc_t     *wcsc;
+#endif
+    double       *cycles_sum;
 } gmx_wallcycle_t_t;
 
 /* Each name should not exceed 19 characters */
 static const char *wcn[ewcNR] =
-{ "Run", "Step", "PP during PME", "Domain decomp.", "DD comm. load", "DD comm. bounds", "Vsite constr.", "Send X to PME", "Comm. coord.", "Neighbor search", "Born radii", "Force", "Wait + Comm. F", "PME mesh", "PME redist. X/F", "PME spread/gather", "PME 3D-FFT", "PME solve", "Wait + Comm. X/F", "Wait + Recv. PME F", "Vsite spread", "Write traj.", "Update", "Constraints", "Comm. energies", "Test" };
+{ "Run", "Step", "PP during PME", "Domain decomp.", "DD comm. load", "DD comm. bounds", "Vsite constr.", "Send X to PME", "Comm. coord.", "Neighbor search", "Launch GPU calc." , "Born radii", "Force", "Wait + Comm. F", "PME mesh", "PME redist. X/F", "PME spread/gather", "PME 3D-FFT", "PME 3D-FFT Comm.", "PME solve", "Wait + Comm. X/F", "Wait + Recv. PME F", "Wait for GPU calc.", "Vsite spread", "Write traj.", "Update", "Constraints", "Comm. energies", "Test" };
+
+static const char *wcsn[ewcsNR] =
+{ "DD redist.", "DD NS grid + sort", "DD setup comm.", "DD make top",
+  "NS grid local", "NS grid non-loc.", "NS search local", "NS search non-loc."
+};
 
 gmx_bool wallcycle_have_counter(void)
 {
   return gmx_cycles_have_counter();
 }
 
-gmx_wallcycle_t wallcycle_init(FILE *fplog,int resetstep,t_commrec *cr)
+gmx_wallcycle_t wallcycle_init(FILE *fplog,int resetstep,t_commrec *cr, 
+                               int nthreads_pp, int nthreads_pme)
 {
     gmx_wallcycle_t wc;
     
@@ -95,11 +111,14 @@ gmx_wallcycle_t wallcycle_init(FILE *fplog,int resetstep,t_commrec *cr)
 
     snew(wc,1);
 
-    wc->wc_barrier = FALSE;
-    wc->wcc_all    = NULL;
-    wc->wc_depth   = 0;
-    wc->ewc_prev   = -1;
-    wc->reset_counters = resetstep;
+    wc->wc_barrier          = FALSE;
+    wc->wcc_all             = NULL;
+    wc->wc_depth            = 0;
+    wc->ewc_prev            = -1;
+    wc->reset_counters      = resetstep;
+    wc->nthreads_pp         = nthreads_pp;
+    wc->nthreads_pme        = nthreads_pme;
+    wc->cycles_sum          = NULL;
 
 #ifdef GMX_MPI
     if (PAR(cr) && getenv("GMX_CYCLE_BARRIER") != NULL)
@@ -116,17 +135,17 @@ gmx_wallcycle_t wallcycle_init(FILE *fplog,int resetstep,t_commrec *cr)
     snew(wc->wcc,ewcNR);
     if (getenv("GMX_CYCLE_ALL") != NULL)
     {
-#ifndef GMX_THREADS
         if (fplog) 
         {
             fprintf(fplog,"\nWill time all the code during the run\n\n");
         }
         snew(wc->wcc_all,ewcNR*ewcNR);
-#else
-        gmx_fatal(FARGS, "GMX_CYCLE_ALL is incompatible with threaded code");
-#endif
     }
-    
+
+#ifdef GMX_CYCLE_SUB
+    snew(wc->wcsc,ewcsNR);
+#endif
+
     return wc;
 }
 
@@ -145,6 +164,12 @@ void wallcycle_destroy(gmx_wallcycle_t wc)
     {
         sfree(wc->wcc_all);
     }
+#ifdef GMX_CYCLE_SUB
+    if (wc->wcsc != NULL)
+    {
+        sfree(wc->wcsc);
+    }
+#endif
     sfree(wc);
 }
 
@@ -190,6 +215,17 @@ void wallcycle_start(gmx_wallcycle_t wc, int ewc)
             wallcycle_all_stop(wc,ewc,cycle);
         }
     }
+}
+
+void wallcycle_start_nocount(gmx_wallcycle_t wc, int ewc)
+{
+    if (wc == NULL)
+    {
+        return;
+    }
+
+    wallcycle_start(wc, ewc);
+    wc->wcc[ewc].n--;
 }
 
 double wallcycle_stop(gmx_wallcycle_t wc, int ewc)
@@ -246,18 +282,56 @@ void wallcycle_reset_all(gmx_wallcycle_t wc)
     }
 }
 
-void wallcycle_sum(t_commrec *cr, gmx_wallcycle_t wc, double cycles[])
+static gmx_bool pme_subdivision(int ewc)
+{
+    return (ewc >= ewcPME_REDISTXF && ewc <= ewcPME_SOLVE);
+}
+
+void wallcycle_sum(t_commrec *cr, gmx_wallcycle_t wc)
 {
     wallcc_t *wcc;
-    double cycles_n[ewcNR],buf[ewcNR],*cyc_all,*buf_all;
-    int    i;
+    double *cycles;
+    double cycles_n[ewcNR+ewcsNR],buf[ewcNR+ewcsNR],*cyc_all,*buf_all;
+    int    i,j;
+    int    nsum;
 
     if (wc == NULL)
     {
         return;
     }
 
+    snew(wc->cycles_sum,ewcNR+ewcsNR);
+    cycles = wc->cycles_sum;
+
     wcc = wc->wcc;
+
+    for(i=0; i<ewcNR; i++)
+    {
+        if (pme_subdivision(i) || i==ewcPMEMESH || (i==ewcRUN && cr->duty == DUTY_PME))
+        {
+            wcc[i].c *= wc->nthreads_pme;
+
+            if (wc->wcc_all)
+            {
+                for(j=0; j<ewcNR; j++)
+                {
+                    wc->wcc_all[i*ewcNR+j].c *= wc->nthreads_pme;
+                }
+            }
+        }
+        else
+        {
+            wcc[i].c *= wc->nthreads_pp;
+
+            if (wc->wcc_all)
+            {
+                for(j=0; j<ewcNR; j++)
+                {
+                    wc->wcc_all[i*ewcNR+j].c *= wc->nthreads_pp;
+                }
+            }
+        }
+    }
 
     if (wcc[ewcDDCOMMLOAD].n > 0)
     {
@@ -267,6 +341,11 @@ void wallcycle_sum(t_commrec *cr, gmx_wallcycle_t wc, double cycles[])
     {
         wcc[ewcDOMDEC].c -= wcc[ewcDDCOMMBOUND].c;
     }
+    if (wcc[ewcPME_FFTCOMM].n > 0)
+    {
+        wcc[ewcPME_FFT].c -= wcc[ewcPME_FFTCOMM].c;
+    }
+
     if (cr->npmenodes == 0)
     {
         /* All nodes do PME (or no PME at all) */
@@ -291,20 +370,36 @@ void wallcycle_sum(t_commrec *cr, gmx_wallcycle_t wc, double cycles[])
         cycles_n[i] = (double)wcc[i].n;
         cycles[i]   = (double)wcc[i].c;
     }
+    nsum = ewcNR;
+#ifdef GMX_CYCLE_SUB
+    for(i=0; i<ewcsNR; i++)
+    {
+        wc->wcsc[i].c *= wc->nthreads_pp;
+        cycles_n[ewcNR+i] = (double)wc->wcsc[i].n;
+        cycles[ewcNR+i]   = (double)wc->wcsc[i].c;
+    }
+    nsum += ewcsNR;
+#endif   
     
 #ifdef GMX_MPI
     if (cr->nnodes > 1)
     {
-        MPI_Allreduce(cycles_n,buf,ewcNR,MPI_DOUBLE,MPI_MAX,
+        MPI_Allreduce(cycles_n,buf,nsum,MPI_DOUBLE,MPI_MAX,
                       cr->mpi_comm_mysim);
         for(i=0; i<ewcNR; i++)
         {
             wcc[i].n = (int)(buf[i] + 0.5);
         }
-        MPI_Allreduce(cycles,buf,ewcNR,MPI_DOUBLE,MPI_SUM,
-                      cr->mpi_comm_mysim);
+#ifdef GMX_CYCLE_SUB
+        for(i=0; i<ewcsNR; i++)
+        {
+            wc->wcsc[i].n = (int)(buf[ewcNR+i] + 0.5);
+        }
+#endif   
 
-        for(i=0; i<ewcNR; i++)
+        MPI_Allreduce(cycles,buf,nsum,MPI_DOUBLE,MPI_SUM,
+                      cr->mpi_comm_mysim);
+        for(i=0; i<nsum; i++)
         {
             cycles[i] = buf[i];
         }
@@ -330,43 +425,79 @@ void wallcycle_sum(t_commrec *cr, gmx_wallcycle_t wc, double cycles[])
 #endif
 }
 
-static void print_cycles(FILE *fplog, double c2t, const char *name, int nnodes,
+static void print_cycles(FILE *fplog, double c2t, const char *name, 
+                         int nnodes, int nthreads,
                          int n, double c, double tot)
 {
     char num[11];
+    char thstr[6];
   
     if (c > 0)
     {
         if (n > 0)
         {
             sprintf(num,"%10d",n);
+            if (nthreads < 0)
+                sprintf(thstr, "N/A");
+            else
+                sprintf(thstr, "%4d", nthreads);
         }
         else
         {
             sprintf(num,"          ");
+            sprintf(thstr, "    ");
         }
-        fprintf(fplog," %-19s %4d %10s %12.3f %10.1f   %5.1f\n",
-                name,nnodes,num,c*1e-9,c*c2t,100*c/tot);
+        fprintf(fplog," %-19s %4d %4s %10s %10.1f %12.3f   %5.1f\n",
+                name,nnodes,thstr,num,c*c2t,c*1e-9,100*c/tot);
     }
 }
 
-static gmx_bool subdivision(int ewc)
+static void print_gputimes(FILE *fplog, const char *name, 
+                           int n, double t, double tot_t)
 {
-    return (ewc >= ewcPME_REDISTXF && ewc <= ewcPME_SOLVE);
+    char num[11];
+    char avg_perf[11];
+
+    if (n > 0)
+    {
+        sprintf(num, "%10d", n);
+        sprintf(avg_perf, "%10.3f", t/n);
+    }
+    else
+    {
+      sprintf(num,"          ");
+      sprintf(avg_perf,"          ");
+    }
+    if (t != tot_t)
+    {
+        fprintf(fplog, " %-29s %10s %12.2f %s   %5.1f\n", 
+                name, num, t/1000, avg_perf, 100 * t/tot_t); 
+    }
+    else
+    {
+         fprintf(fplog, " %-29s %10s %12.2f %s   %5.1f\n", 
+               name, "", t/1000, avg_perf, 100.0); 
+    }
 }
 
 void wallcycle_print(FILE *fplog, int nnodes, int npme, double realtime,
-                     gmx_wallcycle_t wc, double cycles[])
+                     gmx_wallcycle_t wc, cu_timings_t *gpu_t)
 {
-    double c2t,tot,sum;
-    int    i,j,npp;
+    double *cycles;
+    double c2t,tot,tot_gpu,tot_cpu_overlap,gpu_cpu_ratio,sum,tot_k;
+    int    i,j,npp,nth_pp,nth_pme;
     char   buf[STRLEN];
-    const char *myline = "-----------------------------------------------------------------------";
+    const char *hline = "----------------------------------------------------------------------------";
     
+    nth_pp  = wc->nthreads_pp;
+    nth_pme = wc->nthreads_pme;
+
     if (wc == NULL)
     {
         return;
     }
+
+    cycles = wc->cycles_sum;
 
     if (npme > 0)
     {
@@ -378,27 +509,29 @@ void wallcycle_print(FILE *fplog, int nnodes, int npme, double realtime,
         npme = nnodes;
     }
     tot = cycles[ewcRUN];
+
     /* Conversion factor from cycles to seconds */
     if (tot > 0)
     {
-      c2t = nnodes*realtime/tot;
+        c2t = (npp*nth_pp + npme*nth_pme)*realtime/tot/2;
     }
     else
     {
-      c2t = 0;
+        c2t = 0;
     }
 
     fprintf(fplog,"\n     R E A L   C Y C L E   A N D   T I M E   A C C O U N T I N G\n\n");
 
-    fprintf(fplog," Computing:            Nodes     Number     G-Cycles    Seconds     %c\n",'%');
-    fprintf(fplog,"%s\n",myline);
+    fprintf(fplog," Computing:         Nodes   Th.     Count     Seconds    G-Cycles       %c\n",'%');
+    fprintf(fplog,"%s\n",hline);
     sum = 0;
     for(i=ewcPPDURINGPME+1; i<ewcNR; i++)
     {
-        if (!subdivision(i))
+        if (!pme_subdivision(i))
         {
             print_cycles(fplog,c2t,wcn[i],
                          (i==ewcPMEMESH || i==ewcPMEWAITCOMM) ? npme : npp,
+                         (i==ewcPMEMESH || i==ewcPMEWAITCOMM) ? nth_pme : nth_pp, 
                          wc->wcc[i].n,cycles[i],tot);
             sum += cycles[i];
         }
@@ -415,30 +548,124 @@ void wallcycle_print(FILE *fplog, int nnodes, int npme, double realtime,
                 buf[19] = '\0';
                 print_cycles(fplog,c2t,buf,
                              (i==ewcPMEMESH || i==ewcPMEWAITCOMM) ? npme : npp,
+                             (i==ewcPMEMESH || i==ewcPMEWAITCOMM) ? nth_pme : nth_pp,
                              wc->wcc_all[i*ewcNR+j].n,
                              wc->wcc_all[i*ewcNR+j].c,
                              tot);
             }
         }
     }
-    print_cycles(fplog,c2t,"Rest",npp,0,tot-sum,tot);
-    fprintf(fplog,"%s\n",myline);
-    print_cycles(fplog,c2t,"Total",nnodes,0,tot,tot);
-    fprintf(fplog,"%s\n",myline);
+    print_cycles(fplog,c2t,"Rest",npp,-1,0,tot-sum,tot);
+    fprintf(fplog,"%s\n",hline);
+    print_cycles(fplog,c2t,"Total",nnodes,-1,0,tot,tot);
+    fprintf(fplog,"%s\n",hline);
     
     if (wc->wcc[ewcPMEMESH].n > 0)
     {
-        fprintf(fplog,"%s\n",myline);
+        fprintf(fplog,"%s\n",hline);
         for(i=ewcPPDURINGPME+1; i<ewcNR; i++)
         {
-            if (subdivision(i))
+            if (pme_subdivision(i))
             {
                 print_cycles(fplog,c2t,wcn[i],
                              (i>=ewcPMEMESH || i<=ewcPME_SOLVE) ? npme : npp,
+                             (i==ewcPMEMESH || i==ewcPMEWAITCOMM) ? nth_pme : nth_pp,
                              wc->wcc[i].n,cycles[i],tot);
             }
         }
-        fprintf(fplog,"%s\n",myline);
+        fprintf(fplog,"%s\n",hline);
+    }
+
+#ifdef GMX_CYCLE_SUB
+    fprintf(fplog,"%s\n",hline);
+    for(i=0; i<ewcsNR; i++)
+    {
+        print_cycles(fplog,c2t,wcsn[i],npp,nth_pp,
+                     wc->wcsc[i].n,cycles[ewcNR+i],tot);
+    }
+    fprintf(fplog,"%s\n",hline);
+#endif
+
+    /* print GPU timing summary */
+    if (gpu_t)
+    {
+        tot_gpu = gpu_t->nbl_h2d_time + 
+                  gpu_t->nb_h2d_time + 
+                  gpu_t->nb_d2h_time;
+
+        /* add up the kernel timings */
+        tot_k = 0.0;
+        for (i = 0; i < 2; i++)
+        {
+            for(j = 0; j < 2; j++)
+            {
+                tot_k += gpu_t->k_time[i][j].t;
+            }
+        }
+        tot_gpu += tot_k;
+    
+        tot_cpu_overlap = wc->wcc[ewcFORCE].c/nth_pp;
+        if (wc->wcc[ewcPMEMESH].n > 0)
+        {
+            tot_cpu_overlap += wc->wcc[ewcPMEMESH].c/nth_pme;
+        }
+        tot_cpu_overlap *= c2t * 1000; /* convert s to ms */
+
+        fprintf(fplog, "\n GPU timings\n%s\n", hline);
+        fprintf(fplog," Computing:                         Count      Seconds    ms/step       %c\n",'%');
+        fprintf(fplog, "%s\n", hline);
+        // " %-19s %4d %10s %12.3f %10.1f   %5.1f\n"
+        print_gputimes(fplog, "Neighbor list H2D",
+                gpu_t->nbl_h2d_count, gpu_t->nbl_h2d_time, tot_gpu);
+         print_gputimes(fplog, "X / q H2D", 
+                gpu_t->nb_count, gpu_t->nb_h2d_time, tot_gpu);
+
+        char *k_log_str[2][2] = {
+                {"Nonbonded F kernel", "Nonbonded F+ene k."}, 
+                {"Nonbonded F+prune k.", "Nonbonded F+ene+prune k."}};
+        for (i = 0; i < 2; i++)
+        {
+            for(j = 0; j < 2; j++)
+            {
+                if (gpu_t->k_time[i][j].c)
+                {
+                    print_gputimes(fplog, k_log_str[i][j],
+                            gpu_t->k_time[i][j].c, gpu_t->k_time[i][j].t, tot_gpu);
+                }
+            }
+        }        
+
+        print_gputimes(fplog, "F D2H",  gpu_t->nb_count, gpu_t->nb_d2h_time, tot_gpu);
+        fprintf(fplog, "%s\n", hline);
+        print_gputimes(fplog, "Total ", gpu_t->nb_count, tot_gpu, tot_gpu);
+        fprintf(fplog, "%s\n", hline);
+
+        gpu_cpu_ratio = tot_gpu/tot_cpu_overlap;
+        fprintf(fplog, "\n Force evaluation time GPU/CPU: %.3f ms/%.3f ms = %.3f\n",
+                tot_gpu/gpu_t->nb_count, tot_cpu_overlap/wc->wcc[ewcFORCE].n, 
+                gpu_cpu_ratio);
+        fprintf(fplog, " For optimal performance this ratio should be 1!\n");
+        /* print note if the imbalance is dangerously high */
+        if (gpu_cpu_ratio < 0.75 || gpu_cpu_ratio > 1.2)
+        {
+            if (gpu_cpu_ratio < 0.75)
+            {
+                sprintf(buf,
+                        "NOTE: The GPU has >25%% less load than the CPU. As this imbalance causes\n"
+                        "        a considerable performance loss, tuning the cutoff is advised.");
+            }
+            if (gpu_cpu_ratio > 1.2)
+            {
+                sprintf(buf,
+                        "NOTE: The GPU has >20%% more load than the CPU. As this imbalance causes\n"
+                        "        a considerable performance loss, tuning the cutoff is advised.");
+            }
+            if (fplog)
+            {
+                fprintf(fplog,"\n%s\n",buf);
+            }
+            fprintf(stderr,"\n\n%s\n",buf);
+        }
     }
 
     if (cycles[ewcMoveE] > tot*0.05)
@@ -473,3 +700,24 @@ extern void wcycle_set_reset_counters(gmx_wallcycle_t wc, gmx_large_int_t reset_
 
     wc->reset_counters = reset_counters;
 }
+
+#ifdef GMX_CYCLE_SUB
+
+void wallcycle_sub_start(gmx_wallcycle_t wc, int ewcs)
+{
+    if (wc != NULL)
+    {
+        wc->wcsc[ewcs].start = gmx_cycles_read();
+    }
+}
+
+void wallcycle_sub_stop(gmx_wallcycle_t wc, int ewcs)
+{
+    if (wc != NULL)
+    {
+        wc->wcsc[ewcs].c += gmx_cycles_read() - wc->wcsc[ewcs].start;
+        wc->wcsc[ewcs].n++;
+    }
+}
+
+#endif /* GMX_CYCLE_SUB */

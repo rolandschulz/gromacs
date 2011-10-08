@@ -22,6 +22,7 @@
 
 #include <string.h>
 #include "domdec_network.h"
+#include "smalloc.h"
 
 #ifdef GMX_LIB_MPI
 #include <mpi.h>
@@ -279,6 +280,7 @@ void dd_gatherv(gmx_domdec_t *dd,
                 int *rcounts,int *disps,void *rbuf)
 {
 #ifdef GMX_MPI
+#ifdef GMX_STD_GATHERV
     int dum;
 
     if (scount == 0)
@@ -289,6 +291,59 @@ void dd_gatherv(gmx_domdec_t *dd,
     MPI_Gatherv(sbuf,scount,MPI_BYTE,
                 rbuf,rcounts,disps,MPI_BYTE,
                 DDMASTERRANK(dd),dd->mpi_comm_all);
+#else
+    char dum;
+    int i;
+    char* new_sbuf; char* new_rbuf;
+
+    // communicate the maximum for rcounts       
+    int count_max = 0;
+    if (DDMASTER(dd)) 
+    {
+        for(i = 0; i < dd->nnodes; ++i)        
+        {
+            if (count_max<rcounts[i]) count_max=rcounts[i];
+        }
+    }
+    dd_bcast(dd,sizeof(int),&count_max);
+    
+    if (count_max==0) 
+    {
+        return;
+    }
+
+    // need new buffers                                                                                                                
+    snew(new_sbuf, count_max);
+    if (DDMASTER(dd))
+    {
+        snew(new_rbuf, dd->nnodes*count_max);
+    } 
+    else 
+    {
+        new_rbuf = &dum;// dum = NULL pointer replacement                                                                               
+    }
+    
+    // fill the new send buffer                                                                                                        
+    memcpy(new_sbuf,sbuf,scount);
+
+    // dumb gather                                                                                                                     
+    dd_gather(dd,count_max,new_sbuf,new_rbuf);
+    
+    // copy the received data to the right place                                                                                       
+    if (DDMASTER(dd))
+    {
+        for(i = 0; i < dd->nnodes; ++i)        
+        {
+            char* p_from = new_rbuf + i*count_max ;
+            char* p_to = rbuf + disps[i] ;
+            memcpy(p_to,p_from,rcounts[i]);
+        }
+    }
+    // free allocated memory                                                                                                           
+    sfree(new_sbuf);
+    if (DDMASTER(dd)) sfree(new_rbuf);
+
+#endif
 #endif
 }
 

@@ -36,7 +36,11 @@
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
-
+#ifdef __linux
+#define _GNU_SOURCE
+#include <sched.h>
+#include <sys/syscall.h>
+#endif
 #include <signal.h>
 #include <stdlib.h>
 
@@ -90,6 +94,16 @@
 #include "md_openmm.h"
 #endif
 
+#ifdef GMX_OPENMP
+#include <omp.h>
+#else 
+#include "no_omp.h"
+#endif
+
+#ifdef GMX_GPU
+#include "gmx_gpu_utils.h"
+#include "cuda_data_mgmt.h"
+#endif
 
 typedef struct { 
     gmx_integrator_t *func;
@@ -129,6 +143,7 @@ struct mdrunner_arglist
     const char *ddcsx;
     const char *ddcsy;
     const char *ddcsz;
+    int nsteps_cmdline;
     int nstepout;
     int resetstep;
     int nmultisim;
@@ -170,7 +185,8 @@ static void mdrunner_start_fn(void *arg)
                       mc.bVerbose, mc.bCompact, mc.nstglobalcomm, 
                       mc.ddxyz, mc.dd_node_order, mc.rdd,
                       mc.rconstr, mc.dddlb_opt, mc.dlb_scale, 
-                      mc.ddcsx, mc.ddcsy, mc.ddcsz, mc.nstepout, mc.resetstep, 
+                      mc.ddcsx, mc.ddcsy, mc.ddcsz,
+                      mc.nsteps_cmdline, mc.nstepout, mc.resetstep,
                       mc.nmultisim, mc.repl_ex_nst, mc.repl_ex_seed, mc.pforce, 
                       mc.cpt_period, mc.max_hours, mc.deviceOptions, mc.Flags);
 }
@@ -186,7 +202,7 @@ static t_commrec *mdrunner_start_threads(int nthreads,
               ivec ddxyz,int dd_node_order,real rdd,real rconstr,
               const char *dddlb_opt,real dlb_scale,
               const char *ddcsx,const char *ddcsy,const char *ddcsz,
-              int nstepout,int resetstep,int nmultisim,int repl_ex_nst,
+              int nsteps_cmdline, int nstepout,int resetstep,int nmultisim,int repl_ex_nst,
               int repl_ex_seed, real pforce,real cpt_period, real max_hours, 
               const char *deviceOptions, unsigned long Flags)
 {
@@ -223,6 +239,7 @@ static t_commrec *mdrunner_start_threads(int nthreads,
     mda->ddcsx=ddcsx;
     mda->ddcsy=ddcsy;
     mda->ddcsz=ddcsz;
+    mda->nsteps_cmdline=nsteps_cmdline;
     mda->nstepout=nstepout;
     mda->resetstep=resetstep;
     mda->nmultisim=nmultisim;
@@ -248,10 +265,12 @@ static t_commrec *mdrunner_start_threads(int nthreads,
 }
 
 
-/* get the number of threads based on how many there were requested, 
-   which algorithms we're using, and how many particles there are. */
-static int get_nthreads(int nthreads_requested, t_inputrec *inputrec,
-                        gmx_mtop_t *mtop)
+/* Get the number of threads to use for thread-MPI based on how many
+ * there were requested, which algorithms we're using,
+ * and how many particles there are.
+ */
+static int get_nthreads_mpi(int nthreads_requested, t_inputrec *inputrec,
+                            gmx_mtop_t *mtop)
 {
     int nthreads,nthreads_new;
     int min_atoms_per_thread;
@@ -334,7 +353,7 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
              ivec ddxyz,int dd_node_order,real rdd,real rconstr,
              const char *dddlb_opt,real dlb_scale,
              const char *ddcsx,const char *ddcsy,const char *ddcsz,
-             int nstepout,int resetstep,int nmultisim,int repl_ex_nst,
+             int nsteps_cmdline, int nstepout,int resetstep,int nmultisim,int repl_ex_nst,
              int repl_ex_seed, real pforce,real cpt_period,real max_hours,
              const char *deviceOptions, unsigned long Flags)
 {
@@ -364,7 +383,9 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
     gmx_large_int_t reset_counters;
     gmx_edsam_t ed=NULL;
     t_commrec   *cr_old=cr; 
-    int         nthreads=1;
+    int         nthreads_mpi=1;
+    int         nthreads_pp =1;
+    int         nthreads_pme=1;
 
     /* CAUTION: threads may be started later on in this function, so
        cr doesn't reflect the final parallel state right now */
@@ -389,16 +410,16 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
 
         /* NOW the threads will be started: */
 #ifdef GMX_THREADS
-        nthreads = get_nthreads(nthreads_requested, inputrec, mtop);
+        nthreads_mpi = get_nthreads_mpi(nthreads_requested, inputrec, mtop);
 
-        if (nthreads > 1)
+        if (nthreads_mpi > 1)
         {
             /* now start the threads. */
-            cr=mdrunner_start_threads(nthreads, fplog, cr_old, nfile, fnm, 
+            cr=mdrunner_start_threads(nthreads_mpi, fplog, cr_old, nfile, fnm, 
                                       oenv, bVerbose, bCompact, nstglobalcomm, 
                                       ddxyz, dd_node_order, rdd, rconstr, 
                                       dddlb_opt, dlb_scale, ddcsx, ddcsy, ddcsz,
-                                      nstepout, resetstep, nmultisim, 
+                                      nsteps_cmdline, nstepout, resetstep, nmultisim, 
                                       repl_ex_nst, repl_ex_seed, pforce, 
                                       cpt_period, max_hours, deviceOptions, 
                                       Flags);
@@ -542,6 +563,12 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
         }
     }
 
+    /* override nsteps if defined on the command line */
+    if (nsteps_cmdline >= -1)
+    {
+        inputrec->nsteps = nsteps_cmdline;
+    }
+
     if (((MASTER(cr) || (Flags & MD_SEPPOT)) && (Flags & MD_APPENDFILES))
 #ifdef GMX_THREADS
         /* With thread MPI only the master node/thread exists in mdrun.c,
@@ -621,7 +648,39 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
         gmx_setup_nodecomm(fplog,cr);
     }
 
-    wcycle = wallcycle_init(fplog,resetstep,cr);
+    /* getting number of PP/PME threads
+       PME: env variable should be read only on one node to make sure it is 
+       identical everywhere;
+       PP: is omp_get_max_threads for now.
+     */
+#ifdef GMX_OPENMP
+    nthreads_pp = omp_get_max_threads();
+
+    if (EEL_PME(inputrec->coulombtype))
+    {
+        if (MASTER(cr))
+        {
+            char *ptr;
+            
+            nthreads_pme = omp_get_max_threads();
+            if ((ptr=getenv("GMX_PME_NTHREADS")) != NULL)
+            {
+                sscanf(ptr,"%d",&nthreads_pme);
+            }
+            if (fplog != NULL && nthreads_pme > 1)
+            {
+                fprintf(fplog,"Using %d threads for PME\n",nthreads_pme);
+            }
+        }
+        if (PAR(cr))
+        {
+            gmx_bcast_sim(sizeof(nthreads_pme),&nthreads_pme,cr);
+        }
+    }
+#endif
+
+    wcycle = wallcycle_init(fplog,resetstep,cr,nthreads_pp,nthreads_pme);
+
     if (PAR(cr))
     {
         /* Master synchronizes its value of reset_counters with all nodes 
@@ -661,7 +720,8 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
         init_forcerec(fplog,oenv,fr,fcd,inputrec,mtop,cr,box,FALSE,
                       opt2fn("-table",nfile,fnm),
                       opt2fn("-tablep",nfile,fnm),
-                      opt2fn("-tableb",nfile,fnm),FALSE,pforce);
+                      opt2fn("-tableb",nfile,fnm),
+                      FALSE,pforce);
 
         /* version for PCA_NOT_READ_NODE (see md.c) */
         /*init_forcerec(fplog,fr,fcd,inputrec,mtop,cr,box,FALSE,
@@ -744,6 +804,44 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
         snew(pmedata,1);
     }
 
+    //set CPU affinity
+#ifdef GMX_OPENMP
+#ifdef __linux
+    {
+        int core, local_nthreads;
+
+        if (inputrec->cutoff_scheme == ecutsVERLET)
+        {
+            local_nthreads = omp_get_max_threads();
+        }
+        else
+        {
+            local_nthreads = (cr->duty & DUTY_PME) ? nthreads_pme : 1; //threads on this node
+        }
+#ifdef GMX_LIB_MPI
+        {
+            MPI_Comm comm_intra; //intra communicator (but different to nc.comm_intra includes PME nodes)
+            MPI_Comm_split(MPI_COMM_WORLD,gmx_host_num(),gmx_node_rank(),&comm_intra);
+
+            MPI_Scan(&local_nthreads,&core, 1, MPI_INT, MPI_SUM, comm_intra);
+            core -= local_nthreads; //make exclusive scan
+        }
+#else
+        core = cr->nodeid*local_nthreads;
+#endif
+#pragma omp parallel firstprivate(core) num_threads(local_nthreads)
+        {
+            cpu_set_t mask;
+            CPU_ZERO(&mask);
+            core+=omp_get_thread_num();
+            CPU_SET(core,&mask);
+            sched_setaffinity((pid_t) syscall (SYS_gettid),sizeof(cpu_set_t),&mask);
+        }
+    }
+#endif //__linux
+#endif //GMX_OPENMP
+
+
     /* Initiate PME if necessary,
      * either on all nodes or on dedicated PME nodes only. */
     if (EEL_PME(inputrec->coulombtype))
@@ -757,11 +855,12 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
             /* The PME only nodes need to know nChargePerturbed */
             gmx_bcast_sim(sizeof(nChargePerturbed),&nChargePerturbed,cr);
         }
+
         if (cr->duty & DUTY_PME)
         {
             status = gmx_pme_init(pmedata,cr,npme_major,npme_minor,inputrec,
                                   mtop ? mtop->natoms : 0,nChargePerturbed,
-                                  (Flags & MD_REPRODUCIBLE));
+                                  (Flags & MD_REPRODUCIBLE),nthreads_pme);
             if (status != 0) 
             {
                 gmx_fatal(FARGS,"Error %d initializing PME",status);
@@ -965,6 +1064,12 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
      */
     finish_run(fplog,cr,ftp2fn(efSTO,nfile,fnm),
                inputrec,nrnb,wcycle,&runtime,
+#ifdef GMX_GPU
+               fr->nbv != NULL && fr->nbv->useGPU ? 
+                 get_gpu_timings(fr->nbv->gpu_nb) :
+#endif
+               NULL,
+               nthreads_pp, 
                EI_DYNAMICS(inputrec->eI) && !MULTISIM(cr));
 
     /* Does what it says */  
@@ -987,6 +1092,22 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
         tMPI_Finalize();
     }
 #endif
+
+#ifdef GMX_GPU
+    if (fr->nbv != NULL && fr->nbv->useGPU)
+    {
+        int gpu_device_id = cr->nodeid; /* TODO get dev_id */
+        /* free GPU memory and uninitialize GPU */
+        destroy_cudata(fplog, fr->nbv->gpu_nb, DOMAINDECOMP(cr));
+
+        if (uninit_gpu(fplog, gpu_device_id) != 0)
+        {
+            gmx_warning("Failed to uninitialize GPU.");
+        }
+    }
+#endif
+
+
 
     return rc;
 }

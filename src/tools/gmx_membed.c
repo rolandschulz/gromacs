@@ -95,6 +95,16 @@
 #include "tmpi.h"
 #endif
 
+#ifdef GMX_OPENMP
+#include <omp.h>
+#else
+#include "no_omp.h"
+#endif
+
+#ifdef GMX_GPU
+#include "cuda_data_mgmt.h"
+#endif
+
 /* afm stuf */
 #include "pull.h"
 
@@ -2641,7 +2651,7 @@ double do_md_membed(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
             gs.set[eglsRESETCOUNTERS] != 0)
         {
             /* Reset all the counters related to performance over the run */
-            reset_all_counters(fplog,cr,step,&step_rel,ir,wcycle,nrnb,runtime);
+            reset_all_counters(fplog,cr,step,&step_rel,ir,wcycle,nrnb,runtime,fr->nbv->gpu_nb);
             wcycle_set_reset_counters(wcycle,-1);
             bResetCountersHalfMaxH = FALSE;
             gs.set[eglsRESETCOUNTERS] = 0;
@@ -2730,6 +2740,7 @@ int mdrunner_membed(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
     t_nrnb     *nrnb;
     gmx_mtop_t *mtop=NULL;
     t_mdatoms  *mdatoms=NULL;
+    interaction_const_t *ic=NULL;
     t_forcerec *fr=NULL;
     t_fcdata   *fcd=NULL;
     real       ewaldcoeff=0;
@@ -2747,7 +2758,8 @@ int mdrunner_membed(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
     gmx_edsam_t ed=NULL;
     t_commrec   *cr_old=cr;
     int        nthreads=1,nthreads_requested=1;
-
+    int         omp_nthreads_pp = 1;
+    int         omp_nthreads_pme = 1; 
 
 	char			*ins;
 	int 			rm_bonded_at,fr_id,fr_i=0,tmp_id,warn=0;
@@ -3159,7 +3171,37 @@ int mdrunner_membed(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
         gmx_setup_nodecomm(fplog,cr);
     }
 
-    wcycle = wallcycle_init(fplog,resetstep,cr);
+    /* getting number of PP/PME threads
+       PME: env variable should be read only on one node to make sure it is 
+            identical everywhere;
+       PP: is omp_get_max_threads for now.
+     */    
+#ifdef GMX_OPENMP
+   if (EEL_PME(inputrec->coulombtype))
+   {
+       omp_nthreads_pp = omp_get_max_threads();
+
+       if (MASTER(cr))
+       {
+           char *ptr;
+           omp_nthreads_pme = omp_get_max_threads();
+           if ((ptr=getenv("GMX_PME_NTHREADS")) != NULL)
+           {
+               sscanf(ptr,"%d",&omp_nthreads_pme);
+           }
+           if (fplog!=NULL)
+           {
+               fprintf(fplog,"Using %d threads for PME\n",omp_nthreads_pme);
+           }
+       }
+       if (PAR(cr))
+       {
+           gmx_bcast_sim(sizeof(omp_nthreads_pme),&omp_nthreads_pme,cr);
+       }
+   }
+#endif
+
+    wcycle = wallcycle_init(fplog,resetstep,cr, omp_nthreads_pp, omp_nthreads_pme);
     if (PAR(cr))
     {
         /* Master synchronizes its value of reset_counters with all nodes
@@ -3203,7 +3245,9 @@ int mdrunner_membed(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
         init_forcerec(fplog,oenv,fr,fcd,inputrec,mtop,cr,box,FALSE,
                       opt2fn("-table",nfile,fnm),
                       opt2fn("-tablep",nfile,fnm),
-                      opt2fn("-tableb",nfile,fnm),FALSE,pforce);
+                      opt2fn("-tableb",nfile,fnm),
+                      FALSE,pforce);
+        init_interaction_const(fplog, &ic, fr); 
 
         /* version for PCA_NOT_READ_NODE (see md.c) */
         /*init_forcerec(fplog,fr,fcd,inputrec,mtop,cr,box,FALSE,
@@ -3299,11 +3343,37 @@ int mdrunner_membed(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
             /* The PME only nodes need to know nChargePerturbed */
             gmx_bcast_sim(sizeof(nChargePerturbed),&nChargePerturbed,cr);
         }
+
+
+        //set CPU affinity
+#ifdef GMX_OPENMP
+#ifdef __linux
+#ifdef GMX_LIB_MPI
+        {
+            int core;
+            MPI_Comm comm_intra; //intra communicator (but different to nc.comm_intra includes PME nodes)
+            MPI_Comm_split(MPI_COMM_WORLD,gmx_host_num(),gmx_node_rank(),&comm_intra);
+            int local_omp_nthreads = (cr->duty & DUTY_PME) ? omp_nthreads_pme : 1; //threads on this node
+            MPI_Scan(&local_omp_nthreads,&core, 1, MPI_INT, MPI_SUM, comm_intra);
+            core-=local_omp_nthreads; //make exclusive scan
+    #pragma omp parallel firstprivate(core) num_threads(local_omp_nthreads)
+            {
+                cpu_set_t mask;
+                CPU_ZERO(&mask);
+                core+=omp_get_thread_num();
+                CPU_SET(core,&mask);
+                sched_setaffinity((pid_t) syscall (SYS_gettid),sizeof(cpu_set_t),&mask);
+            }
+        }
+#endif //GMX_MPI
+#endif //__linux
+#endif //GMX_OPENMP
+
         if (cr->duty & DUTY_PME)
         {
             status = gmx_pme_init(pmedata,cr,npme_major,npme_minor,inputrec,
                                   mtop ? mtop->natoms : 0,nChargePerturbed,
-                                  (Flags & MD_REPRODUCIBLE));
+                                  (Flags & MD_REPRODUCIBLE),omp_nthreads_pme);
             if (status != 0)
             {
                 gmx_fatal(FARGS,"Error %d initializing PME",status);
@@ -3398,7 +3468,12 @@ int mdrunner_membed(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
      */
     finish_run(fplog,cr,ftp2fn(efSTO,nfile,fnm),
                inputrec,nrnb,wcycle,&runtime,
-               EI_DYNAMICS(inputrec->eI) && !MULTISIM(cr));
+#ifdef GMX_GPU
+               fr->nbv->useGPU ? get_gpu_timings(fr->nbv->gpu_nb) :
+#endif
+               NULL,
+               EI_DYNAMICS(inputrec->eI) && !MULTISIM(cr),
+               omp_nthreads_pp);
 
     /* Does what it says */
     print_date_and_time(fplog,cr->nodeid,"Finished mdrun",&runtime);
@@ -3413,6 +3488,20 @@ int mdrunner_membed(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
     {
     	sfree(piecename);
     }
+
+#ifdef GMX_GPU
+    if (fr->nbv->useGPU)
+    {
+        int gpu_device_id = cr->nodeid; /* TODO get dev_id */
+        /* free GPU memory and uninitialize GPU */
+        destroy_cudata(fplog, fr->nbv->gpu_nb, DOMAINDECOMP(cr));
+
+        if (uninit_gpu(fplog, gpu_device_id) != 0)
+        {
+            gmx_warning("Failed to uninitialize GPU.");
+        }
+    }
+#endif
 
     rc=(int)gmx_get_stop_condition();
 

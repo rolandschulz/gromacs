@@ -1,6 +1,7 @@
 
 set(GMXPREPROCESS_SOURCES 
     add_par.c       
+    calc_nsbuf.c
     compute_io.c    
     convparm.c      
     gen_ad.c        
@@ -54,6 +55,12 @@ if(GMX_OPENMM)
     target_link_libraries(openmm_api_wrapper gmx_gpu_utils ${OpenMM_LIBRARIES})
     set(GMX_OPENMM_LIBRARIES openmm_api_wrapper gmx_gpu_utils ${OpenMM_LIBRARIES})   
 endif(GMX_OPENMM)
+
+if(GMX_GPU)
+    add_subdirectory(gmx_gpu_utils)   
+    include_directories(gmx_gpu_utils)
+    set(GMX_GPU_LIBRARIES gmx_gpu_utils)
+endif()
 
 if(GMX_FAHCORE)
   add_library(fahcore ${MDRUN_SOURCES})

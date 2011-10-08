@@ -37,6 +37,8 @@
 #include "genborn.h"
 #include "qmmmrec.h"
 #include "idef.h"
+#include "nb_verlet.h"
+#include "interaction_const.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -68,8 +70,8 @@ typedef struct {
 } t_nblists;
 
 /* macros for the cginfo data in forcerec */
-/* The maximum cg size in cginfo is 255,
- * because we only have space for 8 bits in cginfo,
+/* The maximum cg size in cginfo is 63
+ * because we only have space for 6 bits in cginfo,
  * this cg size entry is actually only read with domain decomposition.
  * But there is a smaller limit due to the t_excl data structure
  * which is defined in nblist.h.
@@ -80,13 +82,21 @@ typedef struct {
 #define GET_CGINFO_EXCL_INTRA(cgi) ( (cgi)            &  (1<<16))
 #define SET_CGINFO_EXCL_INTER(cgi)   (cgi) =  ((cgi)  |  (1<<17))
 #define GET_CGINFO_EXCL_INTER(cgi) ( (cgi)            &  (1<<17))
-#define SET_CGINFO_SOLOPT(cgi,opt)   (cgi) = (((cgi)  & ~(15<<18)) | ((opt)<<18))
-#define GET_CGINFO_SOLOPT(cgi)     (((cgi)>>18)       &   15)
+#define SET_CGINFO_SOLOPT(cgi,opt)   (cgi) = (((cgi)  & ~(3<<18)) | ((opt)<<18))
+#define GET_CGINFO_SOLOPT(cgi)     (((cgi)>>18)       &   3)
+#define SET_CGINFO_CONSTR(cgi)       (cgi) =  ((cgi)  |  (1<<20))
+#define GET_CGINFO_CONSTR(cgi)     ( (cgi)            &  (1<<20))
+#define SET_CGINFO_SETTLE(cgi)       (cgi) =  ((cgi)  |  (1<<21))
+#define GET_CGINFO_SETTLE(cgi)     ( (cgi)            &  (1<<21))
 /* This bit is only used with bBondComm in the domain decomposition */
 #define SET_CGINFO_BOND_INTER(cgi)   (cgi) =  ((cgi)  |  (1<<22))
 #define GET_CGINFO_BOND_INTER(cgi) ( (cgi)            &  (1<<22))
-#define SET_CGINFO_NATOMS(cgi,opt)   (cgi) = (((cgi)  & ~(255<<23)) | ((opt)<<23))
-#define GET_CGINFO_NATOMS(cgi)     (((cgi)>>23)       &   255)
+#define SET_CGINFO_HAS_LJ(cgi)       (cgi) =  ((cgi)  |  (1<<23))
+#define GET_CGINFO_HAS_LJ(cgi)     ( (cgi)            &  (1<<23))
+#define SET_CGINFO_HAS_Q(cgi)        (cgi) =  ((cgi)  |  (1<<24))
+#define GET_CGINFO_HAS_Q(cgi)      ( (cgi)            &  (1<<24))
+#define SET_CGINFO_NATOMS(cgi,opt)   (cgi) = (((cgi)  & ~(63<<25)) | ((opt)<<25))
+#define GET_CGINFO_NATOMS(cgi)     (((cgi)>>25)       &   63)
 
 
 /* Value to be used in mdrun for an infinite cut-off.
@@ -95,6 +105,11 @@ typedef struct {
  */
 #define GMX_CUTOFF_INF 1E+18
 
+/*! Nonbonded kernel types: SSE, GPU CUDA, GPU emulation, etc */
+enum { nbkNotSet = 0, nbk4x4PlainC, nbk4x4SSE, nbk8x8x8CUDA, nbk8x8x8PlainC };
+
+static const char *nbk_name[] =
+  { "not set", "plain C 4x4", "SSE 4x4", "CUDA 8x8x8", "plain C 8x8x8" };
 
 enum { egCOULSR, egLJSR, egBHAMSR, egCOULLR, egLJLR, egBHAMLR,
        egCOUL14, egLJ14, egGB, egNR };
@@ -130,6 +145,19 @@ typedef struct {
 typedef struct ewald_tab *ewald_tab_t; 
 
 typedef struct {
+  rvec *f;
+  int  f_nalloc;
+  rvec *fshift;
+  real ener[F_NRE];
+  gmx_grppairener_t grpp;
+  real Vcorr;
+  real dvdl;
+  tensor vir;
+} f_thread_t;
+
+typedef struct {
+  interaction_const_t *ic;
+
   /* Domain Decomposition */
   gmx_bool bDomDec;
 
@@ -140,7 +168,7 @@ typedef struct {
   rvec posres_com;
   rvec posres_comB;
 
-  gmx_bool UseOptimizedKernels;
+  gmx_bool  UseOptimizedKernels;
 
   /* Use special N*N kernels? */
   gmx_bool bAllvsAll;
@@ -162,6 +190,7 @@ typedef struct {
 
   /* Charge sum and dipole for topology A/B ([0]/[1]) for Ewald corrections */
   double qsum[2];
+  double q2sum[2];
   rvec   mu_tot[2];
 
   /* Dispersion correction stuff */
@@ -228,6 +257,10 @@ typedef struct {
   int  nnblists;
   int  *gid2nblists;
   t_nblists *nblists;
+
+  gmx_bool cutoff_scheme; /* old- or Verlet-style cutoff */
+  gmx_bool bNonbonded;    /* true if nonbonded calculations are turned off */
+  nonbonded_verlet_t *nbv;
 
   /* The wall tables (if used) */
   int  nwall;
@@ -366,6 +399,13 @@ typedef struct {
   real userreal2;
   real userreal3;
   real userreal4;
+
+  /* Thread local force and energy data */ 
+  int  nthreads;
+  f_thread_t *f_t;
+
+  /* Exclusion load distribution over the threads */
+  int  *excl_load;
 } t_forcerec;
 
 #define C6(nbfp,ntp,ai,aj)     (nbfp)[2*((ntp)*(ai)+(aj))]

@@ -95,6 +95,10 @@
 #include "tmpi.h"
 #endif
 
+#ifdef GMX_GPU
+#include "cuda_data_mgmt.h"
+#endif
+
 #ifdef GMX_FAHCORE
 #include "corewrap.h"
 #endif
@@ -196,7 +200,7 @@ double do_md(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
     /* Temporary addition for FAHCORE checkpointing */
     int chkpt_ret;
 #endif
-
+    
     /* Check for special mdrun options */
     bRerunMD = (Flags & MD_RERUN);
     bIonize  = (Flags & MD_IONIZE);
@@ -342,6 +346,8 @@ double do_md(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
             a1 = top_global->natoms;
         }
 
+        forcerec_set_excl_load(fr,top,cr);
+
         state = partdec_init_local_state(cr,state_global);
         f_global = f;
 
@@ -372,6 +378,7 @@ double do_md(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
                             state,&f,mdatoms,top,fr,
                             vsite,shellfc,constr,
                             nrnb,wcycle,FALSE);
+
     }
 
     update_mdatoms(mdatoms,state->lambda);
@@ -1015,8 +1022,7 @@ double do_md(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
              * This is parallellized as well, and does communication too. 
              * Check comments in sim_util.c
              */
-        
-            do_force(fplog,cr,ir,step,nrnb,wcycle,top,top_global,groups,
+             do_force(fplog,cr,ir,step,nrnb,wcycle,top,top_global,groups,
                      state->box,state->x,&state->hist,
                      f,force_vir,mdatoms,enerd,fcd,
                      state->lambda,graph,
@@ -1820,7 +1826,8 @@ double do_md(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
             gs.set[eglsRESETCOUNTERS] != 0)
         {
             /* Reset all the counters related to performance over the run */
-            reset_all_counters(fplog,cr,step,&step_rel,ir,wcycle,nrnb,runtime);
+            reset_all_counters(fplog,cr,step,&step_rel,ir,wcycle,nrnb,runtime,
+                               fr->nbv != NULL && fr->nbv->useGPU ? fr->nbv->gpu_nb : NULL);
             wcycle_set_reset_counters(wcycle,-1);
             /* Correct max_hours for the elapsed time */
             max_hours -= run_time/(60.0*60.0);
@@ -1879,6 +1886,6 @@ double do_md(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
     }
     
     runtime->nsteps_done = step_rel;
-    
-    return 0;
+
+   return 0;
 }

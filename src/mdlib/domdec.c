@@ -49,12 +49,17 @@
 #include "gmxfio.h"
 #include "gmx_ga2la.h"
 #include "gmx_sort.h"
+#include "nsbox.h"
 
 #ifdef GMX_LIB_MPI
 #include <mpi.h>
 #endif
 #ifdef GMX_THREADS
 #include "tmpi.h"
+#endif
+
+#ifdef GMX_OPENMP
+#include <omp.h>
 #endif
 
 #define DDRANK(dd,rank)    (rank)
@@ -138,7 +143,8 @@ typedef struct
 
 typedef struct
 {
-    gmx_cgsort_t *sort1,*sort2;
+    gmx_cgsort_t *sort;
+    gmx_cgsort_t *sort2;
     int  sort_nalloc;
     gmx_cgsort_t *sort_new;
     int  sort_new_nalloc;
@@ -214,6 +220,9 @@ typedef struct gmx_domdec_comm
     int  nstSortCG;
     gmx_domdec_sort_t *sort;
     
+    /* Are there charge groups? */
+    gmx_bool bCGs;
+
     /* Are there bonded and multi-body interactions between charge groups? */
     gmx_bool bInterCGBondeds;
     gmx_bool bInterCGMultiBody;
@@ -279,6 +288,10 @@ typedef struct gmx_domdec_comm
     
     /* The atom counts, the range for each type t is nat[t-1] <= at < nat[t] */
     int  nat[ddnatNR];
+
+    /* Array for signalling if atoms have moved to another domain */
+    int  *moved;
+    int  moved_nalloc;
     
     /* Communication buffer for general use */
     int  *buf_int;
@@ -341,7 +354,7 @@ typedef struct gmx_domdec_comm
     double load_pme;
 
     /* The last partition step */
-    gmx_large_int_t globalcomm_step;
+    gmx_large_int_t partition_step;
 
     /* Debugging */
     int  nstDDDump;
@@ -1739,7 +1752,7 @@ void dd_collect_state(gmx_domdec_t *dd,
     }
     for(est=0; est<estNR; est++)
     {
-        if (EST_DISTR(est) && state_local->flags & (1<<est))
+        if (EST_DISTR(est) && (state_local->flags & (1<<est)))
         {
             switch (est) {
             case estX:
@@ -1821,7 +1834,7 @@ static void dd_realloc_state(t_state *state,rvec **f,int nalloc)
     
     for(est=0; est<estNR; est++)
     {
-        if (EST_DISTR(est) && state->flags & (1<<est))
+        if (EST_DISTR(est) && (state->flags & (1<<est)))
         {
             switch(est) {
             case estX:
@@ -2014,7 +2027,7 @@ static void dd_distribute_state(gmx_domdec_t *dd,t_block *cgs,
     }
     for(i=0; i<estNR; i++)
     {
-        if (EST_DISTR(i) && state_local->flags & (1<<i))
+        if (EST_DISTR(i) && (state_local->flags & (1<<i)))
         {
             switch (i) {
             case estX:
@@ -2583,7 +2596,8 @@ static void set_zones_ncg_home(gmx_domdec_t *dd)
     }
 }
 
-static void rebuild_cgindex(gmx_domdec_t *dd,int *gcgs_index,t_state *state)
+static void rebuild_cgindex(gmx_domdec_t *dd,
+                            const int *gcgs_index,t_state *state)
 {
     int nat,i,*ind,*dd_cg_gl,*cgindex,cg_gl;
     
@@ -2644,12 +2658,14 @@ static void dd_set_cginfo(int *index_gl,int cg0,int cg1,
     }
 }
 
-static void make_dd_indices(gmx_domdec_t *dd,int *gcgs_index,int cg_start)
+static void make_dd_indices(gmx_domdec_t *dd,
+                            const int *gcgs_index,int cg_start)
 {
-    int nzone,zone,zone1,cg0,cg,cg_gl,a,a_gl;
+    int nzone,zone,zone1,cg0,cg1,cg1_p1,cg,cg_gl,a,a_gl;
     int *zone2cg,*zone_ncg1,*index_gl,*gatindex;
     gmx_ga2la_t *ga2la;
     char *bLocalCG;
+    gmx_bool bCGs;
 
     bLocalCG = dd->comm->bLocalCG;
 
@@ -2664,6 +2680,7 @@ static void make_dd_indices(gmx_domdec_t *dd,int *gcgs_index,int cg_start)
     zone_ncg1  = dd->comm->zone_ncg1;
     index_gl   = dd->index_gl;
     gatindex   = dd->gatindex;
+    bCGs       = dd->comm->bCGs;
 
     if (zone2cg[1] != dd->ncg_home)
     {
@@ -2682,19 +2699,31 @@ static void make_dd_indices(gmx_domdec_t *dd,int *gcgs_index,int cg_start)
         {
             cg0 = zone2cg[zone];
         }
-        for(cg=cg0; cg<zone2cg[zone+1]; cg++)
+        cg1    = zone2cg[zone+1];
+        cg1_p1 = cg0 + zone_ncg1[zone];
+
+        for(cg=cg0; cg<cg1; cg++)
         {
             zone1 = zone;
-            if (cg - cg0 >= zone_ncg1[zone])
+            if (cg >= cg1_p1)
             {
-                /* Signal that this cg is from more than one zone away */
+                /* Signal that this cg is from more than one pulse away */
                 zone1 += nzone;
             }
             cg_gl = index_gl[cg];
-            for(a_gl=gcgs_index[cg_gl]; a_gl<gcgs_index[cg_gl+1]; a_gl++)
+            if (bCGs)
             {
-                gatindex[a] = a_gl;
-                ga2la_set(dd->ga2la,a_gl,a,zone1);
+                for(a_gl=gcgs_index[cg_gl]; a_gl<gcgs_index[cg_gl+1]; a_gl++)
+                {
+                    gatindex[a] = a_gl;
+                    ga2la_set(dd->ga2la,a_gl,a,zone1);
+                    a++;
+                }
+            }
+            else
+            {
+                gatindex[a] = cg_gl;
+                ga2la_set(dd->ga2la,cg_gl,a,zone1);
                 a++;
             }
         }
@@ -4390,7 +4419,7 @@ static void rotate_state_atom(t_state *state,int a)
 
     for(est=0; est<estNR; est++)
     {
-        if (EST_DISTR(est) && state->flags & (1<<est)) {
+        if (EST_DISTR(est) && (state->flags & (1<<est))) {
             switch (est) {
             case estX:
                 /* Rotate the complete state; for a rectangular box only */
@@ -4422,121 +4451,41 @@ static void rotate_state_atom(t_state *state,int a)
     }
 }
 
-static int dd_redistribute_cg(FILE *fplog,gmx_large_int_t step,
-                              gmx_domdec_t *dd,ivec tric_dir,
-                              t_state *state,rvec **f,
-                              t_forcerec *fr,t_mdatoms *md,
-                              gmx_bool bCompact,
-                              t_nrnb *nrnb)
+static int *get_moved(gmx_domdec_comm_t *comm,int natoms)
 {
-    int  *move;
+    if (natoms > comm->moved_nalloc)
+    {
+        /* Contents should be preserved here */
+        comm->moved_nalloc = over_alloc_dd(natoms);
+        srenew(comm->moved,comm->moved_nalloc);
+    }
+
+    return comm->moved;
+}
+
+static void calc_cg_move(FILE *fplog,gmx_large_int_t step,
+                         gmx_domdec_t *dd,
+                         t_state *state,
+                         ivec tric_dir,matrix tcm,
+                         rvec cell_x0,rvec cell_x1,
+                         rvec limitd,rvec limit0,rvec limit1,
+                         const int *cgindex,
+                         int cg_start,int cg_end,
+                         rvec *cg_cm,
+                         int *move)
+{
     int  npbcdim;
-    int  ncg[DIM*2],nat[DIM*2];
     int  c,i,cg,k,k0,k1,d,dim,dim2,dir,d2,d3,d4,cell_d;
     int  mc,cdd,nrcg,ncg_recv,nat_recv,nvs,nvr,nvec,vec;
-    int  sbuf[2],rbuf[2];
-    int  home_pos_cg,home_pos_at,ncg_stay_home,buf_pos;
     int  flag;
-    gmx_bool bV=FALSE,bSDX=FALSE,bCGP=FALSE;
     gmx_bool bScrew;
     ivec dev;
     real inv_ncg,pos_d;
-    matrix tcm;
-    rvec *cg_cm,cell_x0,cell_x1,limitd,limit0,limit1,cm_new;
-    atom_id *cgindex;
-    cginfo_mb_t *cginfo_mb;
-    gmx_domdec_comm_t *comm;
-    
-    if (dd->bScrewPBC)
-    {
-        check_screw_box(state->box);
-    }
-    
-    comm  = dd->comm;
-    cg_cm = fr->cg_cm;
-    
-    for(i=0; i<estNR; i++)
-    {
-        if (EST_DISTR(i))
-        {
-            switch (i)
-            {
-            case estX:   /* Always present */            break;
-            case estV:   bV   = (state->flags & (1<<i)); break;
-            case estSDX: bSDX = (state->flags & (1<<i)); break;
-            case estCGP: bCGP = (state->flags & (1<<i)); break;
-            case estLD_RNG:
-            case estLD_RNGI:
-            case estDISRE_INITF:
-            case estDISRE_RM3TAV:
-            case estORIRE_INITF:
-            case estORIRE_DTAV:
-                /* No processing required */
-                break;
-            default:
-            gmx_incons("Unknown state entry encountered in dd_redistribute_cg");
-            }
-        }
-    }
-    
-    if (dd->ncg_tot > comm->nalloc_int)
-    {
-        comm->nalloc_int = over_alloc_dd(dd->ncg_tot);
-        srenew(comm->buf_int,comm->nalloc_int);
-    }
-    move = comm->buf_int;
-    
-    /* Clear the count */
-    for(c=0; c<dd->ndim*2; c++)
-    {
-        ncg[c] = 0;
-        nat[c] = 0;
-    }
+    rvec cm_new;
 
     npbcdim = dd->npbcdim;
 
-    for(d=0; (d<DIM); d++)
-    {
-        limitd[d] = dd->comm->cellsize_min[d];
-        if (d >= npbcdim && dd->ci[d] == 0)
-        {
-            cell_x0[d] = -GMX_FLOAT_MAX;
-        }
-        else
-        {
-            cell_x0[d] = comm->cell_x0[d];
-        }
-        if (d >= npbcdim && dd->ci[d] == dd->nc[d] - 1)
-        {
-            cell_x1[d] = GMX_FLOAT_MAX;
-        }
-        else
-        {
-            cell_x1[d] = comm->cell_x1[d];
-        }
-        if (d < npbcdim)
-        {
-            limit0[d] = comm->old_cell_x0[d] - limitd[d];
-            limit1[d] = comm->old_cell_x1[d] + limitd[d];
-        }
-        else
-        {
-            /* We check after communication if a charge group moved
-             * more than one cell. Set the pre-comm check limit to float_max.
-             */
-            limit0[d] = -GMX_FLOAT_MAX;
-            limit1[d] =  GMX_FLOAT_MAX;
-        }
-    }
-    
-    make_tric_corr_matrix(npbcdim,state->box,tcm);
-    
-    cgindex = dd->cgindex;
-    
-    /* Compute the center of geometry for all home charge groups
-     * and put them in the box and determine where they should go.
-     */
-    for(cg=0; cg<dd->ncg_home; cg++)
+    for(cg=cg_start; cg<cg_end; cg++)
     {
         k0   = cgindex[cg];
         k1   = cgindex[cg+1];
@@ -4683,9 +4632,156 @@ static int dd_redistribute_cg(FILE *fplog,gmx_large_int_t step,
                 }
             }
         }
-        move[cg] = mc;
-        if (mc >= 0)
+        /* Temporarily store the flag in move */
+        move[cg] = mc + flag;
+    }
+}
+
+static void dd_redistribute_cg(FILE *fplog,gmx_large_int_t step,
+                               gmx_domdec_t *dd,ivec tric_dir,
+                               t_state *state,rvec **f,
+                               t_forcerec *fr,t_mdatoms *md,
+                               gmx_bool bCompact,
+                               t_nrnb *nrnb,
+                               int *ncg_stay_home,
+                               int *ncg_moved)
+{
+    int  *move;
+    int  npbcdim;
+    int  ncg[DIM*2],nat[DIM*2];
+    int  c,i,cg,k,k0,k1,d,dim,dim2,dir,d2,d3,d4,cell_d;
+    int  mc,cdd,nrcg,ncg_recv,nat_recv,nvs,nvr,nvec,vec;
+    int  sbuf[2],rbuf[2];
+    int  home_pos_cg,home_pos_at,buf_pos;
+    int  flag;
+    gmx_bool bV=FALSE,bSDX=FALSE,bCGP=FALSE;
+    gmx_bool bScrew;
+    ivec dev;
+    real inv_ncg,pos_d;
+    matrix tcm;
+    rvec *cg_cm,cell_x0,cell_x1,limitd,limit0,limit1,cm_new;
+    atom_id *cgindex;
+    cginfo_mb_t *cginfo_mb;
+    gmx_domdec_comm_t *comm;
+    int  *moved;
+    int  nthread,thread;
+    
+    if (dd->bScrewPBC)
+    {
+        check_screw_box(state->box);
+    }
+    
+    comm  = dd->comm;
+    cg_cm = fr->cg_cm;
+    
+    for(i=0; i<estNR; i++)
+    {
+        if (EST_DISTR(i))
         {
+            switch (i)
+            {
+            case estX:   /* Always present */            break;
+            case estV:   bV   = (state->flags & (1<<i)); break;
+            case estSDX: bSDX = (state->flags & (1<<i)); break;
+            case estCGP: bCGP = (state->flags & (1<<i)); break;
+            case estLD_RNG:
+            case estLD_RNGI:
+            case estDISRE_INITF:
+            case estDISRE_RM3TAV:
+            case estORIRE_INITF:
+            case estORIRE_DTAV:
+                /* No processing required */
+                break;
+            default:
+            gmx_incons("Unknown state entry encountered in dd_redistribute_cg");
+            }
+        }
+    }
+    
+    if (dd->ncg_tot > comm->nalloc_int)
+    {
+        comm->nalloc_int = over_alloc_dd(dd->ncg_tot);
+        srenew(comm->buf_int,comm->nalloc_int);
+    }
+    move = comm->buf_int;
+    
+    /* Clear the count */
+    for(c=0; c<dd->ndim*2; c++)
+    {
+        ncg[c] = 0;
+        nat[c] = 0;
+    }
+
+    npbcdim = dd->npbcdim;
+
+    for(d=0; (d<DIM); d++)
+    {
+        limitd[d] = dd->comm->cellsize_min[d];
+        if (d >= npbcdim && dd->ci[d] == 0)
+        {
+            cell_x0[d] = -GMX_FLOAT_MAX;
+        }
+        else
+        {
+            cell_x0[d] = comm->cell_x0[d];
+        }
+        if (d >= npbcdim && dd->ci[d] == dd->nc[d] - 1)
+        {
+            cell_x1[d] = GMX_FLOAT_MAX;
+        }
+        else
+        {
+            cell_x1[d] = comm->cell_x1[d];
+        }
+        if (d < npbcdim)
+        {
+            limit0[d] = comm->old_cell_x0[d] - limitd[d];
+            limit1[d] = comm->old_cell_x1[d] + limitd[d];
+        }
+        else
+        {
+            /* We check after communication if a charge group moved
+             * more than one cell. Set the pre-comm check limit to float_max.
+             */
+            limit0[d] = -GMX_FLOAT_MAX;
+            limit1[d] =  GMX_FLOAT_MAX;
+        }
+    }
+    
+    make_tric_corr_matrix(npbcdim,state->box,tcm);
+    
+    cgindex = dd->cgindex;
+
+#ifdef GMX_OPENMP    
+    nthread = omp_get_max_threads();
+#else
+    nthread = 1;
+#endif
+
+    /* Compute the center of geometry for all home charge groups
+     * and put them in the box and determine where they should go.
+     */
+#pragma omp parallel for num_threads(nthread) schedule(static)
+    for(thread=0; thread<nthread; thread++)
+    {
+        calc_cg_move(fplog,step,dd,state,tric_dir,tcm,
+                     cell_x0,cell_x1,limitd,limit0,limit1,
+                     cgindex,
+                     ( thread   *dd->ncg_home)/nthread,
+                     ((thread+1)*dd->ncg_home)/nthread,
+                     cg_cm,
+                     move);
+    }
+
+    for(cg=0; cg<dd->ncg_home; cg++)
+    {
+        if (move[cg] >= 0)
+        {
+            mc = move[cg];
+            flag     = mc & ~DD_FLAG_NRCG;
+            mc       = mc & DD_FLAG_NRCG;
+            move[cg] = mc;
+
             if (ncg[mc]+1 > comm->cggl_flag_nalloc[mc])
             {
                 comm->cggl_flag_nalloc[mc] = over_alloc_dd(ncg[mc]+1);
@@ -4696,6 +4792,7 @@ static int dd_redistribute_cg(FILE *fplog,gmx_large_int_t step,
              * and the place where the charge group should go
              * in the next 6 bits. This saves some communication volume.
              */
+            nrcg = cgindex[cg+1] - cgindex[cg];
             comm->cggl_flag[mc][ncg[mc]*DD_CGIBS+1] = nrcg | flag;
             ncg[mc] += 1;
             nat[mc] += nrcg;
@@ -4704,6 +4801,12 @@ static int dd_redistribute_cg(FILE *fplog,gmx_large_int_t step,
     
     inc_nrnb(nrnb,eNR_CGCM,dd->nat_home);
     inc_nrnb(nrnb,eNR_RESETX,dd->ncg_home);
+
+    *ncg_moved = 0;
+    for(i=0; i<dd->ndim*2; i++)
+    {
+        *ncg_moved += ncg[i];
+    }
     
     nvec = 1;
     if (bV)
@@ -4766,15 +4869,29 @@ static int dd_redistribute_cg(FILE *fplog,gmx_large_int_t step,
     }
     else
     {
+        if (fr->cutoff_scheme == ecutsVERLET)
+        {
+            moved = get_moved(comm,dd->ncg_home);
+
+            for(k=0; k<dd->ncg_home; k++)
+            {
+                moved[k] = 0;
+            }
+        }
+        else
+        {
+            moved = fr->ns.grid->cell_index;
+        }
+
         clear_and_mark_ind(dd->ncg_home,move,
                            dd->index_gl,dd->cgindex,dd->gatindex,
                            dd->ga2la,comm->bLocalCG,
-                           fr->ns.grid->cell_index);
+                           moved);
     }
     
     cginfo_mb = fr->cginfo_mb;
 
-    ncg_stay_home = home_pos_cg;
+    *ncg_stay_home = home_pos_cg;
     for(d=0; d<dd->ndim; d++)
     {
         dim = dd->dim[d];
@@ -5012,15 +5129,25 @@ static int dd_redistribute_cg(FILE *fplog,gmx_large_int_t step,
      * and ncg_home and nat_home are not the real count, since there are
      * "holes" in the arrays for the charge groups that moved to neighbors.
      */
+    if (fr->cutoff_scheme == ecutsVERLET)
+    {
+        moved = get_moved(comm,home_pos_cg);
+
+        for(i=dd->ncg_home; i<home_pos_cg; i++)
+        {
+            moved[i] = 0;
+        }
+    }
     dd->ncg_home = home_pos_cg;
     dd->nat_home = home_pos_at;
 
     if (debug)
     {
-        fprintf(debug,"Finished repartitioning\n");
+        fprintf(debug,
+                "Finished repartitioning: cgs moved out %d, new home %d\n",
+                *ncg_moved,dd->ncg_home-*ncg_moved);
+                
     }
-
-    return ncg_stay_home;
 }
 
 void dd_cycles_add(gmx_domdec_t *dd,float cycles,int ddCycl)
@@ -5459,11 +5586,12 @@ static void dd_print_load_verbose(gmx_domdec_t *dd)
 static void make_load_communicator(gmx_domdec_t *dd,MPI_Group g_all,
                                    int dim_ind,ivec loc)
 {
-    MPI_Group g_row;
+    MPI_Group g_row = MPI_GROUP_EMPTY;
     MPI_Comm  c_row;
     int  dim,i,*rank;
     ivec loc_c;
     gmx_domdec_root_t *root;
+    gmx_bool bPartOfGroup = FALSE;
     
     dim = dd->dim[dim_ind];
     copy_ivec(loc,loc_c);
@@ -5472,18 +5600,19 @@ static void make_load_communicator(gmx_domdec_t *dd,MPI_Group g_all,
     {
         loc_c[dim] = i;
         rank[i] = dd_index(dd->nc,loc_c);
+        if (rank[i] == dd->rank)
+        {
+            /* This process is part of the group */
+            bPartOfGroup = TRUE;
+        }
     }
-    /* Here we create a new group, that does not necessarily
-     * include our process. But MPI_Comm_create needs to be
-     * called by all the processes in the original communicator.
-     * Calling MPI_Group_free afterwards gives errors, so I assume
-     * also the group is needed by all processes. (B. Hess)
-     */
-    MPI_Group_incl(g_all,dd->nc[dim],rank,&g_row);
-    MPI_Comm_create(dd->mpi_comm_all,g_row,&c_row);
-    if (c_row != MPI_COMM_NULL)
+    if (bPartOfGroup)
     {
-        /* This process is part of the group */
+        MPI_Group_incl(g_all,dd->nc[dim],rank,&g_row);
+    }
+    MPI_Comm_create(dd->mpi_comm_all,g_row,&c_row);
+    if (bPartOfGroup)
+    {
         dd->comm->mpi_comm_load[dim_ind] = c_row;
         if (dd->comm->eDLB != edlbNO)
         {
@@ -6585,6 +6714,8 @@ gmx_domdec_t *init_domain_decomposition(FILE *fplog,t_commrec *cr,
             fprintf(fplog,"Will not sort the charge groups\n");
         }
     }
+
+    comm->bCGs = (ncg_mtop(mtop) < mtop->natoms);
     
     comm->bInterCGBondeds = (ncg_mtop(mtop) > mtop->mols.nr);
     if (comm->bInterCGBondeds)
@@ -6596,7 +6727,8 @@ gmx_domdec_t *init_domain_decomposition(FILE *fplog,t_commrec *cr,
         comm->bInterCGMultiBody = FALSE;
     }
     
-    dd->bInterCGcons = inter_charge_group_constraints(mtop);
+    dd->bInterCGcons    = inter_charge_group_constraints(mtop);
+    dd->bInterCGsettles = inter_charge_group_settles(mtop);
 
     if (ir->rlistlong == 0)
     {
@@ -6904,7 +7036,7 @@ gmx_domdec_t *init_domain_decomposition(FILE *fplog,t_commrec *cr,
         check_dd_restrictions(cr,dd,ir,fplog);
     }
 
-    comm->globalcomm_step = INT_MIN;
+    comm->partition_step = INT_MIN;
     dd->ddp_count = 0;
 
     clear_dd_cycle_counts(dd);
@@ -8098,6 +8230,212 @@ static void set_cg_boundaries(gmx_domdec_zones_t *zones)
     }
 }
 
+static void set_zones_size(gmx_domdec_t *dd,
+                           matrix box,const gmx_ddbox_t *ddbox,
+                           int zone_start,int zone_end)
+{
+    gmx_domdec_comm_t *comm;
+    gmx_domdec_zones_t *zones;
+    gmx_bool bDistMB;
+    int  z,zi,zj0,zj1,d,dim;
+    real rcs,rcmbs;
+    int  i,j;
+    real size_j,add_tric;
+    real vol;
+
+    comm = dd->comm;
+
+    zones = &comm->zones;
+
+    /* Do we need to determine extra distances for multi-body bondeds? */
+    bDistMB = (comm->bInterCGMultiBody && dd->bGridJump && dd->ndim > 1);
+
+    for(z=zone_start; z<zone_end; z++)
+    {
+        /* Copy cell limits to zone limits.
+         * Valid for non-DD dims and non-shifted dims.
+         */
+        copy_rvec(comm->cell_x0,zones->size[z].x0);
+        copy_rvec(comm->cell_x1,zones->size[z].x1);
+    }
+
+    for(d=0; d<dd->ndim; d++)
+    {
+        dim = dd->dim[d];
+
+        for(z=0; z<zones->n; z++)
+        {
+            /* With a staggered grid we have different sizes
+             * for non-shifted dimensions.
+             */
+            if (dd->bGridJump && zones->shift[z][dim] == 0)
+            {
+                if (d == 1)
+                {
+                    zones->size[z].x0[dim] = comm->zone_d1[zones->shift[z][dd->dim[d-1]]].min0;
+                    zones->size[z].x1[dim] = comm->zone_d1[zones->shift[z][dd->dim[d-1]]].max1;
+                }
+                else if (d == 2)
+                {
+                    zones->size[z].x0[dim] = comm->zone_d2[zones->shift[z][dd->dim[d-2]]][zones->shift[z][dd->dim[d-1]]].min0;
+                    zones->size[z].x1[dim] = comm->zone_d2[zones->shift[z][dd->dim[d-2]]][zones->shift[z][dd->dim[d-1]]].max1;
+                }
+            }
+        }
+
+        rcs   = comm->cutoff;
+        rcmbs = comm->cutoff_mbody;
+        if (ddbox->tric_dir[dim])
+        {
+            rcs   /= ddbox->skew_fac[dim];
+            rcmbs /= ddbox->skew_fac[dim];
+        }
+
+        /* Set the lower limit for the shifted zone dimensions */
+        for(z=zone_start; z<zone_end; z++)
+        {
+            if (zones->shift[z][dim] > 0)
+            {
+                dim = dd->dim[d];
+                if (!dd->bGridJump || d == 0)
+                {
+                    zones->size[z].x0[dim] = comm->cell_x1[dim];
+                    zones->size[z].x1[dim] = comm->cell_x1[dim] + rcs;
+                }
+                else
+                {
+                    if (comm->cd[d].np > 1)
+                    {
+                        gmx_fatal(FARGS,"Sorry, multiple pulses not supported yet in combination with dynamic load balancing");
+                    }
+                    /* Here we take the lower limit of the zone equal to
+                     * the upper limit of the one below, which is only
+                     * valid with only one domain in the zone.
+                     */
+                    if (z<4)
+                    {
+                        zones->size[z].x0[dim] =
+                            zones->size[zone_perm[1][z-2]].x1[dim];
+                    }
+                    else
+                    {
+                        if (d == 1)
+                        {
+                            zones->size[z].x0[dim] =
+                                zones->size[zone_perm[2][z-4]].x0[dim];
+                        }
+                        else
+                        {
+                            zones->size[z].x0[dim] =
+                                zones->size[zone_perm[2][z-4]].x1[dim];
+                        }
+                    }
+                    /* A temporary limit, is updated below */
+                    zones->size[z].x1[dim] = zones->size[z].x0[dim];
+
+                    if (bDistMB)
+                    {
+                        for(zi=0; zi<zones->nizone; zi++)
+                        {
+                            if (zones->shift[zi][dim] == 0)
+                            {
+                                /* This takes the whole zone into account.
+                                 * With multiple pulses this will lead
+                                 * to a larger zone then strictly necessary.
+                                 */
+                                zones->size[z].x1[dim] = max(zones->size[z].x1[dim],
+                                                             zones->size[zi].x1[dim]+rcmbs);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        /* Loop over the i-zones to set the upper limit of each
+         * j-zone they see.
+         */
+        for(zi=0; zi<zones->nizone; zi++)
+        {
+            if (zones->shift[zi][dim] == 0)
+            {
+                for(z=zones->izone[zi].j0; z<zones->izone[zi].j1; z++)
+                {
+                    if (zones->shift[z][dim] > 0)
+                    {
+                        zones->size[z].x1[dim] = max(zones->size[z].x1[dim],
+                                                     zones->size[zi].x1[dim]+rcs);
+                    }
+                }
+            }
+        }
+    }
+
+    for(z=zone_start; z<zone_end; z++)
+    {
+        for(i=0; i<DIM; i++)
+        {
+            zones->size[z].bb_x0[i] = zones->size[z].x0[i];
+            zones->size[z].bb_x1[i] = zones->size[z].x1[i];
+
+            for(j=i+1; j<ddbox->npbcdim; j++)
+            {
+                /* With 1D domain decomposition the cg's are not in
+                 * the triclinic box, but trilinic x-y and rectangular y-z.
+                 */
+                if (box[j][i] != 0 &&
+                    !(dd->ndim == 1 && i == YY && j == ZZ))
+                {
+                    /* Correct for triclinic offset of the lower corner */
+                    add_tric = zones->size[z].bb_x0[j]*box[j][i]/box[j][j];
+                    zones->size[z].bb_x0[i] += add_tric;
+                    zones->size[z].bb_x1[i] += add_tric;
+
+                    /* Correct for triclinic offset of the upper corner */
+                    size_j = zones->size[z].x1[j] - zones->size[z].x0[j];
+                    add_tric = size_j*box[j][i]/box[j][j];
+
+                    if (box[j][i] < 0)
+                    {
+                        zones->size[z].bb_x0[i] += add_tric;
+                    }
+                    else
+                    {
+                        zones->size[z].bb_x1[i] += add_tric;
+                    }
+                }
+            }
+        }
+    }
+
+    if (zone_start == 0)
+    {
+        vol = 1;
+        for(dim=0; dim<DIM; dim++)
+        {
+            vol *= zones->size[0].x1[dim] - zones->size[0].x0[dim];
+        }
+        zones->dens_zone0 = (zones->cg_range[1] - zones->cg_range[0])/vol;
+    }
+
+    if (debug)
+    {
+        for(z=zone_start; z<zone_end; z++)
+        {
+            fprintf(debug,"zone %d    %6.3f - %6.3f  %6.3f - %6.3f  %6.3f - %6.3f\n",
+                    z,
+                    zones->size[z].x0[XX],zones->size[z].x1[XX],
+                    zones->size[z].x0[YY],zones->size[z].x1[YY],
+                    zones->size[z].x0[ZZ],zones->size[z].x1[ZZ]);
+            fprintf(debug,"zone %d bb %6.3f - %6.3f  %6.3f - %6.3f  %6.3f - %6.3f\n",
+                    z,
+                    zones->size[z].bb_x0[XX],zones->size[z].bb_x1[XX],
+                    zones->size[z].bb_x0[YY],zones->size[z].bb_x1[YY],
+                    zones->size[z].bb_x0[ZZ],zones->size[z].bb_x1[ZZ]);
+        }
+    }
+}
+
 static int comp_cgsort(const void *a,const void *b)
 {
     int comp;
@@ -8115,7 +8453,7 @@ static int comp_cgsort(const void *a,const void *b)
     return comp;
 }
 
-static void order_int_cg(int n,gmx_cgsort_t *sort,
+static void order_int_cg(int n,const gmx_cgsort_t *sort,
                          int *a,int *buf)
 {
     int i;
@@ -8133,7 +8471,7 @@ static void order_int_cg(int n,gmx_cgsort_t *sort,
     }
 }
 
-static void order_vec_cg(int n,gmx_cgsort_t *sort,
+static void order_vec_cg(int n,const gmx_cgsort_t *sort,
                          rvec *v,rvec *buf)
 {
     int i;
@@ -8151,11 +8489,19 @@ static void order_vec_cg(int n,gmx_cgsort_t *sort,
     }
 }
 
-static void order_vec_atom(int ncg,int *cgindex,gmx_cgsort_t *sort,
+static void order_vec_atom(int ncg,const int *cgindex,const gmx_cgsort_t *sort,
                            rvec *v,rvec *buf)
 {
     int a,atot,cg,cg0,cg1,i;
     
+    if (cgindex == NULL)
+    {
+        /* Avoid the useless loop of the atoms within a cg */
+        order_vec_cg(ncg,sort,v,buf);
+
+        return;
+    }
+
     /* Order the data */
     a = 0;
     for(cg=0; cg<ncg; cg++)
@@ -8213,24 +8559,59 @@ static void ordered_sort(int nsort2,gmx_cgsort_t *sort2,
     }
 }
 
-static void dd_sort_state(gmx_domdec_t *dd,int ePBC,
-                          rvec *cgcm,t_forcerec *fr,t_state *state,
-                          int ncg_home_old)
+static void ordered_sort_nsbox(int nsort2,gmx_cgsort_t *sort2,
+                               int nsort_new,gmx_cgsort_t *sort_new,
+                               gmx_cgsort_t *sort1)
+{
+    int i1,i2,i_new;
+    
+    /* The new indices are not very ordered, so we qsort them */
+    qsort_threadsafe(sort_new,nsort_new,sizeof(sort_new[0]),comp_cgsort);
+    
+    /* sort2 is already ordered, so now we can merge the two arrays */
+    i1 = 0;
+    i2 = 0;
+    i_new = 0;
+    while(i2 < nsort2 || i_new < nsort_new)
+    {
+        if (i2 == nsort2)
+        {
+            sort1[i1++] = sort_new[i_new++];
+        }
+        else if (i_new == nsort_new)
+        {
+            sort1[i1++] = sort2[i2++];
+        }
+        else if (sort2[i2].nsc < sort_new[i_new].nsc)
+        {
+            sort1[i1++] = sort2[i2++];
+        }
+        else
+        {
+            sort1[i1++] = sort_new[i_new++];
+        }
+    }
+}
+
+static int dd_sort_order(gmx_domdec_t *dd,t_forcerec *fr,int ncg_home_old)
 {
     gmx_domdec_sort_t *sort;
     gmx_cgsort_t *cgsort,*sort_i;
-    int  ncg_new,nsort2,nsort_new,i,cell_index,*ibuf,cgsize;
-    rvec *vbuf;
-    
+    int  ncg_new,nsort2,nsort_new,i,*a,moved,*ibuf;
+
     sort = dd->comm->sort;
-    
-    if (dd->ncg_home > sort->sort_nalloc)
+
+    if (fr->cutoff_scheme == ecutsOLD)
     {
-        sort->sort_nalloc = over_alloc_dd(dd->ncg_home);
-        srenew(sort->sort1,sort->sort_nalloc);
-        srenew(sort->sort2,sort->sort_nalloc);
+        a = fr->ns.grid->cell_index;
+
+        moved = 4*fr->ns.grid->ncells;
     }
-    
+    else
+    {
+        gmx_nbsearch_get_atomorder(fr->nbv->nbs,&a,&moved);
+    }
+
     if (ncg_home_old >= 0)
     {
         /* The charge groups that remained in the same ns grid cell
@@ -8243,10 +8624,9 @@ static void dd_sort_state(gmx_domdec_t *dd,int ePBC,
         for(i=0; i<dd->ncg_home; i++)
         {
             /* Check if this cg did not move to another node */
-            cell_index = fr->ns.grid->cell_index[i];
-            if (cell_index !=  4*fr->ns.grid->ncells)
+            if (a[i] < moved)
             {
-                if (i >= ncg_home_old || cell_index != sort->sort1[i].nsc)
+                if (i >= ncg_home_old || a[i] != sort->sort[i].nsc)
                 {
                     /* This cg is new on this node or moved ns grid cell */
                     if (nsort_new >= sort->sort_new_nalloc)
@@ -8262,9 +8642,11 @@ static void dd_sort_state(gmx_domdec_t *dd,int ePBC,
                     sort_i = &(sort->sort2[nsort2++]);
                 }
                 /* Sort on the ns grid cell indices
-                 * and the global topology index
+                 * and the global topology index.
+                 * index_gl is irrelevant with cell ns,
+                 * but we set it here anyhow to avoid a conditional.
                  */
-                sort_i->nsc    = cell_index;
+                sort_i->nsc    = a[i];
                 sort_i->ind_gl = dd->index_gl[i];
                 sort_i->ind    = i;
                 ncg_new++;
@@ -8276,21 +8658,30 @@ static void dd_sort_state(gmx_domdec_t *dd,int ePBC,
                     nsort2,nsort_new);
         }
         /* Sort efficiently */
-        ordered_sort(nsort2,sort->sort2,nsort_new,sort->sort_new,sort->sort1);
+        if (fr->cutoff_scheme == ecutsOLD)
+        {
+            ordered_sort(nsort2,sort->sort2,nsort_new,sort->sort_new,
+                         sort->sort);
+        }
+        else
+        {
+            ordered_sort_nsbox(nsort2,sort->sort2,nsort_new,sort->sort_new,
+                               sort->sort);
+        }
     }
     else
     {
-        cgsort = sort->sort1;
+        cgsort = sort->sort;
         ncg_new = 0;
         for(i=0; i<dd->ncg_home; i++)
         {
             /* Sort on the ns grid cell indices
              * and the global topology index
              */
-            cgsort[i].nsc    = fr->ns.grid->cell_index[i];
+            cgsort[i].nsc    = a[i];
             cgsort[i].ind_gl = dd->index_gl[i];
             cgsort[i].ind    = i;
-            if (cgsort[i].nsc != 4*fr->ns.grid->ncells)
+            if (cgsort[i].nsc < moved)
             {
                 ncg_new++;
             }
@@ -8302,33 +8693,71 @@ static void dd_sort_state(gmx_domdec_t *dd,int ePBC,
         /* Determine the order of the charge groups using qsort */
         qsort_threadsafe(cgsort,dd->ncg_home,sizeof(cgsort[0]),comp_cgsort);
     }
-    cgsort = sort->sort1;
+
+    return ncg_new;
+}
+
+static void dd_sort_state(gmx_domdec_t *dd,int ePBC,
+                          rvec *cgcm,t_forcerec *fr,t_state *state,
+                          int ncg_home_old)
+{
+    gmx_domdec_sort_t *sort;
+    gmx_cgsort_t *cgsort,*sort_i;
+    int  *cgindex;
+    int  ncg_new,i,*ibuf,cgsize;
+    rvec *vbuf;
+    
+    sort = dd->comm->sort;
+    
+    if (dd->ncg_home > sort->sort_nalloc)
+    {
+        sort->sort_nalloc = over_alloc_dd(dd->ncg_home);
+        srenew(sort->sort,sort->sort_nalloc);
+        srenew(sort->sort2,sort->sort_nalloc);
+    }
+    cgsort = sort->sort;
+
+    ncg_new = dd_sort_order(dd,fr,ncg_home_old);
     
     /* We alloc with the old size, since cgindex is still old */
     vec_rvec_check_alloc(&dd->comm->vbuf,dd->cgindex[dd->ncg_home]);
     vbuf = dd->comm->vbuf.v;
     
+    if (dd->comm->bCGs)
+    {
+        cgindex = dd->cgindex;
+    }
+    else
+    {
+        cgindex = NULL;
+    }
+
     /* Remove the charge groups which are no longer at home here */
     dd->ncg_home = ncg_new;
+    if (debug)
+    {
+        fprintf(debug,"Set the new home charge group count to %d\n",
+                dd->ncg_home);
+    }
     
     /* Reorder the state */
     for(i=0; i<estNR; i++)
     {
-        if (EST_DISTR(i) && state->flags & (1<<i))
+        if (EST_DISTR(i) && (state->flags & (1<<i)))
         {
             switch (i)
             {
             case estX:
-                order_vec_atom(dd->ncg_home,dd->cgindex,cgsort,state->x,vbuf);
+                order_vec_atom(dd->ncg_home,cgindex,cgsort,state->x,vbuf);
                 break;
             case estV:
-                order_vec_atom(dd->ncg_home,dd->cgindex,cgsort,state->v,vbuf);
+                order_vec_atom(dd->ncg_home,cgindex,cgsort,state->v,vbuf);
                 break;
             case estSDX:
-                order_vec_atom(dd->ncg_home,dd->cgindex,cgsort,state->sd_X,vbuf);
+                order_vec_atom(dd->ncg_home,cgindex,cgsort,state->sd_X,vbuf);
                 break;
             case estCGP:
-                order_vec_atom(dd->ncg_home,dd->cgindex,cgsort,state->cg_p,vbuf);
+                order_vec_atom(dd->ncg_home,cgindex,cgsort,state->cg_p,vbuf);
                 break;
             case estLD_RNG:
             case estLD_RNGI:
@@ -8358,25 +8787,43 @@ static void dd_sort_state(gmx_domdec_t *dd,int ePBC,
     /* Reorder the cginfo */
     order_int_cg(dd->ncg_home,cgsort,fr->cginfo,ibuf);
     /* Rebuild the local cg index */
-    ibuf[0] = 0;
-    for(i=0; i<dd->ncg_home; i++)
+    if (dd->comm->bCGs)
     {
-        cgsize = dd->cgindex[cgsort[i].ind+1] - dd->cgindex[cgsort[i].ind];
-        ibuf[i+1] = ibuf[i] + cgsize;
+        ibuf[0] = 0;
+        for(i=0; i<dd->ncg_home; i++)
+        {
+            cgsize = dd->cgindex[cgsort[i].ind+1] - dd->cgindex[cgsort[i].ind];
+            ibuf[i+1] = ibuf[i] + cgsize;
+        }
+        for(i=0; i<dd->ncg_home+1; i++)
+        {
+            dd->cgindex[i] = ibuf[i];
+        }
     }
-    for(i=0; i<dd->ncg_home+1; i++)
+    else
     {
-        dd->cgindex[i] = ibuf[i];
+        for(i=0; i<dd->ncg_home+1; i++)
+        {
+            dd->cgindex[i] = i;
+        }
     }
     /* Set the home atom number */
     dd->nat_home = dd->cgindex[dd->ncg_home];
-    
-    /* Copy the sorted ns cell indices back to the ns grid struct */
-    for(i=0; i<dd->ncg_home; i++)
+
+    if (fr->cutoff_scheme == ecutsVERLET)
     {
-        fr->ns.grid->cell_index[i] = cgsort[i].nsc;
+        /* The atoms are now exactly in grid order, update the grid order */
+        gmx_nbsearch_set_atomorder(fr->nbv->nbs);
     }
-    fr->ns.grid->nr = dd->ncg_home;
+    else
+    {
+        /* Copy the sorted ns cell indices back to the ns grid struct */
+        for(i=0; i<dd->ncg_home; i++)
+        {
+            fr->ns.grid->cell_index[i] = cgsort[i].nsc;
+        }
+        fr->ns.grid->nr = dd->ncg_home;
+    }
 }
 
 static void add_dd_statistics(gmx_domdec_t *dd)
@@ -8498,10 +8945,10 @@ void dd_partition_system(FILE            *fplog,
     t_block *cgs_gl;
     gmx_large_int_t step_pcoupl;
     rvec cell_ns_x0,cell_ns_x1;
-    int  i,j,n,cg0=0,ncg_home_old=-1,nat_f_novirsum;
+    int  i,j,n,cg0=0,ncg_home_old=-1,ncg_moved,nat_f_novirsum;
     gmx_bool bBoxChanged,bNStGlobalComm,bDoDLB,bCheckDLB,bTurnOnDLB,bLogLoad;
     gmx_bool bRedist,bSortCG,bResortAll;
-    ivec ncells_old,np;
+    ivec ncells_old={0,0,0},ncells_new={0,0,0},np;
     real grid_density;
     char sbuf[22];
 	
@@ -8529,13 +8976,13 @@ void dd_partition_system(FILE            *fplog,
         {
             step_pcoupl = ((step - 1)/n)*n + 1;
         }
-        if (step_pcoupl >= comm->globalcomm_step)
+        if (step_pcoupl >= comm->partition_step)
         {
             bBoxChanged = TRUE;
         }
     }
 
-    bNStGlobalComm = (step >= comm->globalcomm_step + nstglobalcomm);
+    bNStGlobalComm = (step >= comm->partition_step + nstglobalcomm);
 
     if (!comm->bDynLoadBal)
     {
@@ -8732,15 +9179,21 @@ void dd_partition_system(FILE            *fplog,
 
     ncg_home_old = dd->ncg_home;
 
+    ncg_moved = 0;
     if (bRedist)
     {
-        cg0 = dd_redistribute_cg(fplog,step,dd,ddbox.tric_dir,
-                                 state_local,f,fr,mdatoms,
-                                 !bSortCG,nrnb);
+        wallcycle_sub_start(wcycle,ewcsDD_REDIST);
+
+        dd_redistribute_cg(fplog,step,dd,ddbox.tric_dir,
+                           state_local,f,fr,mdatoms,
+                           !bSortCG,nrnb,&cg0,&ncg_moved);
+
+        wallcycle_sub_stop(wcycle,ewcsDD_REDIST);
     }
     
-    get_nsgrid_boundaries(fr->ns.grid,dd,
-                          state_local->box,&ddbox,&comm->cell_x0,&comm->cell_x1,
+    get_nsgrid_boundaries(ddbox.nboundeddim,state_local->box,
+                          dd,&ddbox,
+                          &comm->cell_x0,&comm->cell_x1,
                           dd->ncg_home,fr->cg_cm,
                           cell_ns_x0,cell_ns_x1,&grid_density);
 
@@ -8749,15 +9202,24 @@ void dd_partition_system(FILE            *fplog,
         comm_dd_ns_cell_sizes(dd,&ddbox,cell_ns_x0,cell_ns_x1,step);
     }
 
-    copy_ivec(fr->ns.grid->n,ncells_old);
-    grid_first(fplog,fr->ns.grid,dd,&ddbox,fr->ePBC,
-               state_local->box,cell_ns_x0,cell_ns_x1,
-               fr->rlistlong,grid_density);
+    if (fr->cutoff_scheme == ecutsOLD)
+    {
+        copy_ivec(fr->ns.grid->n,ncells_old);
+        grid_first(fplog,fr->ns.grid,dd,&ddbox,fr->ePBC,
+                   state_local->box,cell_ns_x0,cell_ns_x1,
+                   fr->rlistlong,grid_density);
+    }
+    else
+    {
+        gmx_nbsearch_get_ncells(fr->nbv->nbs,&ncells_old[XX],&ncells_old[YY]);
+    }
     /* We need to store tric_dir for dd_get_ns_ranges called from ns.c */
     copy_ivec(ddbox.tric_dir,comm->tric_dir);
 
     if (bSortCG)
     {
+        wallcycle_sub_start(wcycle,ewcsDD_GRID);
+
         /* Sort the state on charge group position.
          * This enables exact restarts from this step.
          * It also improves performance by about 15% with larger numbers
@@ -8768,16 +9230,43 @@ void dd_partition_system(FILE            *fplog,
          * so we can sort with the indices.
          */
         set_zones_ncg_home(dd);
-        fill_grid(fplog,&comm->zones,fr->ns.grid,dd->ncg_home,
-                  0,dd->ncg_home,fr->cg_cm);
-        
+
+        if (fr->cutoff_scheme == ecutsVERLET)
+        {
+            set_zones_size(dd,state_local->box,&ddbox,0,1);
+
+            gmx_nbsearch_put_on_grid(fr->nbv->nbs,fr->ePBC,state_local->box,
+                                     0,
+                                     comm->zones.size[0].bb_x0,
+                                     comm->zones.size[0].bb_x1,
+                                     0,dd->ncg_home,
+                                     comm->zones.dens_zone0,
+                                     fr->cginfo,
+                                     state_local->x,
+                                     ncg_moved,comm->moved,
+                                     fr->nbv->nbat);
+
+            gmx_nbsearch_get_ncells(fr->nbv->nbs,&ncells_new[XX],&ncells_new[YY]);
+        }
+        else
+        {
+            fill_grid(fplog,&comm->zones,fr->ns.grid,dd->ncg_home,
+                      0,dd->ncg_home,fr->cg_cm);
+            
+            copy_ivec(fr->ns.grid->n,ncells_new);
+        }
+
+        bResortAll = bMasterState;
+   
         /* Check if we can user the old order and ns grid cell indices
          * of the charge groups to sort the charge groups efficiently.
          */
-        bResortAll = (bMasterState ||
-                      fr->ns.grid->n[XX] != ncells_old[XX] ||
-                      fr->ns.grid->n[YY] != ncells_old[YY] ||
-                      fr->ns.grid->n[ZZ] != ncells_old[ZZ]);
+        if (ncells_new[XX] != ncells_old[XX] ||
+            ncells_new[YY] != ncells_old[YY] ||
+            ncells_new[ZZ] != ncells_old[ZZ])
+        {
+            bResortAll = TRUE;
+        }
 
         if (debug)
         {
@@ -8789,7 +9278,11 @@ void dd_partition_system(FILE            *fplog,
         /* Rebuild all the indices */
         cg0 = 0;
         ga2la_clear(dd->ga2la);
+
+        wallcycle_sub_stop(wcycle,ewcsDD_GRID);
     }
+
+    wallcycle_sub_start(wcycle,ewcsDD_SETUPCOMM);
     
     /* Setup up the communication and communicate the coordinates */
     setup_dd_communication(dd,state_local->box,&ddbox,fr);
@@ -8799,11 +9292,21 @@ void dd_partition_system(FILE            *fplog,
 
     /* Set the charge group boundaries for neighbor searching */
     set_cg_boundaries(&comm->zones);
-    
+
+    if (fr->cutoff_scheme == ecutsVERLET)
+    {
+        set_zones_size(dd,state_local->box,&ddbox,
+                       bSortCG ? 1 : 0,comm->zones.n);
+    }
+
+    wallcycle_sub_stop(wcycle,ewcsDD_SETUPCOMM);
+
     /*
     write_dd_pdb("dd_home",step,"dump",top_global,cr,
                  -1,state_local->x,state_local->box);
     */
+
+    wallcycle_sub_start(wcycle,ewcsDD_MAKETOP);
     
     /* Extract a local topology from the global topology */
     for(i=0; i<dd->ndim; i++)
@@ -8827,12 +9330,12 @@ void dd_partition_system(FILE            *fplog,
             }
             break;
         case ddnatCON:
-            if (dd->bInterCGcons)
+            if (dd->bInterCGcons || dd->bInterCGsettles)
             {
                 /* Only for inter-cg constraints we need special code */
-                n = dd_make_local_constraints(dd,n,top_global,
+                n = dd_make_local_constraints(dd,n,top_global,fr->cginfo,
                                               constr,ir->nProjOrder,
-                                              &top_local->idef.il[F_CONSTR]);
+                                              top_local->idef.il);
             }
             break;
         default:
@@ -8840,6 +9343,8 @@ void dd_partition_system(FILE            *fplog,
         }
         comm->nat[i] = n;
     }
+
+    wallcycle_sub_stop(wcycle,ewcsDD_MAKETOP);
     
     /* Make space for the extra coordinates for virtual site
      * or constraint communication.
@@ -8848,6 +9353,17 @@ void dd_partition_system(FILE            *fplog,
     if (state_local->natoms > state_local->nalloc)
     {
         dd_realloc_state(state_local,f,state_local->natoms);
+    }
+
+    if (fr->cutoff_scheme == ecutsVERLET)
+    {
+        /* Since we don`t use charge groups, cg_cm is equal to x.
+         * We copy the non-local cg_cm to x, so we can skip dd_move_x.
+         */
+        for(i=dd->ncg_home; i<dd->ncg_tot; i++)
+        {
+            copy_rvec(fr->cg_cm[i],state_local->x[i]);
+        }
     }
 
     if (fr->bF_NoVirSum)
@@ -8903,7 +9419,7 @@ void dd_partition_system(FILE            *fplog,
     {
         make_local_gb(cr,fr->born,ir->gb_algorithm);
     }
-	
+
     if (!(cr->duty & DUTY_PME))
     {
         /* Send the charges to our PME only node */
@@ -8941,11 +9457,8 @@ void dd_partition_system(FILE            *fplog,
                      -1,state_local->x,state_local->box);
     }
 
-    if (bNStGlobalComm)
-    {
-        /* Store the global communication step */
-        comm->globalcomm_step = step;
-    }
+    /* Store the partitioning step */
+    comm->partition_step = step;
     
     /* Increase the DD partitioning counter */
     dd->ddp_count++;

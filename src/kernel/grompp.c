@@ -80,6 +80,7 @@
 #include "gpp_tomorse.h"
 #include "mtop_util.h"
 #include "genborn.h"
+#include "calc_nsbuf.h"
 
 static int rm_interactions(int ifunc,int nrmols,t_molinfo mols[])
 {
@@ -92,6 +93,27 @@ static int rm_interactions(int ifunc,int nrmols,t_molinfo mols[])
     mols[i].plist[ifunc].nr=0;
   }
   return n;
+}
+
+static void remove_chargegroups(gmx_mtop_t *mtop)
+{
+    int mt;
+    t_block *cgs;
+    int i;
+
+    for(mt=0; mt<mtop->nmoltype; mt++)
+    {
+        cgs = &mtop->moltype[mt].cgs;
+        if (cgs->nr < mtop->moltype[mt].atoms.nr)
+        {
+            cgs->nr = mtop->moltype[mt].atoms.nr;
+            srenew(cgs->index,cgs->nr+1);
+            for(i=0; i<cgs->nr+1; i++)
+            {
+                cgs->index[i] = i;
+            }
+        }
+    }
 }
 
 static int check_atom_names(const char *fn1, const char *fn2, 
@@ -282,10 +304,10 @@ static void check_bonds_timestep(gmx_mtop_t *mtop,double dt,warninp_t wi)
                                 bFound = TRUE;
                             }
                         }
-                    for(j=0; j<ils->nr; j+=2)
+                    for(j=0; j<ils->nr; j+=4)
                     {
-                        if ((a1 >= ils->iatoms[j+1] && a1 < ils->iatoms[j+1]+3) &&
-                            (a2 >= ils->iatoms[j+1] && a2 < ils->iatoms[j+1]+3))
+                        if ((a1 == ils->iatoms[j+1] || a1 == ils->iatoms[j+2] || a1 == ils->iatoms[j+3]) &&
+                            (a2 == ils->iatoms[j+1] || a2 == ils->iatoms[j+2] || a2 == ils->iatoms[j+3]))
                         {
                             bFound = TRUE;
                         }
@@ -1125,6 +1147,62 @@ static void check_gbsa_params(t_inputrec *ir,gpp_atomtype_t atype)
   
 }
 
+static void set_verlet_buffer(const gmx_mtop_t *mtop,
+                              t_inputrec *ir,
+                              matrix box,
+                              real nsbuf_drift,
+                              warninp_t wi)
+{
+    real ref_T;
+    int i;
+    int n_nonlin_vsite;
+    char warn_buf[STRLEN];
+
+    ref_T = 0;
+    for(i=0; i<ir->opts.ngtc; i++)
+    {
+        if (ir->opts.ref_t[i] < 0)
+        {
+            warning(wi,"There are groups which are not temperature coupled, can not take those into account in the energy drift calculation for the ns buffer size");
+        }
+        else
+        {
+            ref_T = max(ref_T,ir->opts.ref_t[i]);
+        }
+    }
+
+    printf("Determining neighborlist buffer for an energy drift of %g kJ/mol/ps at %g K\n",nsbuf_drift,ref_T);
+
+    for(i=0; i<ir->opts.ngtc; i++)
+    {
+        if (ir->opts.ref_t[i] >= 0 && ir->opts.ref_t[i] != ref_T)
+        {
+            sprintf(warn_buf,"ref_T for group of %.1f DOFs is %g K , which is smaller than the maximum of %g K used for the buffer size calculation. The buffer size might be on the conservative (large) side.",
+                    ir->opts.nrdf[i],ir->opts.ref_t[i],ref_T);
+            warning_note(wi,warn_buf);
+        }
+    }
+
+    /* Set the ns buffer size in ir */
+    calc_ns_buffer_size(mtop,det(box),ir,nsbuf_drift,
+                        &n_nonlin_vsite,&ir->rlist);
+
+    if (n_nonlin_vsite > 0)
+    {
+        sprintf(warn_buf,"There are %d non-linear virtual site constructions. Their contribution to the energy drift is approximated. In most cases this does not affect the energy drift significantly.",n_nonlin_vsite);
+        warning_note(wi,warn_buf);
+    }
+
+    ir->rlistlong = ir->rlist;
+    printf("Set rlist to %g nm, buffer size %g nm\n",
+           ir->rlist,ir->rlist-max(ir->rvdw,ir->rcoulomb));
+            
+    if (sqr(ir->rlistlong) >= max_cutoff2(ir->ePBC,box))
+    {
+        gmx_fatal(FARGS,"The neighbor list cut-off (%g nm) is longer than half the shortest box vector or longer than the smallest box diagonal element (%g nm). Increase the box size or decrease nstlist or increase nsbuffer_drift.",ir->rlistlong,sqrt(max_cutoff2(ir->ePBC,box)));
+    }
+}
+
 int main (int argc, char *argv[])
 {
   static const char *desc[] = {
@@ -1335,6 +1413,15 @@ int main (int argc, char *argv[])
   
   if (debug)
     pr_symtab(debug,0,"After new_status",&sys->symtab);
+
+    if (ir->cutoff_scheme == ecutsVERLET)
+    {
+        fprintf(stderr,"Removing all charge groups because cutoff-scheme=%s\n",
+                ecutscheme_names[ir->cutoff_scheme]);
+
+        /* Remove all charge groups */
+        remove_chargegroups(sys);
+    }
   
   if (count_constraints(sys,mi,wi) && (ir->eConstrAlg == econtSHAKE)) {
     if (ir->eI == eiCG || ir->eI == eiLBFGS) {
@@ -1495,6 +1582,16 @@ int main (int argc, char *argv[])
            bGenVel ? state.v : NULL,
            wi);
   
+    if (ir->cutoff_scheme == ecutsVERLET && opts->nsbuf_drift > 0)
+    {
+        if (EI_DYNAMICS(ir->eI) &&
+            !(EI_MD(ir->eI==eiMD) && ir->etc!=etcNO) &&
+            inputrec2nboundeddim(ir) == 3)
+        {
+            set_verlet_buffer(sys,ir,state.box,opts->nsbuf_drift,wi);
+        }
+    }
+
   /* Init the temperature coupling state */
   init_gtc_state(&state,ir->opts.ngtc,0,ir->opts.nhchainlength);
 
@@ -1526,7 +1623,7 @@ int main (int argc, char *argv[])
         clear_rvec(state.box[ZZ]);
     }
   
-    if (ir->rlist > 0)
+    if (ir->cutoff_scheme != ecutsVERLET && ir->rlist > 0)
     {
         set_warning_line(wi,mdparin,-1);
         check_chargegroup_radii(sys,ir,state.x,wi);
@@ -1537,7 +1634,17 @@ int main (int argc, char *argv[])
     copy_mat(state.box,box);
     if (ir->ePBC==epbcXY && ir->nwall==2)
       svmul(ir->wall_ewald_zfac,box[ZZ],box[ZZ]);
-    max_spacing = calc_grid(stdout,box,opts->fourierspacing,
+    if (ir->nkx > 0 && ir->nky > 0 && ir->nkz > 0)
+    {
+        /* Mark fourier_spacing as not used */
+        ir->fourier_spacing = 0;
+    }
+    else if (ir->nkx != 0 && ir->nky != 0 && ir->nkz != 0)
+    {
+        set_warning_line(wi,mdparin,-1);
+        warning_error(wi,"Some but not old fourier grid sizes have been set.");
+    }
+    max_spacing = calc_grid(stdout,box,ir->fourier_spacing,
                             &(ir->nkx),&(ir->nky),&(ir->nkz));
     if ((ir->coulombtype == eelPPPM) && (max_spacing > 0.1)) {
         set_warning_line(wi,mdparin,-1);
