@@ -2370,39 +2370,26 @@ void init_md(FILE *fplog,
 		 * to another, the number of cores is needed for setting up buffers */
         if (cr->nc.bUse)
         {
-            if (cr->nc.comm_intra != MPI_COMM_NULL)
-            {
-                MPI_Comm_size (cr->nc.comm_intra, &intraCommSize);
-            }
-            else
-            {
-                intraCommSize = 1;
-                cr->nc.rank_intra = 0;
-            }
+            MPI_Comm_size (cr->nc.comm_intra, &intraCommSize);
 
             /* Checking to see if the system is heterogeneous. */
-            if (cr->nc.comm_inter != MPI_COMM_NULL)
+            if (cr->nc.rank_intra == 0)
             {
                 MPI_Comm_size (cr->nc.comm_inter, &(write_buf->alltoall_comm_size));
                 snew (coresOnNode, write_buf->alltoall_comm_size);
             
-                if (cr->nc.rank_intra == 0)
+                MPI_Allgather (&intraCommSize, 1, MPI_INT, coresOnNode, 1, MPI_INT, cr->nc.comm_inter);
+                for (i=1; i<write_buf->alltoall_comm_size; i++)
                 {
-                    MPI_Allgather (&intraCommSize, 1, MPI_INT, coresOnNode, 1, MPI_INT, cr->nc.comm_inter);
-                    for (i=0; i<write_buf->alltoall_comm_size; i++)
+                    if (coresOnNode[i-1] != coresOnNode[i])
                     {
-                        if (i != 0 && coresOnNode[i-1] != coresOnNode[i])
-                        {
-                            write_buf->heteroSys = TRUE;
-                        }
+                        write_buf->heteroSys = TRUE;
                     }
                 }
-                MPI_Bcast (&write_buf->heteroSys, 1, MPI_INT, 0, cr->nc.comm_intra);
+                sfree(coresOnNode);
+                
             }
-            else
-            {
-            	write_buf->heteroSys = TRUE;
-            }
+            MPI_Bcast (&write_buf->heteroSys, 1, MPI_INT, 0, cr->nc.comm_intra);
 
             /* RJ: I use my own communicators because of how parallel file writing is handled.
              * The alltoall_comm will be the same group as nc.rank_inter but with reverse ranks */
