@@ -467,42 +467,6 @@ static int gmx_fio_write_to_membuf(char *handle, char *buf, int size) // writes 
     return size;
 }
 
-static int gmx_fio_close_locked(t_fileio *fio)
-{
-    int rc = 0;
-
-    if (!fio->bOpen)
-    {
-        gmx_fatal(FARGS,"File %s closed twice!\n", fio->fn);
-    }
-
-    if (in_ftpset(fio->iFTP, asize(ftpXDR), ftpXDR) && fio->xdr!=NULL)
-    {
-        xdr_destroy(fio->xdr);
-        sfree(fio->xdr);
-    }
-
-#ifdef GMX_LIB_MPI
-    if (fio->mpi_fh != NULL)
-    {
-        rc = MPI_File_close(&(fio->mpi_fh)) != MPI_SUCCESS;
-    }
-    else
-#endif
-    {
-        /* Don't close stdin and stdout! */
-        if (!fio->bStdio && fio->fp!=NULL)
-        {
-            rc = ffclose(fio->fp); /* fclose returns 0 if happy */
-        }
-    }
-
-    fio->bOpen = FALSE;
-
-    return rc;
-}
-
-
 /* Assumes fio is locked, and reads the file and supports use of MPI */
 static gmx_off_t gmx_fio_int_read(void *buf, size_t size, t_fileio* fio)
 {
@@ -568,96 +532,6 @@ static int gmx_fio_int_seek(t_fileio* fio, gmx_off_t fpos, int whence, gmx_bool 
     return rc;
 }
 
-
-/* internal variant of get_file_md5 that operates on a locked file */
-static int gmx_fio_int_get_file_md5(t_fileio *fio, gmx_off_t offset,
-                                    unsigned char digest[])
-{
-    /*1MB: large size important to catch almost identical files */
-#define CPT_CHK_LEN  1048576
-    md5_state_t state;
-    unsigned char buf[CPT_CHK_LEN];
-    gmx_off_t read_len;
-    gmx_off_t seek_offset;
-    int ret = -1;
-
-    seek_offset = offset - CPT_CHK_LEN;
-    if (seek_offset < 0)
-    {
-        seek_offset = 0;
-    }
-    read_len = offset - seek_offset;
-
-
-    if (fio->fp && fio->bReadWrite)
-    {
-        ret=gmx_fio_int_seek(fio, seek_offset, SEEK_SET, FALSE);
-        if (ret)
-        {
-            gmx_fio_int_seek(fio, 0, SEEK_END, FALSE);
-        }
-    }
-    if (ret) /*either no fp, not readwrite, or fseek not successful */
-    {
-        return -1;
-    }
-
-    /* the read puts the file position back to offset */
-    if (gmx_fio_int_read(buf, read_len, fio) != read_len)
-    {
-        /* not fatal: md5sum check to prevent overwriting files
-         * works (less safe) without
-         * */
-        if (ferror(fio->fp))
-        {
-            fprintf(stderr, "\nTrying to get md5sum: %s: %s\n", fio->fn,
-                    strerror(errno));
-        }
-        else if (feof(fio->fp))
-        {
-            /*
-             * For long runs that checkpoint frequently but write e.g. logs
-             * infrequently we don't want to issue lots of warnings before we
-             * have written anything to the log.
-             */
-            if(0)
-            {
-                fprintf(stderr, "\nTrying to get md5sum: EOF: %s\n", fio->fn);
-            }
-        }
-        else
-        {
-            fprintf(
-                stderr,
-                "\nTrying to get md5sum: Unknown reason for short read: %s\n",
-                fio->fn);
-        }
-
-        gmx_fio_int_seek(fio, 0, SEEK_END, FALSE);
-
-        ret = -1;
-    }
-    gmx_fio_int_seek(fio, 0, SEEK_END, FALSE); /*is already at end, but under windows
-                                       it gives problems otherwise*/
-
-    if (debug)
-    {
-        fprintf(debug, "chksum %s readlen %ld\n", fio->fn, (long int)read_len);
-    }
-
-    if (!ret)
-    {
-        md5_init(&state);
-        md5_append(&state, buf, read_len);
-        md5_finish(&state, digest);
-        return read_len;
-    }
-    else
-    {
-        return ret;
-    }
-}
-
 static gmx_off_t gmx_fio_int_ftell(t_fileio* fio, gmx_bool bShared)
 {
     gmx_off_t ret = 0;
@@ -669,7 +543,7 @@ static gmx_off_t gmx_fio_int_ftell(t_fileio* fio, gmx_bool bShared)
         if (bShared)
         {
             /* takes the file handle and puts an int into cur_offset */
-            if (MPI_File_get_position_shared(fio->mpi_fh, &cur_offset) != MPI_SUCCESS) 
+            if (MPI_File_get_position_shared(fio->mpi_fh, &cur_offset) != MPI_SUCCESS)
             {
                 ret = -1;
             }
@@ -677,7 +551,7 @@ static gmx_off_t gmx_fio_int_ftell(t_fileio* fio, gmx_bool bShared)
         else
         {
             /* takes the file handle and puts an int into cur_offset */
-            if (MPI_File_get_position(fio->mpi_fh, &cur_offset) != MPI_SUCCESS) 
+            if (MPI_File_get_position(fio->mpi_fh, &cur_offset) != MPI_SUCCESS)
             {
                 ret = -1;
             }
@@ -686,7 +560,7 @@ static gmx_off_t gmx_fio_int_ftell(t_fileio* fio, gmx_bool bShared)
         {
             /*gmx_off_t is a gmx_large_int_t and cur_offset is an int of type MPI_Offset */
             /* NOTE: This will break exactly how it does below for 128 bit! */
-            ret = (gmx_off_t) cur_offset; 
+            ret = (gmx_off_t) cur_offset;
         }
     }
     else
@@ -696,88 +570,6 @@ static gmx_off_t gmx_fio_int_ftell(t_fileio* fio, gmx_bool bShared)
             ret = gmx_ftell(fio->fp);
     }
     return ret;
-}
-
-static int gmx_fio_int_fsync(t_fileio *fio)
-{
-    int rc = 0;
-    int filen=-1;
-
-
-    if (fio->fp)
-    {
-        rc=gmx_fsync(fio->fp);
-    }
-    else if (fio->xdr) /* this should normally not happen */
-    {
-        /*don't sync for mpi files. the flush makes sure that it is written. No extra sync available*/
-#ifdef GMX_LIB_MPI
-        if (fio->mpi_fh != NULL)
-        {
-            if (rc==0)
-            {
-                rc = MPI_File_sync(fio->mpi_fh) != MPI_SUCCESS;/* <<< Time consuming */
-            }
-        }
-        else
-#endif
-        {
-            rc=gmx_fsync((FILE*) fio->xdr->x_private);
-                                   /* ^ is this actually OK? */
-        }
-    }
-
-    return rc;
-}
-
-/* The fio_mutex should ALWAYS be locked when this function is called
- * Makes only for non-trajectory formats sure that the file has been written (flushes it)
- * Returns the position before the last frame for buffered writing */
-static int gmx_fio_int_get_file_position(t_fileio *fio, gmx_off_t *offset)
-{
-    char buf[STRLEN];
-
-    /* Flush the file, so we are sure it is written */
-    /* write_xtc and fwrite_trn flush their file - thus it is already guaranteed to be flushed and not strictly necessarily
-     * with MPI-IO we can't flush here because this method is not called by all (and also an additional flush would be slow for MPI)*/
-
-    if (fio->iFTP != efCPT
-#ifdef GMX_LIB_MPI
-                           && fio->mpi_fh == NULL
-#endif
-        )
-    {
-        if (gmx_fio_int_flush(fio))
-        {
-            char buf[STRLEN];
-            sprintf(
-                buf,
-                "Cannot write file '%s'; maybe you are out of disk space or quota?",
-                fio->fn);
-            gmx_file(buf);
-        }
-    }
-    /* We cannot count on XDR being able to write 64-bit integers,
-     so separate into high/low 32-bit values.
-     In case the filesystem has 128-bit offsets we only care
-     about the first 64 bits - we'll have to fix
-     this when exabyte-size output files are common...
-    */
-    *offset=gmx_fio_int_ftell(fio, TRUE);
-
-    if (*offset != -1)
-    {
-        /* for buffered writing we need to subtract the last written frame. Because we call write_checkpoint after we write all buffered frames.
-         * See write_traj for detailed comments. If buffered writing is not used last_frame_size is zero and this has no affect.
-         */
-        *offset-=fio->last_frame_size;
-
-        return 0;
-    }
-    else
-    {
-        return 1;
-    }
 }
 
 /*****************************************************************
@@ -985,6 +777,40 @@ t_fileio *mpi_fio_open(const char *fn, const char *mode, const t_commrec *cr)
     return fio;
 }
 
+static int gmx_fio_close_locked(t_fileio *fio)
+{
+    int rc = 0;
+
+    if (!fio->bOpen)
+    {
+        gmx_fatal(FARGS,"File %s closed twice!\n", fio->fn);
+    }
+
+    if (in_ftpset(fio->iFTP, asize(ftpXDR), ftpXDR) && fio->xdr!=NULL)
+    {
+        xdr_destroy(fio->xdr);
+        sfree(fio->xdr);
+    }
+
+#ifdef GMX_LIB_MPI
+    if (fio->mpi_fh != NULL)
+    {
+        rc = MPI_File_close(&(fio->mpi_fh)) != MPI_SUCCESS;
+    }
+    else
+#endif
+    {
+        /* Don't close stdin and stdout! */
+        if (!fio->bStdio && fio->fp!=NULL)
+        {
+            rc = ffclose(fio->fp); /* fclose returns 0 if happy */
+        }
+    }
+
+    fio->bOpen = FALSE;
+
+    return rc;
+}
 
 int gmx_fio_close(t_fileio *fio)
 {
@@ -1061,14 +887,101 @@ int gmx_fio_fclose(FILE *fp)
     return rc;
 }
 
+/* internal variant of get_file_md5 that operates on a locked file */
+static int gmx_fio_int_get_file_md5(t_fileio *fio, gmx_off_t offset,
+                                    unsigned char digest[])
+{
+    /*1MB: large size important to catch almost identical files */
+#define CPT_CHK_LEN  1048576
+    md5_state_t state;
+    unsigned char buf[CPT_CHK_LEN];
+    gmx_off_t read_len;
+    gmx_off_t seek_offset;
+    int ret = -1;
 
+    seek_offset = offset - CPT_CHK_LEN;
+    if (seek_offset < 0)
+    {
+        seek_offset = 0;
+    }
+    read_len = offset - seek_offset;
+
+
+    if (fio->fp && fio->bReadWrite)
+    {
+        ret=gmx_fio_int_seek(fio, seek_offset, SEEK_SET, FALSE);
+        if (ret)
+        {
+            gmx_fio_int_seek(fio, 0, SEEK_END, FALSE);
+        }
+    }
+    if (ret) /*either no fp, not readwrite, or fseek not successful */
+    {
+        return -1;
+    }
+
+    /* the read puts the file position back to offset */
+    if (gmx_fio_int_read(buf, read_len, fio) != read_len)
+    {
+        /* not fatal: md5sum check to prevent overwriting files
+         * works (less safe) without
+         * */
+        if (ferror(fio->fp))
+        {
+            fprintf(stderr, "\nTrying to get md5sum: %s: %s\n", fio->fn,
+                    strerror(errno));
+        }
+        else if (feof(fio->fp))
+        {
+            /*
+             * For long runs that checkpoint frequently but write e.g. logs
+             * infrequently we don't want to issue lots of warnings before we
+             * have written anything to the log.
+             */
+            if(0)
+            {
+                fprintf(stderr, "\nTrying to get md5sum: EOF: %s\n", fio->fn);
+            }
+        }
+        else
+        {
+            fprintf(
+                stderr,
+                "\nTrying to get md5sum: Unknown reason for short read: %s\n",
+                fio->fn);
+        }
+
+        gmx_fio_int_seek(fio, 0, SEEK_END, FALSE);
+
+        ret = -1;
+    }
+    gmx_fio_int_seek(fio, 0, SEEK_END, FALSE); /*is already at end, but under windows
+                                       it gives problems otherwise*/
+
+    if (debug)
+    {
+        fprintf(debug, "chksum %s readlen %ld\n", fio->fn, (long int)read_len);
+    }
+
+    if (!ret)
+    {
+        md5_init(&state);
+        md5_append(&state, buf, read_len);
+        md5_finish(&state, digest);
+        return read_len;
+    }
+    else
+    {
+        return ret;
+    }
+}
 
 /*
  * fio: file to compute md5 for
  * offset: starting pointer of region to use for md5
- * digest: return array of md5 sum 
+ * digest: return array of md5 sum
  */
-int gmx_fio_get_file_md5(t_fileio *fio, gmx_off_t offset, 
+int gmx_fio_get_file_md5(t_fileio *fio, gmx_off_t offset,
                          unsigned char digest[])
 {
     int ret;
@@ -1080,8 +993,55 @@ int gmx_fio_get_file_md5(t_fileio *fio, gmx_off_t offset,
     return ret;
 }
 
+/* The fio_mutex should ALWAYS be locked when this function is called
+ * Makes only for non-trajectory formats sure that the file has been written (flushes it)
+ * Returns the position before the last frame for buffered writing */
+static int gmx_fio_int_get_file_position(t_fileio *fio, gmx_off_t *offset)
+{
+    char buf[STRLEN];
 
+    /* Flush the file, so we are sure it is written */
+    /* write_xtc and fwrite_trn flush their file - thus it is already guaranteed to be flushed and not strictly necessarily
+     * with MPI-IO we can't flush here because this method is not called by all (and also an additional flush would be slow for MPI)*/
 
+    if (fio->iFTP != efCPT
+#ifdef GMX_LIB_MPI
+                           && fio->mpi_fh == NULL
+#endif
+        )
+    {
+        if (gmx_fio_int_flush(fio))
+        {
+            char buf[STRLEN];
+            sprintf(
+                buf,
+                "Cannot write file '%s'; maybe you are out of disk space or quota?",
+                fio->fn);
+            gmx_file(buf);
+        }
+    }
+    /* We cannot count on XDR being able to write 64-bit integers,
+     so separate into high/low 32-bit values.
+     In case the filesystem has 128-bit offsets we only care
+     about the first 64 bits - we'll have to fix
+     this when exabyte-size output files are common...
+    */
+    *offset=gmx_fio_int_ftell(fio, TRUE);
+
+    if (*offset != -1)
+    {
+        /* for buffered writing we need to subtract the last written frame. Because we call write_checkpoint after we write all buffered frames.
+         * See write_traj for detailed comments. If buffered writing is not used last_frame_size is zero and this has no affect.
+         */
+        *offset-=fio->last_frame_size;
+
+        return 0;
+    }
+    else
+    {
+        return 1;
+    }
+}
 
 int gmx_fio_check_file_position(t_fileio *fio)
 {
@@ -1274,8 +1234,37 @@ int gmx_fio_flush(t_fileio* fio)
     return ret;
 }
 
+static int gmx_fio_int_fsync(t_fileio *fio)
+{
+    int rc = 0;
+    int filen=-1;
 
 
+    if (fio->fp)
+    {
+        rc=gmx_fsync(fio->fp);
+    }
+    else if (fio->xdr) /* this should normally not happen */
+    {
+        /*don't sync for mpi files. the flush makes sure that it is written. No extra sync available*/
+#ifdef GMX_LIB_MPI
+        if (fio->mpi_fh != NULL)
+        {
+            if (rc==0)
+            {
+                rc = MPI_File_sync(fio->mpi_fh) != MPI_SUCCESS;/* <<< Time consuming */
+            }
+        }
+        else
+#endif
+        {
+            rc=gmx_fsync((FILE*) fio->xdr->x_private);
+                                   /* ^ is this actually OK? */
+        }
+    }
+
+    return rc;
+}
 
 int gmx_fio_fsync(t_fileio *fio)
 {
