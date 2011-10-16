@@ -49,7 +49,7 @@ extern "C" {
  */  
 
 t_fileio *open_xtc(const char *filename,const char *mode, const t_commrec *cr);
-// Open a file for xdr I/O or MPI
+/* Open a file for xdr I/O - has to be called by all IO nodes (if parallel writing is used) */
   
 void close_xtc(t_fileio *fio);
 /* Close the file for xdr I/O */

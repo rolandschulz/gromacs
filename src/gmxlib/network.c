@@ -373,7 +373,7 @@ void gmx_setup_nodecomm(FILE *fplog,t_commrec *cr)
         MPI_Comm_free(&nc->comm_intra);
         if (debug)
         {
-            fprintf(debug,"In gmx_setup_nodecomm: not unsing separate inter- and intra-node communicators.\n",n);
+            fprintf(debug,"In gmx_setup_nodecomm: not unsing separate inter- and intra-node communicators.\n");
         }
     }
 #endif

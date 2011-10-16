@@ -1298,7 +1298,7 @@ t_fileio *gmx_fio_all_output_fsync(void)
     cur=gmx_fio_get_first();
     while(cur)
     {
-        /* skip debug files (shoud be the only iFTP==efNR) */
+        /* skip debug files (those with iFTP==efNR) */
         if (cur->bOpen && 
             !cur->bRead && 
             !cur->bStdio && 

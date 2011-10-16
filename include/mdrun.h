@@ -137,7 +137,7 @@ typedef struct {
 /* Used to store data required for buffered writing in write_traj  
 */
 typedef struct {
-        /* For both dd and state_local a copy of each buffered step is stored */
+    /* For both dd and state_local a copy of each buffered step is stored */
 	gmx_domdec_t **dd;
 	t_state **state_local; 
 	/* Step number and time of the buffered frame */

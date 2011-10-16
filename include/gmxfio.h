@@ -71,9 +71,6 @@ extern const char *comment_str[eitemNR];
  ********************************************************/
 
 t_fileio *gmx_fio_open(const char *fn,const char *mode);
-// The same as mpi_fio_open but always opens the file in serial
-
-t_fileio *mpi_fio_open(const char *fn, const char *mode, const t_commrec *cr);
 /* Open a new file for reading or writing.
  * The file type will be deduced from the file name.
  * If fn is NULL, stdin / stdout will be used for Ascii I/O (TPA type)
@@ -82,6 +79,11 @@ t_fileio *mpi_fio_open(const char *fn, const char *mode, const t_commrec *cr);
  * doublecheck it and try to do it if you forgot. This has no effect on
  * unix, but is important on windows.
  * If cr is not null opens the file in parallel.
+ */
+
+t_fileio *mpi_fio_open(const char *fn, const char *mode, const t_commrec *cr);
+/* The same as gmx_fio_open but opens the file in parallel on all IO nodes (IONODE(cr))
+ * Has to be called by at least all IO nodes (can be called by all nodes). 
  */
 
 int gmx_fio_close(t_fileio *fp);
@@ -146,9 +148,6 @@ void gmx_fio_checktype(t_fileio *fio);
 void gmx_fio_rewind(t_fileio *fio);
 /* Rewind the tpa file in fio */
 
-int gmx_fio_end_record(t_fileio *fio);
-/* Flushes the fio, but doesn't guarantee that the file has written*/
-
 int gmx_fio_flush(t_fileio *fio);
 /* Flush the fio, returns 0 on success.
  * Has to be called collectively by all IO-nodes if this fio is using MPI.*/
@@ -162,7 +161,6 @@ int gmx_fio_fsync(t_fileio *fio);
 
 gmx_off_t gmx_fio_ftell(t_fileio *fio);
 /* Return file position if possible */
-
 
 int gmx_fio_seek(t_fileio *fio,gmx_off_t fpos, int whence);
 /* Set file position if possible, quit otherwise */

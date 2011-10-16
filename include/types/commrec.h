@@ -151,9 +151,11 @@ typedef struct {
   int  rank;
   ivec master_ci;
   int  masterrank;
-  /* rank for IO nodes */
-  int iorank;  /*the number of IO nodes is cr->nionodes (equivalent for PME)*/
+  
+  /* IO nodes */
+  int iorank;  /* the rank, the number of IO nodes is cr->nionodes (equivalent for PME)*/
   int *iorank2ddrank;
+  
   /* Communication with the PME only nodes */
   int  pme_nodeid;
   gmx_bool pme_receive_vir_ener;
@@ -232,8 +234,6 @@ typedef struct {
   int pme_recv_f_alloc;
   rvec *pme_recv_f_buf;
 
-
-
 } gmx_domdec_t;
 
 typedef struct gmx_partdec *gmx_partdec_p_t;
@@ -250,7 +250,7 @@ typedef struct {
 
 #define DUTY_PP  (1<<0)
 #define DUTY_PME (1<<1)
-#define DUTY_IO  (1<<2) // is set for each node writing. Currently on XTC output is parallel.
+#define DUTY_IO  (1<<2) /* Node participates in parallel writing. Currently only XTC output is parallel. */
 
 typedef struct {
   int      bUse;
@@ -319,7 +319,7 @@ typedef struct {
 
 #define DDMASTER(dd)       ((dd)->rank == (dd)->masterrank)
 
-#define IONODE(cr)	   ((cr)->duty & DUTY_IO )// True if this node is participating in writing output files
+#define IONODE(cr)         ((cr)->duty & DUTY_IO )/* True if this node is participating in writing output files */
 
 #define PARTDECOMP(cr)     ((cr)->pd != NULL)
 
