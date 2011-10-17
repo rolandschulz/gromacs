@@ -741,13 +741,20 @@ void write_traj(FILE *fplog,t_commrec *cr,
         }
     }
 
-    /* The order of write_checkpoint and write_xtc/fwrite_trn is crucial, because the position of the trajectories is stored in the checkpoint.
-     * The checkpoint is written before the current step because the current step is written to the trajectory when appending from the checkpoint
-     * This is because write_traj is not called at the end of the step but in the middle of the step. It is called before the (coordinate) update and before the step number is increased.
-     * Mainly the forces have been computed (to allow to write both coordinates and forces).
+    /* The order of write_checkpoint and write_xtc/fwrite_trn is crucial,
+     * because the position of the trajectories is stored in the checkpoint.
+     * The checkpoint is written before the current step because the current
+     * step is written to the trajectory when appending from the checkpoint
+     * This is because write_traj is not called at the end of the step but
+     * in the middle of the step. It is called before the (coordinate) update
+     * and before the step number is increased. Mainly the forces have been
+     * computed (to allow to write both coordinates and forces).
      *
-     * If we buffer we need to call write_traj after write_xtc. Otherwise the xtc position stored in the checkpoint would point to the position before any of the buffered steps.
-     * In that case the position is calculated to be correct (not including the current frame) even though we have already written all frames.
+     * If we buffer we need to call write_checkpoint after write_xtc. Otherwise the
+     * xtc position stored in the checkpoint would point to the position before
+     * any of the buffered steps. In that case the position is calculated to be
+     * correct (not including the current frame) even though we have already
+     * written all frames.
      */
      if (!bBuffer)
 	 {

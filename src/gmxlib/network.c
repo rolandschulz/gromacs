@@ -331,7 +331,6 @@ void gmx_setup_nodecomm(FILE *fplog,t_commrec *cr)
         fprintf(debug,"In gmx_setup_nodecomm: node rank %d rank_intra %d\n",
                 rank,nc->rank_intra);
     }
-
     /* The inter-node communicator, split on rank_intra.
      * We actually only need the one for rank=0,
      * but it is easier to create them all.

@@ -55,6 +55,8 @@
  */
 #define USE_XDR
 
+
+
 /* the reader/writer functions  for t_iotype */
 typedef gmx_bool read_func(t_fileio *fio, void *item, int nitem, int eio,
                        const char *desc,const char *srcfile,int line);
@@ -81,7 +83,7 @@ struct t_fileio
     char *mem_buf; // Used for MPI writing. Date writen to xdr is written (by gmx_fio_write_to_membuf) to here
     int mem_buf_cur_pos, /*current writing position in mem_buf. Equal to the amount written so far for current frame*/
          mem_buf_nalloc, /*allocation size of mem_buf. Is being over-allocated to reduce number of required srenew*/
-         last_frame_size; /*size of the last written frame. Currently only set when using buffered writing*/
+         last_frame_size; /*Size of the last written frame on the master. Only used with buffered writing*/
     const t_iotype *iotp;  /* file type */
     gmx_bool bOpen,  /* the file is open */
          bRead,  /* the file is open for reading */
