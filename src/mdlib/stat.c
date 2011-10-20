@@ -619,6 +619,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
         if ((mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X))
         {
             write_buf->step_after_checkpoint = step + 1;
+            write_buf->bufferStep = -1;
         }
     }
 
@@ -787,7 +788,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
 
         gmx_bool bWrite =  cr->dd->iorank<=write_buf->bufferStep /* write if this IO node has received data to write */
                         || (MASTER(cr) && bMasterWritesXTC);     /* The master only writes if bMasterWritesXTC is true */
-
+        write_buf->bufferStep = -1;
 /*
 		gmx_bool bWrite = cr->dd->iorank<=bufferStep ||     /* write if this IO node has received data to write
                          (MASTER(cr) && bMasterWritesXTC);  /* The master only writes if bMasterWritesXTC is true
@@ -848,8 +849,6 @@ void write_traj(FILE *fplog,t_commrec *cr,
             gmx_fatal(FARGS,"XTC error - maybe you are out of quota?");
         }
         gmx_fio_check_file_position(of->fp_xtc);
-
-        write_buf->bufferStep = -1;
     }
     if (bBuffer)
     {
