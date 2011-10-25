@@ -2353,7 +2353,7 @@ void init_md(FILE *fplog,
     /* allocating buffers for buffered MPI-IO writing */
     if (write_buf != NULL && DOMAINDECOMP(cr))
     {
-    	write_buf->bufferStep = 0;
+    	write_buf->bufferStep = -1;
     	write_buf->heteroSys = FALSE;
         write_buf->step_after_checkpoint = ir->init_step;
 		allocate_dd_buf(&(write_buf->dd), cr);
