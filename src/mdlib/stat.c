@@ -619,7 +619,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
         if ((mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X))
         {
             write_buf->step_after_checkpoint = step + 1;
-            write_buf->bufferStep = -1;
+//            write_buf->bufferStep = -1;
         }
     }
 
