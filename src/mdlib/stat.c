@@ -578,7 +578,6 @@ void write_traj(FILE *fplog,t_commrec *cr,
     rvec *local_v;
     rvec *global_v;
     
-//    int bufferStep = 0;
     gmx_bool bBuffer = cr->nionodes > 1  && ir->nstxtcout>0; /* Used to determine if buffers will be used. */
     gmx_bool writeXTCNow = (mdof_flags & MDOF_XTC);/* writeXTCNow means that some writing (NOT buffering) is going to happen, either from this frame, buffers, or both */
 
@@ -633,7 +632,8 @@ void write_traj(FILE *fplog,t_commrec *cr,
             dd_collect_vec(cr->dd,state_local,f_local,f_global);
         }
         /* Could be optimized by not collecting all coordinates but only those in the xtc selection. */
-        if (bBuffer) {
+        if (bBuffer && write_buf->bufferStep >= 0)
+        {
             if (mdof_flags & MDOF_XTC)
             {
                 /* This block of code copies the current dd and state_local to buffers to prepare for writing later. */
@@ -642,14 +642,14 @@ void write_traj(FILE *fplog,t_commrec *cr,
                     write_buf->step=step;
                     write_buf->t=t;
                 }
-                if (!writeXTCNow && write_buf->bufferStep >= 0)
+                if (!writeXTCNow)
                 {
                     copy_dd(write_buf->dd[write_buf->bufferStep],cr->dd);
                     copy_state_local(write_buf->state_local[write_buf->bufferStep],state_local);
                 }
             }
 
-            if (writeXTCNow && write_buf->bufferStep >= 0)
+            if (writeXTCNow)
             {
                 /* If the computer running the system is non-homogeneous,
                  * then it will revert back to this collection method thats unoptimized
@@ -756,14 +756,11 @@ void write_traj(FILE *fplog,t_commrec *cr,
     if (writeXTCNow && IONODE(cr)) {
 
         gmx_bool bWrite = cr->dd->iorank<=write_buf->bufferStep;
-/*
-		gmx_bool bWrite = cr->dd->iorank<=bufferStep ||     /* write if this IO node has received data to write
-                         (MASTER(cr) && bMasterWritesXTC);  /* The master only writes if bMasterWritesXTC is true
-*/
+
         int write_step;
         real write_t;
 
-                /* If this node is one of the writing nodes */
+        /* If this node is one of the writing nodes */
         if (bWrite) {
             groups = &top_global->groups;
             if (*n_xtc == -1)
@@ -819,17 +816,22 @@ void write_traj(FILE *fplog,t_commrec *cr,
     }
     if (bBuffer)
     {
+        if (writeXTCNow)
+        {
+            write_buf->bufferStep = -1;
+        }
         if (mdof_flags & MDOF_CPT)
         {
             write_checkpoint(of->fn_cpt,of->bKeepAndNumCPT,
                              fplog,cr,of->eIntegrator,
                              of->simulation_part,step,t,state_global);
-        }
-        if (writeXTCNow)
-        {
-            write_buf->bufferStep = 0;
-            copy_dd (write_buf->dd[write_buf->bufferStep] , cr->dd);
-            copy_state_local (write_buf->state_local[write_buf->bufferStep] , state_local);
+
+            if (mdof_flags & MDOF_XTC)
+            {
+                write_buf->bufferStep = 0;
+                copy_dd (write_buf->dd[write_buf->bufferStep] , cr->dd);
+                copy_state_local (write_buf->state_local[write_buf->bufferStep] , state_local);
+            }
         }
     }
 
