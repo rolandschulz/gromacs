@@ -595,7 +595,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
          * OR XTC is written AND we haven't just written because buffer was full
          * AND its the last step OR its a checkpoint OR write uncompressed X */
         writeXTCNow  = ((mdof_flags & MDOF_XTC) && write_buf->bufferStep == cr->nionodes-1)
-                    || (ir->nstxtcout>0 && write_buf->bufferStep < cr->nionodes-1
+                    || (ir->nstxtcout>0 && write_buf->bufferStep>=0 && write_buf->bufferStep < cr->nionodes-1
                     && (bLastStep || (mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X)));
     }
 
@@ -642,7 +642,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
                     write_buf->step=step;
                     write_buf->t=t;
                 }
-                if (!writeXTCNow)
+                if (!writeXTCNow && write_buf->bufferStep >= 0)
                 {
                     copy_dd(write_buf->dd[write_buf->bufferStep],cr->dd);
                     copy_state_local(write_buf->state_local[write_buf->bufferStep],state_local);
