@@ -586,8 +586,6 @@ void write_traj(FILE *fplog,t_commrec *cr,
     {
         /* If in the future we want to buffer also uncompressed trajectory.
          * Each needs its own bufferStep. */
-//        bufferStep = (step/ir->nstxtcout - (int)ceil((double)write_buf->step_after_checkpoint/ir->nstxtcout)) % cr->nionodes;// bufferStep = step/(how often to write) - (round up) step_at_checkpoint/(how often to write)  MOD (how often we actually do write)
-
         if (mdof_flags & MDOF_XTC && !((mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X)))
         {
         	write_buf->bufferStep++;
@@ -597,7 +595,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
          * OR XTC is written AND we haven't just written because buffer was full
          * AND its the last step OR its a checkpoint OR write uncompressed X */
         writeXTCNow  = ((mdof_flags & MDOF_XTC) && write_buf->bufferStep == cr->nionodes-1)
-                    || (ir->nstxtcout>0 && write_buf->bufferStep>=0 && write_buf->bufferStep < cr->nionodes-1
+                    || (ir->nstxtcout>0 && write_buf->bufferStep < cr->nionodes-1
                     && (bLastStep || (mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X)));
     }
 
@@ -638,10 +636,8 @@ void write_traj(FILE *fplog,t_commrec *cr,
         if (bBuffer) {
             if (mdof_flags & MDOF_XTC)
             {
-                /* This block of code copies the current dd and state_local to buffers to prepare for writing later.
-                 * The last frame being buffered is always collected on the MASTER (then bMAsterWritesXTC is true).
-                 * We always remember the time on the master in case we write a checkpoint before writing the next XTC frame */
-                if (MASTER(cr) || write_buf->bufferStep == cr->dd->iorank)
+                /* This block of code copies the current dd and state_local to buffers to prepare for writing later. */
+                if (write_buf->bufferStep == cr->dd->iorank)
                 {
                     write_buf->step=step;
                     write_buf->t=t;
@@ -653,7 +649,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
                 }
             }
 
-            if (writeXTCNow && write_buf->bufferStep >= 0)/*TODO RJ: Think about if it should be >=1...*/
+            if (writeXTCNow && write_buf->bufferStep >= 0)
             {
                 /* If the computer running the system is non-homogeneous,
                  * then it will revert back to this collection method thats unoptimized
@@ -731,7 +727,6 @@ void write_traj(FILE *fplog,t_commrec *cr,
         }
     }
 
-    /* TODO RJ: Revisit this paragraph and see if it needs updates */
     /* The order of write_checkpoint and write_xtc/fwrite_trn is crucial,
      * because the position of the trajectories is stored in the checkpoint.
      * The checkpoint is written before the current step because the current
@@ -757,7 +752,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
 		}
     }
 
-    /* this is an IO node (we have to call write_traj on all IO nodes!) */
+    /* We have to call write_traj on all IO nodes! */
     if (writeXTCNow && IONODE(cr)) {
 
         gmx_bool bWrite = cr->dd->iorank<=write_buf->bufferStep;
