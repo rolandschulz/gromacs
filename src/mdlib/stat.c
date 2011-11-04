@@ -581,7 +581,6 @@ void write_traj(FILE *fplog,t_commrec *cr,
 //    int bufferStep = 0;
     gmx_bool bBuffer = cr->nionodes > 1  && ir->nstxtcout>0; /* Used to determine if buffers will be used. */
     gmx_bool writeXTCNow = (mdof_flags & MDOF_XTC);/* writeXTCNow means that some writing (NOT buffering) is going to happen, either from this frame, buffers, or both */
-    gmx_bool bMasterWritesXTC = FALSE;
 
     if (bBuffer)/* If buffering will be used */
     {
@@ -593,42 +592,13 @@ void write_traj(FILE *fplog,t_commrec *cr,
         {
         	write_buf->bufferStep++;
         }
-        else
-        {
-            bMasterWritesXTC = TRUE;
-        }
 
         /* Write XTC in this step and buffer is full
          * OR XTC is written AND we haven't just written because buffer was full
          * AND its the last step OR its a checkpoint OR write uncompressed X */
-/*
-        writeXTCNow  = ((mdof_flags & MDOF_XTC) && bufferStep == cr->nionodes-1)
-                    || (ir->nstxtcout>0 && bufferStep>=0 && bufferStep < cr->nionodes-1
-                    && (bLastStep || (mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X)));
-*/
         writeXTCNow  = ((mdof_flags & MDOF_XTC) && write_buf->bufferStep == cr->nionodes-1)
                     || (ir->nstxtcout>0 && write_buf->bufferStep>=0 && write_buf->bufferStep < cr->nionodes-1
                     && (bLastStep || (mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X)));
-
-/*
-        if (((mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X)) && (mdof_flags & MDOF_XTC))
-        {  
-            /* We collect to the master even if bufferStep is not nionodes-1.
-             * The collecting is for CPT/X and
-             * is not collected as part of the buffering */
-/*
-        bMasterWritesXTC = TRUE;
-//             bufferStep--;
-//            write_buf->bufferStep--;
-        }
-*/
-/*
-        if ((mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X))
-        {
-            write_buf->step_after_checkpoint = step + 1;
-//            write_buf->bufferStep = -1;
-        }
-*/
     }
 
 #define MX(xvf) moveit(cr,GMX_LEFT,GMX_RIGHT,#xvf,xvf)
@@ -671,23 +641,19 @@ void write_traj(FILE *fplog,t_commrec *cr,
                 /* This block of code copies the current dd and state_local to buffers to prepare for writing later.
                  * The last frame being buffered is always collected on the MASTER (then bMAsterWritesXTC is true).
                  * We always remember the time on the master in case we write a checkpoint before writing the next XTC frame */
-//                if (MASTER(cr) || bufferStep == cr->dd->iorank)
                 if (MASTER(cr) || write_buf->bufferStep == cr->dd->iorank)
                 {
                     write_buf->step=step;
                     write_buf->t=t;
                 }
-//                if (!bMasterWritesXTC)
                 if (!writeXTCNow)
                 {
-//                    copy_dd(write_buf->dd[bufferStep],cr->dd);
-//                    copy_state_local(write_buf->state_local[bufferStep],state_local);
                     copy_dd(write_buf->dd[write_buf->bufferStep],cr->dd);
                     copy_state_local(write_buf->state_local[write_buf->bufferStep],state_local);
                 }
             }
 
-            if (writeXTCNow && write_buf->bufferStep >= 0)
+            if (writeXTCNow && write_buf->bufferStep >= 0)/*TODO RJ: Think about if it should be >=1...*/
             {
                 /* If the computer running the system is non-homogeneous,
                  * then it will revert back to this collection method thats unoptimized
@@ -696,7 +662,6 @@ void write_traj(FILE *fplog,t_commrec *cr,
                 {
                     /* Collect each buffered frame to one of the IO nodes.
                      * The data is collected to the node with rank write_buf->dd[i]->masterrank. */
-//                    for (i = 0; i <= bufferStep; i++)
                 	for (i = 0; i <= write_buf->bufferStep; i++)
                     {
                         write_buf->dd[i]->masterrank = cr->dd->iorank2ddrank[i];
@@ -705,7 +670,6 @@ void write_traj(FILE *fplog,t_commrec *cr,
                 }
                 else 
                 {
-//                    dd_collect_vec_buffered(write_buf, state_global->x, cr, bufferStep);
                 	dd_collect_vec_buffered(write_buf, state_global->x, cr, write_buf->bufferStep);
                 }
             }
@@ -767,6 +731,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
         }
     }
 
+    /* TODO RJ: Revisit this paragraph and see if it needs updates */
     /* The order of write_checkpoint and write_xtc/fwrite_trn is crucial,
      * because the position of the trajectories is stored in the checkpoint.
      * The checkpoint is written before the current step because the current
@@ -795,9 +760,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
     /* this is an IO node (we have to call write_traj on all IO nodes!) */
     if (writeXTCNow && IONODE(cr)) {
 
-        gmx_bool bWrite =  cr->dd->iorank<=write_buf->bufferStep /* write if this IO node has received data to write */
-                        || (MASTER(cr) && bMasterWritesXTC);     /* The master only writes if bMasterWritesXTC is true */
-//        write_buf->bufferStep = -1;
+        gmx_bool bWrite = cr->dd->iorank<=write_buf->bufferStep;
 /*
 		gmx_bool bWrite = cr->dd->iorank<=bufferStep ||     /* write if this IO node has received data to write
                          (MASTER(cr) && bMasterWritesXTC);  /* The master only writes if bMasterWritesXTC is true
@@ -866,10 +829,6 @@ void write_traj(FILE *fplog,t_commrec *cr,
             write_checkpoint(of->fn_cpt,of->bKeepAndNumCPT,
                              fplog,cr,of->eIntegrator,
                              of->simulation_part,step,t,state_global);
-            //TODO RJ: the next 3 lines are wrong because only occur during CPT and not MDOF_X!
-//            write_buf->bufferStep++;
-//            copy_dd (write_buf->dd[write_buf->bufferStep] , cr->dd);
-//            copy_state_local (write_buf->state_local[write_buf->bufferStep] , state_local);
         }
         if (writeXTCNow)
         {
