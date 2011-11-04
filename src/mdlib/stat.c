@@ -589,9 +589,13 @@ void write_traj(FILE *fplog,t_commrec *cr,
          * Each needs its own bufferStep. */
 //        bufferStep = (step/ir->nstxtcout - (int)ceil((double)write_buf->step_after_checkpoint/ir->nstxtcout)) % cr->nionodes;// bufferStep = step/(how often to write) - (round up) step_at_checkpoint/(how often to write)  MOD (how often we actually do write)
 
-        if (mdof_flags & MDOF_XTC)//TODO RJ! WORK ON THIS!
+        if (mdof_flags & MDOF_XTC && !((mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X)))
         {
         	write_buf->bufferStep++;
+        }
+        else
+        {
+            bMasterWritesXTC = TRUE;
         }
 
         /* Write XTC in this step and buffer is full
@@ -606,21 +610,25 @@ void write_traj(FILE *fplog,t_commrec *cr,
                     || (ir->nstxtcout>0 && write_buf->bufferStep>=0 && write_buf->bufferStep < cr->nionodes-1
                     && (bLastStep || (mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X)));
 
+/*
         if (((mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X)) && (mdof_flags & MDOF_XTC))
         {  
             /* We collect to the master even if bufferStep is not nionodes-1.
              * The collecting is for CPT/X and
              * is not collected as part of the buffering */
-            bMasterWritesXTC = TRUE;
+/*
+        bMasterWritesXTC = TRUE;
 //             bufferStep--;
-            write_buf->bufferStep--;
+//            write_buf->bufferStep--;
         }
-
+*/
+/*
         if ((mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X))
         {
             write_buf->step_after_checkpoint = step + 1;
 //            write_buf->bufferStep = -1;
         }
+*/
     }
 
 #define MX(xvf) moveit(cr,GMX_LEFT,GMX_RIGHT,#xvf,xvf)
@@ -669,7 +677,8 @@ void write_traj(FILE *fplog,t_commrec *cr,
                     write_buf->step=step;
                     write_buf->t=t;
                 }
-                if (!bMasterWritesXTC)
+//                if (!bMasterWritesXTC)
+                if (!writeXTCNow)
                 {
 //                    copy_dd(write_buf->dd[bufferStep],cr->dd);
 //                    copy_state_local(write_buf->state_local[bufferStep],state_local);
@@ -678,7 +687,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
                 }
             }
 
-            if (writeXTCNow)
+            if (writeXTCNow && write_buf->bufferStep >= 0)
             {
                 /* If the computer running the system is non-homogeneous,
                  * then it will revert back to this collection method thats unoptimized
@@ -788,7 +797,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
 
         gmx_bool bWrite =  cr->dd->iorank<=write_buf->bufferStep /* write if this IO node has received data to write */
                         || (MASTER(cr) && bMasterWritesXTC);     /* The master only writes if bMasterWritesXTC is true */
-        write_buf->bufferStep = -1;
+//        write_buf->bufferStep = -1;
 /*
 		gmx_bool bWrite = cr->dd->iorank<=bufferStep ||     /* write if this IO node has received data to write
                          (MASTER(cr) && bMasterWritesXTC);  /* The master only writes if bMasterWritesXTC is true
@@ -857,7 +866,14 @@ void write_traj(FILE *fplog,t_commrec *cr,
             write_checkpoint(of->fn_cpt,of->bKeepAndNumCPT,
                              fplog,cr,of->eIntegrator,
                              of->simulation_part,step,t,state_global);
-            write_buf->bufferStep++;
+            //TODO RJ: the next 3 lines are wrong because only occur during CPT and not MDOF_X!
+//            write_buf->bufferStep++;
+//            copy_dd (write_buf->dd[write_buf->bufferStep] , cr->dd);
+//            copy_state_local (write_buf->state_local[write_buf->bufferStep] , state_local);
+        }
+        if (writeXTCNow)
+        {
+            write_buf->bufferStep = 0;
             copy_dd (write_buf->dd[write_buf->bufferStep] , cr->dd);
             copy_state_local (write_buf->state_local[write_buf->bufferStep] , state_local);
         }

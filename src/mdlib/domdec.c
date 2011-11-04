@@ -1713,6 +1713,15 @@ void dd_collect_vec_buffered(t_write_buffer *write_buf, rvec *v, t_commrec *cr, 
             }
         }
     }
+    sfree (sendBuf);
+    sfree (recvBuf);
+    sfree (sendCount);
+    sfree (recvCount);
+    sfree (ncgReceive);
+    sfree (natReceive);
+    sfree (frameDisp);
+    sfree (recvDisp);
+    sfree (sendDisp);
 }
 
 void dd_collect_state(gmx_domdec_t *dd,
