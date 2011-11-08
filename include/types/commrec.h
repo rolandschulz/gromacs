@@ -155,6 +155,7 @@ typedef struct {
   /* IO nodes */
   int iorank;  /* the rank, the number of IO nodes is cr->nionodes (equivalent for PME)*/
   int *iorank2ddrank;
+  size_t maxMemoryUsage;
   
   /* Communication with the PME only nodes */
   int  pme_nodeid;
@@ -163,7 +164,6 @@ typedef struct {
   int  nreq_pme;
   MPI_Request req_pme[4];
   
-
   /* The communication setup, identical for each cell, cartesian index */
   ivec nc;
   int  ndim;
@@ -228,7 +228,6 @@ typedef struct {
 
   /* The partioning count, to keep track of the state */
   gmx_large_int_t ddp_count;
-
 
   /* gmx_pme_recv_f buffer */
   int pme_recv_f_alloc;

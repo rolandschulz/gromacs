@@ -872,8 +872,6 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
 #ifdef GMX_LIB_MPI
     if (DOMAINDECOMP(cr) && integrator[inputrec->eI].func == do_md && (cr->duty & DUTY_PP))
     {
-        const size_t MAXMEM = 20000000; /* This checks that we won't be using more than 20 megabytes for storing frames */
-
         /* This is only tracking the potentially huge arrays found in cr->dd->ma*/
         size_t frame_size =  (sizeof (int) * get_t_block_nalloc (cr->dd->comm)) + (sizeof (real) * 3 * state->natoms);
         gmx_bool bIOnode = FALSE;
@@ -896,19 +894,19 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
                 cr->nionodes = -1;
             }
 
-            if (cr->nionodes != -1 && MAXMEM * cr->dd->nnodes / frame_size)
+            if (cr->nionodes != -1 && cr->dd->maxMemoryUsage * cr->dd->nnodes > frame_size * cr->nionodes)
             {
             	fprintf(fplog , "Warning: you have requested the use of %d IO nodes, but that would require %lu MB per core.\n"
-            			        "We do not recommend exceeding %lu MB.\n"
+            			        "Memory usage is limited to %lu MB; however, you may increase this limit with the -maxmem flag.\n"
             			        , cr->nionodes , (size_t)(cr->nionodes * frame_size / 1000000)
-            			        , MAXMEM / 1000000); //TODO RJ: Add flag for changing the MAXMEM size
+            			        , cr->dd->maxMemoryUsage / 1000000);
             	cr->nionodes = -1;
             }
 
             if(cr->nionodes==-1)
             {
                 cr->nionodes = min(size_inter,
-                                        MAXMEM * cr->dd->nnodes / frame_size);
+                                   cr->dd->maxMemoryUsage * cr->dd->nnodes / frame_size);
             }
 
             cr->nionodes = max(cr->nionodes, 1);  /* make sure to have at least one */

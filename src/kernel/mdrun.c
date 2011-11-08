@@ -404,7 +404,8 @@ int main(int argc,char *argv[])
   int  nstepout=100;
   int  nthreads=0; /* set to determine # of threads automatically */
   int  resetstep=-1;
-  int nionodes=-1;
+  int  nionodes=-1;
+  int  maxMemoryUsage=20;
   int  nsteps=-2; /* the value -2 means that the mdp option will be used */
   
   rvec realddxyz={0,0,0};
@@ -494,7 +495,10 @@ int main(int argc,char *argv[])
     { "-resethway", FALSE, etBOOL, {&bResetCountersHalfWay},
       "HIDDENReset the cycle counters after half the number of steps or halfway [TT]-maxh[tt]" },
     { "-nionodes", FALSE, etINT, {&nionodes},
-      "HIDDENManually override the number of nodes used for collective IO, -1 is auto" }
+      "HIDDENManually override the number of nodes used for collective IO, -1 is auto" },
+    { "-maxmem", FALSE, etINT, {&maxMemoryUsage},
+      "HIDDENManually override the maximum memory in MB used per core for parallel file writing, 20 is default" }
+
 #ifdef GMX_OPENMM
     ,
     { "-device",  FALSE, etSTR, {&deviceOptions},
@@ -547,7 +551,7 @@ int main(int argc,char *argv[])
   dd_node_order = nenum(ddno_opt);
   cr->npmenodes = npme;
   cr->nionodes = nionodes;
-
+  cr->dd->maxMemoryUsage = (size_t)maxMemoryUsage * 1000000;
 
 #ifndef GMX_THREADS
   nthreads=1;

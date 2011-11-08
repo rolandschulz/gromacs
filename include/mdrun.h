@@ -143,8 +143,6 @@ typedef struct {
 	/* Step number and time of the buffered frame */
 	gmx_large_int_t step; 
 	double t;  
-	/* First step of run or first step after checkpoint - required to compute the number of buffered frames */
-	int step_after_checkpoint;
 	int bufferStep;
 	/* For collecting dd->cg, cg indices, ncg_home, and nat_home */
 	MPI_Comm gather_comm, alltoall_comm;

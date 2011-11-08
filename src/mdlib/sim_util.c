@@ -2355,7 +2355,6 @@ void init_md(FILE *fplog,
     {
     	write_buf->bufferStep = -1;
     	write_buf->heteroSys = FALSE;
-        write_buf->step_after_checkpoint = ir->init_step;
 		allocate_dd_buf(&(write_buf->dd), cr);
 
 		snew (write_buf->state_local, cr->nionodes);
@@ -2388,7 +2387,6 @@ void init_md(FILE *fplog,
                     }
                 }
                 sfree(coresOnNode);
-                
             }
             MPI_Bcast (&write_buf->heteroSys, 1, MPI_INT, 0, cr->nc.comm_intra);
 
