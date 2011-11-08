@@ -551,7 +551,6 @@ int main(int argc,char *argv[])
   dd_node_order = nenum(ddno_opt);
   cr->npmenodes = npme;
   cr->nionodes = nionodes;
-  cr->dd->maxMemoryUsage = (size_t)maxMemoryUsage * 1000000;
 
 #ifndef GMX_THREADS
   nthreads=1;
@@ -675,6 +674,8 @@ int main(int argc,char *argv[])
   ddxyz[XX] = (int)(realddxyz[XX] + 0.5);
   ddxyz[YY] = (int)(realddxyz[YY] + 0.5);
   ddxyz[ZZ] = (int)(realddxyz[ZZ] + 0.5);
+
+  cr->dd->maxMemoryUsage = (size_t)maxMemoryUsage * 1000000;
 
   rc = mdrunner(nthreads, fplog,cr,NFILE,fnm,oenv,bVerbose,bCompact,
                 nstglobalcomm, ddxyz,dd_node_order,rdd,rconstr,
