@@ -155,7 +155,6 @@ typedef struct {
   /* IO nodes */
   int iorank;  /* the rank, the number of IO nodes is cr->nionodes (equivalent for PME)*/
   int *iorank2ddrank;
-  size_t maxMemoryUsage;
   
   /* Communication with the PME only nodes */
   int  pme_nodeid;

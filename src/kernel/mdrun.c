@@ -495,9 +495,7 @@ int main(int argc,char *argv[])
     { "-resethway", FALSE, etBOOL, {&bResetCountersHalfWay},
       "HIDDENReset the cycle counters after half the number of steps or halfway [TT]-maxh[tt]" },
     { "-nionodes", FALSE, etINT, {&nionodes},
-      "HIDDENManually override the number of nodes used for collective IO, -1 is auto" },
-    { "-maxmem", FALSE, etINT, {&maxMemoryUsage},
-      "HIDDENManually override the maximum memory in MB used per core for parallel file writing, 20 is default" }
+      "HIDDENManually override the number of nodes used for collective IO, -1 is auto" }
 
 #ifdef GMX_OPENMM
     ,
@@ -674,8 +672,6 @@ int main(int argc,char *argv[])
   ddxyz[XX] = (int)(realddxyz[XX] + 0.5);
   ddxyz[YY] = (int)(realddxyz[YY] + 0.5);
   ddxyz[ZZ] = (int)(realddxyz[ZZ] + 0.5);
-
-  cr->dd->maxMemoryUsage = (size_t)maxMemoryUsage * 1000000;
 
   rc = mdrunner(nthreads, fplog,cr,NFILE,fnm,oenv,bVerbose,bCompact,
                 nstglobalcomm, ddxyz,dd_node_order,rdd,rconstr,

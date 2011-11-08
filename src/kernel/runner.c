@@ -875,7 +875,19 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
         /* This is only tracking the potentially huge arrays found in cr->dd->ma*/
         size_t frame_size =  (sizeof (int) * get_t_block_nalloc (cr->dd->comm)) + (sizeof (real) * 3 * state->natoms);
         gmx_bool bIOnode = FALSE;
-        int size_inter;
+        int size_inter, maxmem;
+        char * env = getenv("GMX_IO_MAX_MEM");
+
+        if (env != NULL)
+        {
+            sscanf (env , "%d" , &maxmem);
+            maxmem *= 1000000;
+        }
+        else
+        {
+            maxmem = 20000000;
+        }
+
         if (MASTER(cr))
         {
             if (cr->nc.bUse)
@@ -894,19 +906,19 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
                 cr->nionodes = -1;
             }
 
-            if (cr->nionodes != -1 && cr->dd->maxMemoryUsage * cr->dd->nnodes > frame_size * cr->nionodes)
+            if (cr->nionodes != -1 && maxmem * cr->dd->nnodes > frame_size * cr->nionodes)
             {
             	fprintf(fplog , "Warning: you have requested the use of %d IO nodes, but that would require %lu MB per core.\n"
             			        "Memory usage is limited to %lu MB; however, you may increase this limit with the -maxmem flag.\n"
             			        , cr->nionodes , (size_t)(cr->nionodes * frame_size / 1000000)
-            			        , cr->dd->maxMemoryUsage / 1000000);
+            			        , maxmem / 1000000);
             	cr->nionodes = -1;
             }
 
             if(cr->nionodes==-1)
             {
                 cr->nionodes = min(size_inter,
-                                   cr->dd->maxMemoryUsage * cr->dd->nnodes / frame_size);
+                                   maxmem * cr->dd->nnodes / frame_size);
             }
 
             cr->nionodes = max(cr->nionodes, 1);  /* make sure to have at least one */
