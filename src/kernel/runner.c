@@ -873,14 +873,14 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
     if (DOMAINDECOMP(cr) && integrator[inputrec->eI].func == do_md && (cr->duty & DUTY_PP))
     {
         /* This is only tracking the potentially huge arrays found in cr->dd->ma*/
-        size_t frame_size =  (sizeof (int) * get_t_block_nalloc (cr->dd->comm)) + (sizeof (real) * 3 * state->natoms);
+        size_t maxmem, frame_size =  (sizeof (int) * get_t_block_nalloc (cr->dd->comm)) + (sizeof (real) * 3 * state->natoms);
         gmx_bool bIOnode = FALSE;
-        int size_inter, maxmem;
+        int size_inter;
         char * env = getenv("GMX_IO_MAX_MEM");
 
         if (env != NULL)
         {
-            sscanf (env , "%d" , &maxmem);
+            sscanf (env , "%lu" , &maxmem);
             maxmem *= 1000000;
         }
         else
