@@ -906,13 +906,13 @@ int mdrunner(int nthreads_requested, FILE *fplog,t_commrec *cr,int nfile,
                 cr->nionodes = -1;
             }
 
-            if (cr->nionodes != -1 && maxmem * cr->dd->nnodes > frame_size * cr->nionodes)
+            if (cr->nionodes != -1 && maxmem * cr->dd->nnodes < frame_size * cr->nionodes)
             {
-            	fprintf(fplog , "Warning: you have requested the use of %d IO nodes, but that would require %lu MB per core.\n"
-            			        "Memory usage is limited to %lu MB; however, you may increase this limit with the -maxmem flag.\n"
-            			        , cr->nionodes , (size_t)(cr->nionodes * frame_size / 1000000)
-            			        , maxmem / 1000000);
-            	cr->nionodes = -1;
+                fprintf(fplog , "Warning: you have requested the use of %d IO nodes, but that would require %lu MB per core.\n"
+                                "Memory usage is limited to %lu MB; however, you may increase this limit with the GMX_IO_MAX_MEM environment variable.\n"
+                                , cr->nionodes , (size_t)(cr->nionodes * frame_size / cr->nnodes / 1000000)
+                                , maxmem / 1000000);
+                cr->nionodes = -1;
             }
 
             if(cr->nionodes==-1)
