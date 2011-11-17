@@ -2358,7 +2358,7 @@ void init_md(FILE *fplog,
         /* This is only tracking the potentially huge arrays found in cr->dd->ma*/
         size_t maxmem, frame_size =  (sizeof (int) * get_t_block_nalloc (cr->dd->comm)) + (sizeof (real) * 3 * state->natoms);
         gmx_bool bIOnode = FALSE;
-        int size_inter;
+        int size_inter, masterrank_inter;
         char * env = getenv("GMX_IO_MAX_MEM");
 
         if (env != NULL)
@@ -2434,7 +2434,12 @@ void init_md(FILE *fplog,
         }
         else if (cr->nc.rank_intra==0)
         {
-            if ( cr->nc.masterrank_inter < cr->nionodes )
+            if (MASTER(cr))
+            {
+                masterrank_inter = nc->rank_inter;
+            }
+            gmx_bcast (sizeof(int), &masterrank_inter, cr);
+            if (masterrank_inter < cr->nionodes)
             {
                 bIOnode = cr->nc.rank_inter < cr->nionodes;
             }
@@ -2531,6 +2536,7 @@ void init_md(FILE *fplog,
             write_buf->heteroSys = TRUE;
         }
     }
+    write_buf->nstxtcout = ir->nstxtcout;
 
     if (nfile != -1)
     {

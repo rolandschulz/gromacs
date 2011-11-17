@@ -144,6 +144,8 @@ typedef struct {
 	gmx_large_int_t step; 
 	double t;  
 	int bufferStep;
+	/* How many steps between writing of XTC */
+	int nstxtcout;
 	/* For collecting dd->cg, cg indices, ncg_home, and nat_home */
 	MPI_Comm gather_comm, alltoall_comm;
 	int coresPerNode, alltoall_comm_size;

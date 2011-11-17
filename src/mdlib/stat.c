@@ -569,7 +569,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
                 t_state *state_local,t_state *state_global,
                 rvec *f_local,rvec *f_global,
                 int *n_xtc,rvec **x_xtc,
-                t_inputrec *ir, gmx_bool bLastStep, 
+                gmx_bool bLastStep,
                 t_write_buffer* write_buf)
 {
     int     i,j;
@@ -578,7 +578,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
     rvec *local_v;
     rvec *global_v;
     
-    gmx_bool bBuffer = cr->nionodes > 1  && ir->nstxtcout>0; /* Used to determine if buffers will be used. */
+    gmx_bool bBuffer = cr->nionodes > 1  && write_buf->nstxtcout>0; /* Used to determine if buffers will be used. */
     gmx_bool writeXTCNow = (mdof_flags & MDOF_XTC);/* writeXTCNow means that some writing (NOT buffering) is going to happen, either from this frame, buffers, or both */
 
     if (bBuffer)/* If buffering will be used */
@@ -594,7 +594,7 @@ void write_traj(FILE *fplog,t_commrec *cr,
          * OR XTC is written AND we haven't just written because buffer was full
          * AND its the last step OR its a checkpoint OR write uncompressed X */
         writeXTCNow  = ((mdof_flags & MDOF_XTC) && write_buf->bufferStep == cr->nionodes-1)
-                    || (ir->nstxtcout>0 && write_buf->bufferStep>=0 && write_buf->bufferStep < cr->nionodes-1
+                    || (write_buf->nstxtcout>0 && write_buf->bufferStep>=0 && write_buf->bufferStep < cr->nionodes-1
                     && (bLastStep || (mdof_flags & MDOF_CPT) || (mdof_flags & MDOF_X)));
     }
 

@@ -1276,12 +1276,8 @@ void write_checkpoint(const char *fn,gmx_bool bNumberAndKeep,
        and all the files it depends on, out to disk. Because we've
        opened the checkpoint with gmx_fio_open(), it's in our list
        of open files.  */
-#ifdef GMX_THREADS  /* for threads we only want to sync on the master. Otherwise all files get synced n-times*/
-    if (MASTER(cr))
-#endif
-    {
-        ret=gmx_fio_all_output_fsync();
-    }
+
+    ret=gmx_fio_all_output_fsync();
 
     if (MASTER(cr))
     {

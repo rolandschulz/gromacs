@@ -1274,42 +1274,45 @@ int gmx_fio_fsync(t_fileio *fio)
 }
 
 
-
 t_fileio *gmx_fio_all_output_fsync(void)
 {
     t_fileio *ret=NULL;
     t_fileio *cur;
 
-    cur=gmx_fio_get_first();
-    while(cur)
-    {
-        /* skip debug files (those with iFTP==efNR) */
-        if (cur->bOpen && 
-            !cur->bRead && 
-            !cur->bStdio && 
-            cur->iFTP != efNR)
-        {
-            /* if any of them fails, return failure code */
-            int rc=gmx_fio_int_fsync(cur);
-            if (rc != 0 && !ret) 
-            {
-                ret=cur;
-            }
-        }
-        cur=gmx_fio_get_next(cur);
-    }
-
-    /* in addition, we force these to be written out too, if they're being
-       redirected. We don't check for errors because errors most likely mean
-       that they're not redirected. */
-    fflush(stdout);
-    fflush(stderr);
-#if (defined(HAVE_FSYNC))
-    /* again, fahcore defines HAVE_FSYNC and fsync() */
-    fsync(STDOUT_FILENO);
-    fsync(STDERR_FILENO);
+#ifdef GMX_THREADS  /* for threads we only want to sync on the master. Otherwise all files get synced n-times*/
+    if (MASTER(cr))
 #endif
+    {
+        cur=gmx_fio_get_first();
+        while(cur)
+        {
+            /* skip debug files (those with iFTP==efNR) */
+            if (cur->bOpen &&
+               !cur->bRead &&
+               !cur->bStdio &&
+                cur->iFTP != efNR)
+            {
+                /* if any of them fails, return failure code */
+                int rc=gmx_fio_int_fsync(cur);
+                if (rc != 0 && !ret)
+                {
+                    ret=cur;
+                }
+            }
+            cur=gmx_fio_get_next(cur);
+        }
 
+        /* in addition, we force these to be written out too, if they're being
+        redirected. We don't check for errors because errors most likely mean
+        that they're not redirected. */
+        fflush(stdout);
+        fflush(stderr);
+#if (defined(HAVE_FSYNC))
+        /* again, fahcore defines HAVE_FSYNC and fsync() */
+        fsync(STDOUT_FILENO);
+        fsync(STDERR_FILENO);
+#endif
+    }
     return ret;
 }
 

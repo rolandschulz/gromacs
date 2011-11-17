@@ -355,11 +355,6 @@ void gmx_setup_nodecomm(FILE *fplog,t_commrec *cr)
                     ng,(real)n/(real)ng);
         }
         MPI_Comm_rank(nc->comm_inter,&nc->rank_inter);
-        if (MASTER(cr))
-        {
-            nc->masterrank_inter = nc->rank_inter;
-        }
-        gmx_bcast(sizeof(int),&nc->masterrank_inter,cr);
         if (nc->rank_intra > 0)
         {
             MPI_Comm_free(&nc->comm_inter);
