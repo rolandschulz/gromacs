@@ -2420,8 +2420,10 @@ void init_md(FILE *fplog,
         if (MASTER(cr))
         {
             bIOnode = TRUE;
+            masterrank_inter = cr->nc.rank_inter;
         }
-        else if (!cr->nc.bUse)
+        gmx_bcast (sizeof(int), &masterrank_inter, cr);
+        if (!cr->nc.bUse && !MASTER(cr))
         {
             if ( cr->dd->masterrank < cr->nionodes )
             {
@@ -2432,13 +2434,8 @@ void init_md(FILE *fplog,
                 bIOnode = cr->dd->rank < cr->nionodes - 1;
             }
         }
-        else if (cr->nc.rank_intra==0)
+        else if (cr->nc.rank_intra==0 && !MASTER(cr))
         {
-            if (MASTER(cr))
-            {
-                masterrank_inter = cr->nc.rank_inter;
-            }
-            gmx_bcast (sizeof(int), &masterrank_inter, cr);
             if (masterrank_inter < cr->nionodes)
             {
                 bIOnode = cr->nc.rank_inter < cr->nionodes;
