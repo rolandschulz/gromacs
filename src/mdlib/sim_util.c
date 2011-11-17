@@ -2436,7 +2436,7 @@ void init_md(FILE *fplog,
         {
             if (MASTER(cr))
             {
-                masterrank_inter = nc->rank_inter;
+                masterrank_inter = cr->nc.rank_inter;
             }
             gmx_bcast (sizeof(int), &masterrank_inter, cr);
             if (masterrank_inter < cr->nionodes)
