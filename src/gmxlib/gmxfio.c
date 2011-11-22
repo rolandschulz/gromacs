@@ -1025,20 +1025,7 @@ static int gmx_fio_int_get_file_position(t_fileio *fio, gmx_off_t *offset)
     */
     *offset=gmx_fio_int_ftell(fio, TRUE);
 
-    //TODO RJ: I commented it out but didn't delete it!
-//    if (*offset != -1)
-//    {
-        /* for buffered writing we need to subtract the last written frame. Because we call write_checkpoint after we write all buffered frames.
-         * See write_traj for detailed comments. If buffered writing is not used last_frame_size is zero and this has no affect.
-         */
-//        *offset-=fio->last_frame_size;
-
-//        return 0;
-//    }
-//    else
-//    {
-//        return 1;
-//    }
+    return 0;
 }
 
 int gmx_fio_check_file_position(t_fileio *fio)
