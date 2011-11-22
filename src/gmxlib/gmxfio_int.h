@@ -80,7 +80,7 @@ struct t_fileio
     MPI_File mpi_fh;  /* the mpi file handle (used instead of fp for MPI IO) */
     MPI_Comm fh_comm; /* the communicator used for this file */
 #endif
-    char *mem_buf; // Used for MPI writing. Date writen to xdr is written (by gmx_fio_write_to_membuf) to here
+    char *mem_buf; /* Used for MPI writing. Date written to xdr is written (by gmx_fio_int_write_to_membuf) to here */
     int mem_buf_cur_pos, /*current writing position in mem_buf. Equal to the amount written so far for current frame*/
          mem_buf_nalloc, /*allocation size of mem_buf. Is being over-allocated to reduce number of required srenew*/
          last_frame_size; /*Size of the last written frame on the master. Only used with buffered writing*/

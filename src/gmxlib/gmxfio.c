@@ -460,15 +460,15 @@ static void gmx_fio_stop_getting_next(t_fileio *fio)
 #endif
 }
 
-
-static int gmx_fio_int_write_to_membuf(char *handle, char *buf, int size) /* writes data to mem_buf for xdr created by xdrrec_create. Used for MPI buffered writing. */
+/* writes data to mem_buf for xdr created by xdrrec_create. Used for MPI buffered writing. */
+static int gmx_fio_int_write_to_membuf(char *handle, char *buf, int size)
 {
     t_fileio *fio = (t_fileio*) handle;
     if (fio->mem_buf_nalloc<fio->mem_buf_cur_pos+size) {
         fio->mem_buf_nalloc = (fio->mem_buf_cur_pos+size)*1.10;
         srenew(fio->mem_buf,fio->mem_buf_nalloc);
     }
-    memcpy(fio->mem_buf+fio->mem_buf_cur_pos, buf+4, size-4);  //Remove 4-byte record-marker, see http://docs.sun.com/app/docs/doc/816-1435/6m7rrfn9i?l=en&a=view#rpcproto-14265
+    memcpy(fio->mem_buf+fio->mem_buf_cur_pos, buf+4, size-4);  /* Remove 4-byte record-marker, see http://docs.sun.com/app/docs/doc/816-1435/6m7rrfn9i?l=en&a=view#rpcproto-14265 */
     fio->mem_buf_cur_pos += size-4;
     return size;
 }
@@ -1252,7 +1252,7 @@ static int gmx_fio_int_fsync(t_fileio *fio)
         {
             rc=gmx_fsync(fio->fp);
         }
-        else if (fio->xdr) /* this should normally not happen */
+        else if (fio->xdr) /* fio->fp should normally exist, so it should be rare for this to be true */
         {
             rc=gmx_fsync((FILE*) fio->xdr->x_private);
                                    /* ^ is this actually OK? */

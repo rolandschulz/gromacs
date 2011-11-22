@@ -544,7 +544,7 @@ void done_mdoutf(gmx_mdoutf_t *of)
     sfree(of);
 }
 
-/* This is used for use with write_buf inside write_traj, it copies the
+/* This is for use with write_buf inside write_traj, it copies the
  * original state_local (old_sl) and copies it into new_sl */
 static int copy_state_local (t_state *new_sl , t_state *old_sl)
 {
