@@ -2062,7 +2062,7 @@ double do_md_membed(FILE *fplog,t_commrec *cr,int nfile,const t_filenm fnm[],
                 }
             }*/
             write_traj(fplog,cr,outf,mdof_flags,top_global,
-                       step,t,state,state_global,f,f_global,&n_xtc,&x_xtc,ir, bLastStep);
+                       step,t,state,state_global,f,f_global,&n_xtc,&x_xtc,bLastStep,NULL);
 /*            if (bCPT)
             {
                 nchkpt++;
