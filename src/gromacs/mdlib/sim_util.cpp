@@ -78,6 +78,9 @@
 #include "gromacs/mdlib/nbnxn_atomdata.h"
 #include "gromacs/mdlib/nbnxn_gpu_data_mgmt.h"
 #include "gromacs/mdlib/nbnxn_search.h"
+#include "gromacs/mdlib/nb_verlet_simd_offload.h"
+#include "gromacs/mdlib/nbnxn_cuda/nbnxn_cuda.h"
+#include "gromacs/mdlib/nbnxn_cuda/nbnxn_cuda_data_mgmt.h"
 #include "gromacs/mdlib/nbnxn_kernels/nbnxn_kernel_gpu_ref.h"
 #include "gromacs/mdlib/nbnxn_kernels/nbnxn_kernel_ref.h"
 #include "gromacs/mdlib/nbnxn_kernels/simd_2xnn/nbnxn_kernel_simd_2xnn.h"
@@ -514,18 +517,25 @@ static void do_nb_verlet(t_forcerec *fr,
                                   enerd->grpp.ener[egLJSR]);
             break;
         case nbnxnk4xN_SIMD_2xNN:
-            nbnxn_kernel_simd_2xnn(&nbvg->nbl_lists,
-                                   nbvg->nbat, ic,
-                                   nbvg->ewald_excl,
-                                   fr->shift_vec,
-                                   flags,
-                                   clearF,
-                                   fr->fshift[0],
-                                   enerd->grpp.ener[egCOULSR],
-                                   fr->bBHAM ?
-                                   enerd->grpp.ener[egBHAMSR] :
-                                   enerd->grpp.ener[egLJSR]);
-            break;
+        	if (bUseOffloadedKernel)
+        	{
+        		nbnxn_kernel_simd_2xnn_offload(fr, ic, enerd, flags, ilocality, clearF, nrnb, wcycle);
+        	}
+        	else
+        	{
+        		nbnxn_kernel_simd_2xnn(&nbvg->nbl_lists,
+        				nbvg->nbat, ic,
+        				nbvg->ewald_excl,
+        				fr->shift_vec,
+        				flags,
+        				clearF,
+        				fr->fshift[0],
+        				enerd->grpp.ener[egCOULSR],
+        				fr->bBHAM ?
+        						enerd->grpp.ener[egBHAMSR] :
+        						enerd->grpp.ener[egLJSR]);
+        	}
+        	break;
 
         case nbnxnk8x8x8_GPU:
             nbnxn_gpu_launch_kernel(fr->nbv->gpu_nbv, nbvg->nbat, flags, ilocality);
@@ -926,6 +936,7 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
     /* do local pair search */
     if (bNS)
     {
+    	bRefreshNbl = TRUE;
         wallcycle_start_nocount(wcycle, ewcNS);
         wallcycle_sub_start(wcycle, ewcsNBS_SEARCH_LOCAL);
         nbnxn_make_pairlist(nbv->nbs, nbv->grp[eintLocal].nbat,
@@ -1225,19 +1236,25 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
         cycles_force += wallcycle_stop(wcycle, ewcFORCE);
         wallcycle_start(wcycle, ewcNB_XF_BUF_OPS);
         wallcycle_sub_start(wcycle, ewcsNB_F_BUF_OPS);
-        nbnxn_atomdata_add_nbat_f_to_f(nbv->nbs, eatAll, nbv->grp[aloc].nbat, f);
+
+        if (!bUseOffloadedKernel)
+        {
+        	nbnxn_atomdata_add_nbat_f_to_f(nbv->nbs, eatAll, nbv->grp[aloc].nbat, f);
+        }
         wallcycle_sub_stop(wcycle, ewcsNB_F_BUF_OPS);
         cycles_force += wallcycle_stop(wcycle, ewcNB_XF_BUF_OPS);
         wallcycle_start_nocount(wcycle, ewcFORCE);
 
         /* if there are multiple fshift output buffers reduce them */
         if ((flags & GMX_FORCE_VIRIAL) &&
-            nbv->grp[aloc].nbl_lists.nnbl > 1)
+        		nbv->grp[aloc].nbl_lists.nnbl > 1)
         {
             /* This is not in a subcounter because it takes a
                negligible and constant-sized amount of time */
-            nbnxn_atomdata_add_nbat_fshift_to_fshift(nbv->grp[aloc].nbat,
-                                                     fr->fshift);
+            if (!bUseOffloadedKernel)
+            {
+       		nbnxn_atomdata_add_nbat_fshift_to_fshift(nbv->grp[aloc].nbat, fr->fshift);
+            }
         }
     }
 

@@ -44,6 +44,12 @@
 #ifndef GMX_CONFIG_H
 #define GMX_CONFIG_H
 
+#include "gromacs/utility/gmx_header_config.h"
+
+#ifdef GMX_ACCELERATOR
+#include "config_mic.h"
+#else
+
 /* TODO: For now, disable Doxygen warnings from here */
 /*! \cond */
 
@@ -369,6 +375,10 @@
 
 /* Define if we have zlib */
 #cmakedefine01 HAVE_ZLIB
+#endif /* alternate config file */
+
+/* Maximum number of OpenMP threads supported */
+#define GMX_OPENMP_MAX_THREADS @GMX_OPENMP_MAX_THREADS@
 
 /*! \endcond */
 

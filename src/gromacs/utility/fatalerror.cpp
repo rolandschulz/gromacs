@@ -68,7 +68,7 @@ gmx_bool                   gmx_debug_at   = FALSE;
 
 static FILE               *log_file       = NULL;
 static tMPI_Thread_mutex_t error_mutex    = TMPI_THREAD_MUTEX_INITIALIZER;
-static const char *const   gmxuser
+gmx_offload static const char *const   gmxuser
     = "Please report this to the mailing list (gmx-users@gromacs.org)";
 
 void gmx_init_debug(const int dbglevel, const char *dbgfile)
@@ -164,7 +164,8 @@ static void default_error_handler(const char *msg)
     tMPI_Thread_mutex_unlock(&error_mutex);
 }
 
-static void (*gmx_error_handler)(const char *msg) = default_error_handler;
+#ifndef GMX_ACCELERATOR /* anyhow not compiled (no gmx_offload) but otherwise compiler produces warning */
+gmx_offload static void (*gmx_error_handler)(const char *msg) = default_error_handler;
 
 void set_gmx_error_handler(void (*func)(const char *msg))
 {
@@ -174,9 +175,12 @@ void set_gmx_error_handler(void (*func)(const char *msg))
     gmx_error_handler = func;
     tMPI_Thread_mutex_unlock(&error_mutex);
 }
+#endif
 
+gmx_offload
 static void call_error_handler(const char *key, const char *file, int line, const char *msg)
 {
+#ifndef GMX_ACCELERATOR
     char        buf[10240], errerrbuf[1024];
     const char *llines = "-------------------------------------------------------";
     char       *strerr;
@@ -206,6 +210,7 @@ static void call_error_handler(const char *key, const char *file, int line, cons
     free(strerr);
 
     gmx_error_handler(buf);
+#endif
 }
 
 gmx_noreturn static void do_exit(bool bMaster, bool bFinalize)
@@ -257,10 +262,12 @@ gmx_noreturn static void do_exit(bool bMaster, bool bFinalize)
     std::exit(1);
 }
 
+gmx_offload
 void gmx_fatal_mpi_va(int f_errno, const char *file, int line,
                       gmx_bool bMaster, gmx_bool bFinalize,
                       const char *fmt, va_list ap)
 {
+#ifndef GMX_ACCELERATOR
     if (bMaster)
     {
         char msg[STRLEN];
@@ -274,8 +281,10 @@ void gmx_fatal_mpi_va(int f_errno, const char *file, int line,
     }
 
     do_exit(bMaster, bFinalize);
+#endif
 }
 
+gmx_offload
 void gmx_fatal(int f_errno, const char *file, int line, const char *fmt, ...)
 {
     va_list ap;
@@ -284,6 +293,8 @@ void gmx_fatal(int f_errno, const char *file, int line, const char *fmt, ...)
     va_end(ap);
 }
 
+//TODO: better if the error would be sent back to the CPU and reported there
+gmx_offload
 char *gmx_strerror(const char *key)
 {
     typedef struct {
@@ -324,11 +335,13 @@ char *gmx_strerror(const char *key)
     }
 }
 
-
+gmx_offload
 void _gmx_error(const char *key, const char *msg, const char *file, int line)
 {
+#ifndef GMX_ACCELERATOR /* anyhow not compiled (no gmx_offload) but otherwise compiler produces warning */
     call_error_handler(key, file, line, msg);
     do_exit(true, false);
+#endif
 }
 
 void _range_check(int n, int n_min, int n_max, const char *warn_str,

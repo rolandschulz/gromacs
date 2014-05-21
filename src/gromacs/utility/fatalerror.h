@@ -48,6 +48,7 @@
 #include <stdio.h>
 
 #include "gromacs/utility/basedefinitions.h"
+#include "gmx_header_config.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -143,7 +144,7 @@ gmx_fatal_mpi_va(int fatal_errno, const char *file, int line, gmx_bool bMaster,
    gmx_fatal(FARGS, fmt, ...);
    \endcode
  */
-gmx_noreturn void
+gmx_offload gmx_noreturn void
 gmx_fatal(int fatal_errno, const char *file, int line, const char *fmt, ...);
 /** Helper macro to pass first three parameters to gmx_fatal(). */
 #define FARGS 0, __FILE__, __LINE__
@@ -157,7 +158,7 @@ gmx_fatal(int fatal_errno, const char *file, int line, const char *fmt, ...);
 char *gmx_strerror(const char *key);
 
 /** Implementation for gmx_error(). */
-gmx_noreturn void _gmx_error(const char *key, const char *msg, const char *file, int line);
+gmx_offload gmx_noreturn void _gmx_error(const char *key, const char *msg, const char *file, int line);
 /*! \brief
  * Alternative fatal error routine with canned messages.
  *

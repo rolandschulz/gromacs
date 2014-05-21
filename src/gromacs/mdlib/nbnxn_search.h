@@ -47,6 +47,7 @@ extern "C" {
 int nbnxn_kernel_to_ci_size(int nb_kernel_type);
 
 /* Returns the j-cluster size for kernel of type nb_kernel_type */
+gmx_offload
 int nbnxn_kernel_to_cj_size(int nb_kernel_type);
 
 /* Tells if the pair-list corresponding to nb_kernel_type is simple.

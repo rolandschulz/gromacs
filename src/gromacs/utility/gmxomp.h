@@ -99,6 +99,7 @@ int gmx_omp_get_num_procs(void);
  *
  * Acts as a wrapper for omp_get_thread_num().
  */
+gmx_offload
 int gmx_omp_get_thread_num(void);
 
 /*! \brief
@@ -141,6 +142,7 @@ gmx_bool gmx_omp_check_thread_affinity(char **message);
 /*! \brief
  * Pause for use in a spin-wait loop.
  */
+gmx_offload
 static gmx_inline void gmx_pause()
 {
 #ifndef _MSC_VER
@@ -148,9 +150,11 @@ static gmx_inline void gmx_pause()
      * settings to decide when to use _mm_pause(). This should eventually be
      * changed into proper detection of the intrinsics uses, not SIMD.
      */
-#if ((defined GMX_SIMD_X86_SSE2) || (defined GMX_SIMD_X86_SSE4_1) || \
+#ifdef GMX_ACCELERATOR
+	_mm_delay_32(32);
+#elif (defined GMX_SIMD_X86_SSE2) || (defined GMX_SIMD_X86_SSE4_1) || \
     (defined GMX_SIMD_X86_AVX_128_FMA) || (defined GMX_SIMD_X86_AVX_256) || \
-    (defined GMX_SIMD_X86_AVX2_256)) && !defined(__MINGW32__)
+    (defined GMX_SIMD_X86_AVX2_256) && !defined(__MINGW32__)
     /* Replace with tbb::internal::atomic_backoff when/if we use TBB */
     _mm_pause();
 #elif defined __MIC__

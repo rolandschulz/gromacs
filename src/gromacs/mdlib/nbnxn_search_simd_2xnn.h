@@ -156,7 +156,10 @@ make_cluster_list_simd_2xnn(const nbnxn_grid_t *gridj,
         }
         else if (d2 < rl2)
         {
-            xind_f  = X_IND_CJ_SIMD_2XNN(CI_TO_CJ_SIMD_2XNN(gridj->cell0) + cjf);
+        	int part;
+        	for (part = 0; part < 2; part++)
+        	{
+            xind_f  = X_IND_CJ_SIMD_2XNN(CI_TO_CJ_SIMD_2XNN(gridj->cell0) + cjf) + 4*part;
 
             jx_S  = gmx_load_hpr_hilo_pr(x_j+xind_f+0*STRIDE_S);
             jy_S  = gmx_load_hpr_hilo_pr(x_j+xind_f+1*STRIDE_S);
@@ -179,8 +182,8 @@ make_cluster_list_simd_2xnn(const nbnxn_grid_t *gridj,
 
             wco_any_S        = gmx_simd_or_b(wco_S0, wco_S2);
 
-            InRange          = gmx_simd_anytrue_b(wco_any_S);
-
+            InRange          = gmx_simd_anytrue_b(wco_any_S) | InRange;
+        	}
             *ndistc += 2*GMX_SIMD_REAL_WIDTH;
         }
         if (!InRange)
@@ -214,7 +217,10 @@ make_cluster_list_simd_2xnn(const nbnxn_grid_t *gridj,
         }
         else if (d2 < rl2)
         {
-            xind_l  = X_IND_CJ_SIMD_2XNN(CI_TO_CJ_SIMD_2XNN(gridj->cell0) + cjl);
+        	int part;
+        	for (part = 0; part < 2; part++)
+        	{
+            xind_l  = X_IND_CJ_SIMD_2XNN(CI_TO_CJ_SIMD_2XNN(gridj->cell0) + cjl) + 4*part;
 
             jx_S  = gmx_load_hpr_hilo_pr(x_j+xind_l+0*STRIDE_S);
             jy_S  = gmx_load_hpr_hilo_pr(x_j+xind_l+1*STRIDE_S);
@@ -237,7 +243,8 @@ make_cluster_list_simd_2xnn(const nbnxn_grid_t *gridj,
 
             wco_any_S        = gmx_simd_or_b(wco_S0, wco_S2);
 
-            InRange          = gmx_simd_anytrue_b(wco_any_S);
+            InRange          = gmx_simd_anytrue_b(wco_any_S) | InRange;
+        	}
 
             *ndistc += 2*GMX_SIMD_REAL_WIDTH;
         }

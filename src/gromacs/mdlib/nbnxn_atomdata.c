@@ -58,20 +58,26 @@
 #include "gromacs/simd/simd.h"
 #include "gromacs/utility/gmxomp.h"
 #include "gromacs/utility/smalloc.h"
+#include "gromacs/mdlib/nb_verlet_simd_offload.h"
+
+nbnxn_atomdata_output_t *out_for_phi = NULL;
 
 /* Default nbnxn allocation routine, allocates NBNXN_MEM_ALIGN byte aligned */
+gmx_offload
 void nbnxn_alloc_aligned(void **ptr, size_t nbytes)
 {
     *ptr = save_malloc_aligned("ptr", __FILE__, __LINE__, nbytes, 1, NBNXN_MEM_ALIGN);
 }
 
 /* Free function for memory allocated with nbnxn_alloc_aligned */
+gmx_offload
 void nbnxn_free_aligned(void *ptr)
 {
     sfree_aligned(ptr);
 }
 
 /* Reallocation wrapper function for nbnxn data structures */
+gmx_offload
 void nbnxn_realloc_void(void **ptr,
                         int nbytes_copy, int nbytes_new,
                         nbnxn_alloc_t *ma,
@@ -132,18 +138,38 @@ void nbnxn_atomdata_realloc(nbnxn_atomdata_t *nbat, int n)
                        nbat->natoms*nbat->xstride*sizeof(*nbat->x),
                        n*nbat->xstride*sizeof(*nbat->x),
                        nbat->alloc, nbat->free);
-    for (t = 0; t < nbat->nout; t++)
+
+    if (!bUseOffloadedKernel)
     {
-        /* Allocate one element extra for possible signaling with GPUs */
-        nbnxn_realloc_void((void **)&nbat->out[t].f,
-                           nbat->natoms*nbat->fstride*sizeof(*nbat->out[t].f),
-                           n*nbat->fstride*sizeof(*nbat->out[t].f),
-                           nbat->alloc, nbat->free);
+    	for (t = 0; t < nbat->nout; t++)
+    	{
+    		/* Allocate one element extra for possible signaling with CUDA */
+    		nbnxn_realloc_void((void **)&nbat->out[t].f,
+    				nbat->natoms*nbat->fstride*sizeof(*nbat->out[t].f),
+    				n*nbat->fstride*sizeof(*nbat->out[t].f),
+    				nbat->alloc, nbat->free);
+    	}
+    }
+    else
+    {
+#pragma offload target(mic:0) in(nbat:length(1)) nocopy(out_for_phi)
+    	{
+    		for (t = 0; t < nbat->nout; t++)
+    		{
+    			nbat->alloc = nbnxn_alloc_aligned;
+    			nbat->free = nbnxn_free_aligned;
+    			nbnxn_realloc_void((void **)&out_for_phi[t].f,
+    					nbat->natoms*nbat->fstride*sizeof(*out_for_phi[t].f),
+    					n*nbat->fstride*sizeof(*out_for_phi[t].f),
+    					nbat->alloc, nbat->free);
+    		}
+    	}
     }
     nbat->nalloc = n;
 }
 
 /* Initializes an nbnxn_atomdata_output_t data structure */
+gmx_offload
 static void nbnxn_atomdata_output_init(nbnxn_atomdata_output_t *out,
                                        int nb_kernel_type,
                                        int nenergrp, int stride,
@@ -152,17 +178,24 @@ static void nbnxn_atomdata_output_init(nbnxn_atomdata_output_t *out,
     int cj_size;
 
     out->f = NULL;
+
     ma((void **)&out->fshift, SHIFTS*DIM*sizeof(*out->fshift));
+
     out->nV = nenergrp*nenergrp;
+
     ma((void **)&out->Vvdw, out->nV*sizeof(*out->Vvdw));
+
     ma((void **)&out->Vc, out->nV*sizeof(*out->Vc  ));
 
     if (nb_kernel_type == nbnxnk4xN_SIMD_4xN ||
         nb_kernel_type == nbnxnk4xN_SIMD_2xNN)
     {
         cj_size  = nbnxn_kernel_to_cj_size(nb_kernel_type);
+
         out->nVS = nenergrp*nenergrp*stride*(cj_size>>1)*cj_size;
+
         ma((void **)&out->VSvdw, out->nVS*sizeof(*out->VSvdw));
+
         ma((void **)&out->VSc, out->nVS*sizeof(*out->VSc  ));
     }
     else
@@ -444,8 +477,12 @@ static void set_lj_parameter_data(nbnxn_atomdata_t *nbat, gmx_bool bSIMD)
     }
 }
 
-#ifdef GMX_NBNXN_SIMD
-static void
+#ifndef GMX_NBNXN_SIMD
+#warning "WHERE IS SIMD???????????????????????????????????????????????????????????????????????????????????????????"
+#else
+// #ifdef GMX_NBNXN_SIMD
+#warning "SIMD INCLUDED!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+gmx_offload void
 nbnxn_atomdata_init_simple_exclusion_masks(nbnxn_atomdata_t *nbat)
 {
     int       i, j;
@@ -780,14 +817,33 @@ void nbnxn_atomdata_init(FILE *fp,
 
     /* Initialize the output data structures */
     nbat->nout    = nout;
-    snew(nbat->out, nbat->nout);
     nbat->nalloc  = 0;
-    for (i = 0; i < nbat->nout; i++)
+    if (!bUseOffloadedKernel)
     {
-        nbnxn_atomdata_output_init(&nbat->out[i],
-                                   nb_kernel_type,
-                                   nbat->nenergrp, 1<<nbat->neg_2log,
-                                   nbat->alloc);
+    	snew(nbat->out, nbat->nout);
+    	for (i = 0; i < nbat->nout; i++)
+    	{
+    		nbnxn_atomdata_output_init(&nbat->out[i],
+    				nb_kernel_type,
+    				nbat->nenergrp, 1<<nbat->neg_2log,
+    				nbat->alloc);
+    	}
+    }
+    else
+    {
+#pragma offload target(mic:0) in(nbat:length(1)) nocopy(out_for_phi)
+    	{
+    		int i;
+    		snew(out_for_phi, nbat->nout);
+    		nbat->alloc = nbnxn_alloc_aligned;
+    		for (i = 0; i < nbat->nout; i++)
+    		{
+    			nbnxn_atomdata_output_init(&out_for_phi[i],
+    					nb_kernel_type,
+    					nbat->nenergrp, 1<<nbat->neg_2log,
+    					nbat->alloc);
+    		}
+    	}
     }
     nbat->buffer_flags.flag        = NULL;
     nbat->buffer_flags.flag_nalloc = 0;
@@ -799,8 +855,8 @@ void nbnxn_atomdata_init(FILE *fp,
     {
         nbat->bUseTreeReduce = strtol(ptr, 0, 10);
     }
-#if defined __MIC__
-    else if (nth > 8) /*on the CPU we currently don't benefit even at 32*/
+#ifdef __MIC__
+    else if (nth > 8) //on the CPU we currently don't benefit even at 32
     {
         nbat->bUseTreeReduce = 1;
     }
@@ -809,6 +865,7 @@ void nbnxn_atomdata_init(FILE *fp,
     {
         nbat->bUseTreeReduce = 0;
     }
+    nbat->bUseTreeReduce = 1;
     if (nbat->bUseTreeReduce)
     {
         if (fp)
@@ -1221,7 +1278,7 @@ void nbnxn_atomdata_copy_x_to_nbat_x(const nbnxn_search_t nbs,
     }
 }
 
-static void
+gmx_offload static void
 nbnxn_atomdata_clear_reals(real * gmx_restrict dest,
                            int i0, int i1)
 {
@@ -1233,7 +1290,7 @@ nbnxn_atomdata_clear_reals(real * gmx_restrict dest,
     }
 }
 
-static void
+gmx_offload static void
 nbnxn_atomdata_reduce_reals(real * gmx_restrict dest,
                             gmx_bool bDestSet,
                             real ** gmx_restrict src,
@@ -1267,7 +1324,7 @@ nbnxn_atomdata_reduce_reals(real * gmx_restrict dest,
     }
 }
 
-static void
+gmx_offload static void
 nbnxn_atomdata_reduce_reals_simd(real gmx_unused * gmx_restrict dest,
                                  gmx_bool gmx_unused bDestSet,
                                  real gmx_unused ** gmx_restrict src,
@@ -1311,7 +1368,7 @@ nbnxn_atomdata_reduce_reals_simd(real gmx_unused * gmx_restrict dest,
 }
 
 /* Add part of the force array(s) from nbnxn_atomdata_t to f */
-static void
+gmx_offload static void
 nbnxn_atomdata_add_nbat_f_to_f_part(const nbnxn_search_t nbs,
                                     const nbnxn_atomdata_t *nbat,
                                     nbnxn_atomdata_output_t *out,
@@ -1421,13 +1478,15 @@ nbnxn_atomdata_add_nbat_f_to_f_part(const nbnxn_search_t nbs,
     }
 }
 
+gmx_offload
 static gmx_inline unsigned char reverse_bits(unsigned char b)
 {
     /* http://graphics.stanford.edu/~seander/bithacks.html#ReverseByteWith64BitsDiv */
     return (b * 0x0202020202ULL & 0x010884422010ULL) % 1023;
 }
 
-static void nbnxn_atomdata_add_nbat_f_to_f_treereduce(const nbnxn_atomdata_t *nbat,
+gmx_offload
+static void nbnxn_atomdata_add_nbat_f_to_f_treereduce(nbnxn_atomdata_t *nbat,
                                                       int                     nth)
 {
     const nbnxn_buffer_flags_t *flags = &nbat->buffer_flags;
@@ -1436,6 +1495,7 @@ static void nbnxn_atomdata_add_nbat_f_to_f_treereduce(const nbnxn_atomdata_t *nb
 
     assert(nbat->nout == nth); /* tree-reduce currently only works for nout==nth */
 
+	nbat->syncStep = (struct tMPI_Atomic *)malloc(sizeof(struct tMPI_Atomic) * nth);
     memset(nbat->syncStep, 0, sizeof(*(nbat->syncStep))*nth);
 
 #pragma omp parallel num_threads(nth)
@@ -1523,6 +1583,7 @@ static void nbnxn_atomdata_add_nbat_f_to_f_treereduce(const nbnxn_atomdata_t *nb
 
                 for (b = b0; b < b1; b++)
                 {
+
                     i0 =  b   *NBNXN_BUFFERFLAG_SIZE*nbat->fstride;
                     i1 = (b+1)*NBNXN_BUFFERFLAG_SIZE*nbat->fstride;
 
@@ -1542,13 +1603,13 @@ static void nbnxn_atomdata_add_nbat_f_to_f_treereduce(const nbnxn_atomdata_t *nb
                     {
                         nbnxn_atomdata_clear_reals(nbat->out[index[0]].f,
                                                    i0, i1);
+
                     }
                 }
             }
         }
     }
 }
-
 
 static void nbnxn_atomdata_add_nbat_f_to_f_stdreduce(const nbnxn_atomdata_t *nbat,
                                                      int                     nth)
@@ -1613,7 +1674,9 @@ void nbnxn_atomdata_add_nbat_f_to_f(const nbnxn_search_t    nbs,
     int a0 = 0, na = 0;
     int nth, th;
 
+#ifndef GMX_OFFLOAD
     nbs_cycle_start(&nbs->cc[enbsCCreducef]);
+#endif
 
     switch (locality)
     {
@@ -1649,7 +1712,9 @@ void nbnxn_atomdata_add_nbat_f_to_f(const nbnxn_search_t    nbs,
         }
         else
         {
+#ifndef GMX_OFFLOAD
             nbnxn_atomdata_add_nbat_f_to_f_stdreduce(nbat, nth);
+#endif
         }
     }
 #pragma omp parallel for num_threads(nth) schedule(static)
@@ -1663,7 +1728,9 @@ void nbnxn_atomdata_add_nbat_f_to_f(const nbnxn_search_t    nbs,
                                             f);
     }
 
+#ifndef GMX_OFFLOAD
     nbs_cycle_stop(&nbs->cc[enbsCCreducef]);
+#endif
 }
 
 /* Adds the shift forces from nbnxn_atomdata_t to fshift */
@@ -1685,6 +1752,7 @@ void nbnxn_atomdata_add_nbat_fshift_to_fshift(const nbnxn_atomdata_t *nbat,
             sum[XX] += out[th].fshift[s*DIM+XX];
             sum[YY] += out[th].fshift[s*DIM+YY];
             sum[ZZ] += out[th].fshift[s*DIM+ZZ];
+
         }
         rvec_inc(fshift[s], sum);
     }

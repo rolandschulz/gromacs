@@ -43,10 +43,12 @@
 extern "C" {
 #endif
 
+gmx_offload extern nbnxn_atomdata_output_t *out_for_phi;
 
 /* Default nbnxn allocation routine, allocates 32 byte aligned,
  * which works for plain C and aligned SSE and AVX loads/stores.
  */
+gmx_offload
 void nbnxn_alloc_aligned(void **ptr, size_t nbytes);
 
 /* Free function for memory allocated with nbnxn_alloc_aligned */
@@ -110,12 +112,14 @@ void nbnxn_atomdata_copy_x_to_nbat_x(const nbnxn_search_t nbs,
                                      nbnxn_atomdata_t    *nbat);
 
 /* Add the forces stored in nbat to f, zeros the forces in nbat */
+gmx_offload
 void nbnxn_atomdata_add_nbat_f_to_f(const nbnxn_search_t    nbs,
                                     int                     locality,
                                     const nbnxn_atomdata_t *nbat,
                                     rvec                   *f);
 
 /* Add the fshift force stored in nbat to fshift */
+gmx_offload
 void nbnxn_atomdata_add_nbat_fshift_to_fshift(const nbnxn_atomdata_t *nbat,
                                               rvec                   *fshift);
 

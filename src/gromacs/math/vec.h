@@ -258,6 +258,7 @@ static gmx_inline void ivec_add(const ivec a, const ivec b, ivec c)
     c[ZZ] = z;
 }
 
+gmx_offload
 static gmx_inline void rvec_inc(rvec a, const rvec b)
 {
     real x, y, z;
@@ -394,6 +395,7 @@ static gmx_inline real distance2(const rvec v1, const rvec v2)
     return sqr(v2[XX]-v1[XX]) + sqr(v2[YY]-v1[YY]) + sqr(v2[ZZ]-v1[ZZ]);
 }
 
+gmx_offload
 static gmx_inline void clear_rvec(rvec a)
 {
     /* The ibm compiler has problems with inlining this

@@ -87,6 +87,7 @@
 #include "gromacs/utility/gmxassert.h"
 #include "gromacs/utility/gmxmpi.h"
 #include "gromacs/utility/smalloc.h"
+#include "gromacs/mdlib/nb_verlet_simd_offload.h"
 
 #include "deform.h"
 #include "membed.h"
@@ -693,6 +694,9 @@ int mdrunner(gmx_hw_opt_t *hw_opt,
              *               ir->ljpme_combination_rule == eljpmeLB))
              * update the message text and the content of nbnxn_acceleration_supported.
              */
+#ifdef GMX_OFFLOAD
+            bUseOffloadedKernel = (inputrec->vdwtype != evdwPME || inputrec->ljpme_combination_rule != eljpmeLB);
+#endif
             if (bUseGPU &&
                 !nbnxn_acceleration_supported(fplog, cr, inputrec, bUseGPU))
             {

@@ -1574,7 +1574,7 @@ static void pick_nbnxn_kernel_cpu(const t_inputrec gmx_unused *ir,
         *kernel_type = nbnxnk4xN_SIMD_2xNN;
 #endif
 
-#if defined GMX_NBNXN_SIMD_2XNN && defined GMX_NBNXN_SIMD_4XN
+#if defined GMX_NBNXN_SIMD_2XNN && defined GMX_NBNXN_SIMD_4XN && !defined GMX_OFFLOAD
         /* We need to choose if we want 2x(N+N) or 4xN kernels.
          * Currently this is based on the SIMD acceleration choice,
          * but it might be better to decide this at runtime based on CPU.

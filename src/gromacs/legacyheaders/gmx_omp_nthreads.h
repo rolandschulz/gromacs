@@ -39,6 +39,7 @@
 #include <stdio.h>
 
 #include "gromacs/utility/basedefinitions.h"
+#include "gromacs/utility/gmx_header_config.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -74,6 +75,7 @@ void gmx_omp_nthreads_init(FILE *fplog, struct t_commrec *cr,
 
 /*! \brief
  * Returns the number of threads to be used in the given module \p mod. */
+gmx_offload
 int gmx_omp_nthreads_get(int mod);
 
 /*! \brief Sets the number of threads to be used in module.

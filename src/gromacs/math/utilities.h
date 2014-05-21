@@ -42,6 +42,7 @@
 
 #include "gromacs/utility/basedefinitions.h"
 #include "gromacs/utility/real.h"
+#include "gromacs/utility/gmx_header_config.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -150,7 +151,7 @@ gmx_numzero(double a);
  *
  * \return log2(x)
  */
-unsigned int
+gmx_offload unsigned int
 gmx_log2i(unsigned int x);
 
 /*! \brief Multiply two large ints

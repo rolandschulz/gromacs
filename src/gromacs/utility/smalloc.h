@@ -72,6 +72,7 @@
 #define GMX_UTILITY_SMALLOC_H
 
 #include <stddef.h>
+#include "gmx_header_config.h"
 
 #include "gromacs/utility/basedefinitions.h"
 
@@ -90,6 +91,7 @@ extern "C" {
  *
  * This should generally be called through smalloc(), not directly.
  */
+gmx_offload
 void *save_malloc(const char *name, const char *file, int line, size_t size);
 /*! \brief
  * \Gromacs wrapper for calloc().
@@ -103,6 +105,7 @@ void *save_malloc(const char *name, const char *file, int line, size_t size);
  *
  * This should generally be called through snew(), not directly.
  */
+gmx_offload
 void *save_calloc(const char *name, const char *file, int line,
                   size_t nelem, size_t elsize);
 /*! \brief
@@ -136,6 +139,7 @@ void *save_realloc(const char *name, const char *file, int line,
  * This should generally be called through sfree(), not directly.
  * This never fails.
  */
+gmx_offload
 void save_free(const char *name, const char *file, int line, void *ptr);
 
 /*! \brief
@@ -154,6 +158,7 @@ void save_free(const char *name, const char *file, int line, void *ptr);
  *
  * The returned pointer should only be freed with a call to save_free_aligned().
  */
+gmx_offload
 void *save_malloc_aligned(const char *name, const char *file, int line,
                           size_t nelem, size_t elsize, size_t alignment);
 /*! \brief
@@ -172,6 +177,7 @@ void *save_malloc_aligned(const char *name, const char *file, int line,
  *
  * The returned pointer should only be freed with a call to save_free_aligned().
  */
+gmx_offload
 void *save_calloc_aligned(const char *name, const char *file, int line,
                           size_t nelem, size_t elsize, size_t alignment);
 /*! \brief
@@ -188,6 +194,7 @@ void *save_calloc_aligned(const char *name, const char *file, int line,
  * This should generally be called through sfree_aligned(), not directly.
  * This never fails.
  */
+gmx_offload
 void save_free_aligned(const char *name, const char *file, int line, void *ptr);
 
 #ifdef __cplusplus

@@ -41,7 +41,7 @@
 #include "gromacs/mdlib/nbnxn_pairlist.h"
 
 /*! \brief Run-time dispatcher for nbnxn kernel functions. */
-void
+gmx_offload void
 nbnxn_kernel_simd_2xnn(nbnxn_pairlist_set_t       *nbl_list,
                        const nbnxn_atomdata_t     *nbat,
                        const interaction_const_t  *ic,
@@ -58,7 +58,7 @@ nbnxn_kernel_simd_2xnn(nbnxn_pairlist_set_t       *nbl_list,
 #ifndef _nbnxn_kernel_simd_include_h
 #define _nbnxn_kernel_simd_include_h
 /*! \brief Typedefs for declaring kernel functions. */
-typedef void (nbk_func_ener)(const nbnxn_pairlist_t     *nbl,
+typedef gmx_offload void (nbk_func_ener)(const nbnxn_pairlist_t     *nbl,
                              const nbnxn_atomdata_t     *nbat,
                              const interaction_const_t  *ic,
                              rvec                       *shift_vec,
@@ -68,7 +68,7 @@ typedef void (nbk_func_ener)(const nbnxn_pairlist_t     *nbl,
                              real                       *Vc);
 typedef nbk_func_ener *p_nbk_func_ener;
 
-typedef void (nbk_func_noener)(const nbnxn_pairlist_t     *nbl,
+typedef gmx_offload void (nbk_func_noener)(const nbnxn_pairlist_t     *nbl,
                                const nbnxn_atomdata_t     *nbat,
                                const interaction_const_t  *ic,
                                rvec                       *shift_vec,

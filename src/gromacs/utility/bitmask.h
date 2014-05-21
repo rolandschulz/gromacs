@@ -91,6 +91,7 @@ gmx_inline static void bitmask_init_low_bits(gmx_bitmask_t* m, int b)
 }
 
 /*! \brief Test if bit b is set */
+gmx_offload
 gmx_inline static gmx_bool bitmask_is_set(gmx_bitmask_t m, int b)
 {
     return (m & ((gmx_bitmask_t)1 << b)) != 0;
@@ -146,6 +147,7 @@ gmx_inline static void bitmask_init_low_bits(gmx_bitmask_t* m, int b)
     memset(&(*m)[b/64+1], 0, (BITMASK_ALEN-b/64-1)*8);
 }
 
+gmx_offload
 gmx_inline static gmx_bool bitmask_is_set(gmx_bitmask_t m, int b)
 {
     return (m[b/64] & ((gmx_uint64_t)1 << (b%64))) != 0;

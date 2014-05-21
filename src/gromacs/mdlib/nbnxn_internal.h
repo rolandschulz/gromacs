@@ -60,10 +60,11 @@ extern "C" {
 
 #ifdef GMX_NBNXN_SIMD
 /* Memory alignment in bytes as required by SIMD aligned loads/stores */
-#define NBNXN_MEM_ALIGN  (GMX_SIMD_REAL_WIDTH*sizeof(real))
+// TODO: Revert!
+#define NBNXN_MEM_ALIGN  (16*sizeof(real))
 #else
 /* No alignment required, but set it so we can call the same routines */
-#define NBNXN_MEM_ALIGN  32
+#define NBNXN_MEM_ALIGN  64
 #endif
 
 

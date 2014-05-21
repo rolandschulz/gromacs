@@ -353,6 +353,7 @@
 
 #define mask_loh _mm512_int2mask(0x00FF) /* would be better a constant - but can't initialize with a function call. */
 #define mask_hih _mm512_int2mask(0xFF00)
+#define gmx_simdcall
 
 /* load store float */
 static gmx_inline __m512 gmx_simdcall
