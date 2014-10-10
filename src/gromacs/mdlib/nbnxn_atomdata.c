@@ -157,7 +157,7 @@ static void nbnxn_atomdata_output_init(nbnxn_atomdata_output_t *out,
 
     if (nb_kernel_type == nbnxnk4xN_SIMD_4xN ||
         nb_kernel_type == nbnxnk4xN_SIMD_2xNN ||
-        nb_kernel_type == nbnxnk4xN_SIMD_2xNN)
+        nb_kernel_type == nbnxnk4xN_SIMD_4x4xN)
     {
         cj_size  = nbnxn_kernel_to_cj_size(nb_kernel_type);
         out->nVS = nenergrp*nenergrp*stride*(cj_size>>1)*cj_size;
@@ -482,7 +482,7 @@ nbnxn_atomdata_init_simple_exclusion_masks(nbnxn_atomdata_t *nbat)
         for (i = 0; i < 4; i++)
         {
             /* The j-cluster size is quarter the SIMD width */
-            nbat->simd_4x4xn_diagonal_j_minus_i[j]          = j - i - 0.5;
+            nbat->simd_4x4xn_diagonal_j_minus_i[j+i*simd_width/4] = j - i - 0.5;
         }
     }
 
@@ -715,7 +715,11 @@ void nbnxn_atomdata_init(FILE *fp,
 
     bSIMD = (nb_kernel_type == nbnxnk4xN_SIMD_4xN ||
              nb_kernel_type == nbnxnk4xN_SIMD_2xNN ||
-             nb_kernel_type == nbnxnk4xN_SIMD_4x4xN);
+             nb_kernel_type == nbnxnk4xN_SIMD_4x4xN
+#ifdef NBNXN_PLAINC_SIMD
+             || nb_kernel_type == nbnxnk4x4_PlainC
+#endif
+             );
 
     set_lj_parameter_data(nbat, bSIMD);
 
