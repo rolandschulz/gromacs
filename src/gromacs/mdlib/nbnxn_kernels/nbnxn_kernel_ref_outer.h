@@ -97,19 +97,19 @@ NBK_FUNC_NAME(_VgrpF)
 #endif
 #undef NBK_FUNC_NAME
 #undef NBK_FUNC_NAME2
-(const nbnxn_pairlist_t     *nbl,
- const nbnxn_atomdata_t     *nbat,
- const interaction_const_t  *ic,
- rvec                       *shift_vec,
- real                       *f
+(const nbnxn_pairlist_t     *restrict nbl,
+ const nbnxn_atomdata_t     *restrict nbat,
+ const interaction_const_t  *restrict ic,
+ rvec                       *restrict shift_vec,
+ real                       *restrict f
 #ifdef CALC_SHIFTFORCES
  ,
- real                       *fshift
+ real                       *restrict fshift
 #endif
 #ifdef CALC_ENERGIES
  ,
- real                       *Vvdw,
- real                       *Vc
+ real                       *restrict Vvdw,
+ real                       *restrict Vc
 #endif
 )
 {
@@ -136,9 +136,15 @@ NBK_FUNC_NAME(_VgrpF)
     int                 cjind0, cjind1, cjind;
     int                 ip, jp;
 
-    real                xi[UNROLLI*XI_STRIDE];
-    real                fi[UNROLLI*FI_STRIDE];
-    real                qi[UNROLLI];
+    __declspec(align(64)) real xi[UNROLLI*XI_STRIDE];
+    __declspec(align(64)) real fi[UNROLLI*FI_STRIDE];
+    __declspec(align(64)) real qi[UNROLLI];
+
+    __assume_aligned(x, 64);
+    __assume_aligned(f, 64);
+    __assume_aligned(type, 64);
+    __assume_aligned(q, 64);
+    __assume_aligned(nbfp, 64);
 
 #ifdef CALC_ENERGIES
 #ifndef ENERGY_GROUPS
@@ -146,7 +152,7 @@ NBK_FUNC_NAME(_VgrpF)
     real       Vvdw_ci, Vc_ci;
 #else
     int        egp_mask;
-    int        egp_sh_i[UNROLLI];
+    __declspec(align(64)) int egp_sh_i[UNROLLI];
 #endif
 #endif
 #ifdef LJ_POT_SWITCH
