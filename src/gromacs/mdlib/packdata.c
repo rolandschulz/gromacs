@@ -51,25 +51,25 @@ size_t roundup_size(size_t size)
 }
 
 __declspec(target(mic))
-size_t compute_header_size(size_t *sizes, int num_buffers)
+size_t compute_header_size(int num_buffers)
 {
 	return num_buffers * 2 * sizeof(size_t);
 }
 
-void packdata(void *packet, void **buffers, size_t *sizes, int num_buffers)
+void packdata(void *packet, packet_buffer *buffers, int num_buffers)
 {
 	int i;
 	void *header_ptr = packet;
-	void *data_ptr = roundup_ptr(header_ptr + compute_header_size(sizes, num_buffers));
+	void *data_ptr = roundup_ptr(header_ptr + compute_header_size(num_buffers));
 	for (i=0; i<num_buffers; i++)
 	{
-		memcpy(header_ptr, sizes+i, sizeof(size_t));
+		memcpy(header_ptr, &(buffers[i].s), sizeof(size_t));
 		header_ptr += sizeof(size_t);
 		size_t ptr_offset = (size_t)(data_ptr - packet);
 		memcpy(header_ptr, &ptr_offset, sizeof(size_t));
 		header_ptr += sizeof(void *);
-		memcpy(data_ptr, buffers[i], sizes[i]);
-        	data_ptr = roundup_ptr(data_ptr + sizes[i]);
+		memcpy(data_ptr, buffers[i].p, buffers[i].s);
+        data_ptr = roundup_ptr(data_ptr + buffers[i].s);
 	}
 }
 
@@ -87,26 +87,31 @@ void unpackdata(void *packet, void **buffers, int num_buffers)
 	}
 }
 
-size_t compute_required_size(size_t *sizes, int num_buffers)
+size_t compute_required_size(packet_buffer *buffers, int num_buffers)
 {
 	int i;
-	size_t size = compute_header_size(sizes, num_buffers) + PACK_BUFFER_ALIGN;
+	size_t size = compute_header_size(num_buffers) + PACK_BUFFER_ALIGN;
 	for (i=0; i<num_buffers-1; i++)
 	{
-		 size += roundup_size(sizes[i]);
+		 size += roundup_size(buffers[i].s);
 	}
-	size += sizes[num_buffers-1];
+	size += buffers[num_buffers-1].s;
 	return size;
 }
 
-size_t get_buffer_size(void *packet, int buffer_num)
+packet_buffer get_buffer(void *packet, int buffer_num)
 {
 	int i;
+	void *ptr = packet;
+	packet_buffer buf;
 	for (i=0; i<buffer_num; i++)
 	{
-		packet += 2*sizeof(size_t);
+		ptr += 2*sizeof(size_t);
 	}
-	return *(size_t *)packet;
+	buf.s = *(size_t *)ptr;
+	ptr += sizeof(size_t);
+	buf.p = packet + *(size_t *)ptr;
+	return buf;
 }
 
 void create_packet_iter(void *packet, packet_iter *iter)

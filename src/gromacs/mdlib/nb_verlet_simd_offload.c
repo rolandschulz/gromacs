@@ -50,22 +50,8 @@ gmx_bool bUseOffloadedKernel = FALSE;
 gmx_offload gmx_bool bRefreshNbl = TRUE;
 rvec *force_buffer = NULL;
 size_t fb_size = 0;
-gmx_bool bOffloadDummyPtrInit = FALSE;
-void *offload_dummy_ptr = NULL;
 
-// Reuse pointer (neither allocate nor free)
-#define OFFREUSEPTR(PTR) PTR:length(0) alloc_if(0) free_if(0)
-
-#define OFFGETPTR(TYPE, PTRVAR, PTRVAL, LENVAR, LENVAL) \
-  TYPE *PTRVAR = PTRVAL; size_t LENVAR = LENVAL * sizeof(TYPE); \
-  if (!bOffloadDummyPtrInit) \
-  { \
-    smalloc(offload_dummy_ptr, 1); \
-    bOffloadDummyPtrInit = TRUE; \
-  } \
-  if (LENVAL < 1) {PTRVAR = (TYPE *)offload_dummy_ptr; LENVAR = 0;}
-
-#define OFFEXTPTR(PTR, LEN) PTR:length(LEN) alloc_if(0) free_if(0)
+#define REUSE alloc_if(0) free_if(0)
 
 // "Mirror" malloc with corresponding renew and free. Memory is allocated on both
 // host and coprocessor, and the two are linked to support offloading operations.
@@ -174,66 +160,44 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 			cj4_offset += nbl[i]->ncj4;
 		}
 	}
-	OFFGETPTR(nbnxn_pairlist_set_t, nbl_lists_p, nbl_lists, nbl_lists_p_len, 1);
-	OFFGETPTR(nbnxn_pairlist_t, nblb, nbl_buffer, nblb_len, nbl_buffer_size);
-	OFFGETPTR(nbnxn_ci_t, cib, ci_buffer, cib_len, ci_buffer_size);
-	OFFGETPTR(nbnxn_sci_t, scib, sci_buffer, scib_len, sci_buffer_size);
-	OFFGETPTR(nbnxn_cj_t, cjb, cj_buffer, cjb_len, cj_buffer_size);
-	OFFGETPTR(nbnxn_cj4_t, cj4b, cj4_buffer, cj4b_len, cj4_buffer_size);
-	// Avoid transferring unnecessarily.
-	if (!bRefreshNbl)
-	{
-		nbl_lists_p_len = 0;
-		nblb_len = 0;
-		cib_len = 0;
-		scib_len = 0;
-		cjb_len = 0;
-		cj4b_len = 0;
-	}
 
-	OFFGETPTR(nbnxn_atomdata_t, nbat, nbvg->nbat, nbat_len, 1)
-	OFFGETPTR(real, nbfp_p, nbat->nbfp, nbfp_p_len, nbat->ntype*nbat->ntype*2)
-	OFFGETPTR(real, nbfp_comb_p, nbat->nbfp_comb, nbfp_comb_p_len, nbat->ntype*2)
-	OFFGETPTR(real, nbfp_s4_p, nbat->nbfp_s4, nbfp_s4_p_len, nbat->ntype*nbat->ntype*4)
-	OFFGETPTR(int, type_p, nbat->type, type_p_len, nbat->natoms)
-	OFFGETPTR(real, lj_comb_p, nbat->lj_comb, lj_comb_p_len, nbat->natoms*2)
-	OFFGETPTR(real, q_p, nbat->q, q_p_len, nbat->natoms)
-	OFFGETPTR(int, energrp_p, nbat->energrp, energrp_p_len, ((nbat->nenergrp>1) ? (nbat->natoms/nbat->na_c):0))
-	OFFGETPTR(rvec, shift_vec_p, nbat->shift_vec, shift_vec_p_len, SHIFTS)
-	OFFGETPTR(real, x_p, nbat->x, x_p_len, nbat->natoms * nbat->xstride)
-	OFFGETPTR(gmx_bitmask_t, flag_p, nbat->buffer_flags.flag, flag_p_len, nbat->buffer_flags.flag_nalloc)
+	packet_buffer ibuffers[25];
+	ibuffers[0] =  (packet_buffer){nbl_lists, sizeof(nbnxn_pairlist_set_t) * (bRefreshNbl ? 1:0)};
+	ibuffers[1] =  (packet_buffer){nbl_buffer, sizeof(nbnxn_pairlist_t) * (bRefreshNbl ? nbl_buffer_size : 0)};
+	ibuffers[2] =  (packet_buffer){ci_buffer, sizeof(nbnxn_ci_t) * (bRefreshNbl ? ci_buffer_size : 0)};
+	ibuffers[3] =  (packet_buffer){sci_buffer, sizeof(nbnxn_sci_t) * (bRefreshNbl ? sci_buffer_size : 0)};
+	ibuffers[4] =  (packet_buffer){cj_buffer, sizeof(nbnxn_cj_t) * (bRefreshNbl ? cj_buffer_size : 0)};
+	ibuffers[5] =  (packet_buffer){cj4_buffer, sizeof(nbnxn_cj4_t) * (bRefreshNbl ? cj4_buffer_size : 0)};
+	nbnxn_atomdata_t *nbat = nbvg->nbat;
+	ibuffers[6] =  (packet_buffer){nbat, sizeof(nbnxn_atomdata_t)};
+	ibuffers[7] =  (packet_buffer){nbat->nbfp, sizeof(real) * (nbat->ntype*nbat->ntype*2)};
+	ibuffers[8] =  (packet_buffer){nbat->nbfp_comb, sizeof(real) * (nbat->comb_rule != ljcrNONE ? nbat->ntype*2 : 0)};
+	ibuffers[9] =  (packet_buffer){nbat->nbfp_s4, sizeof(real) * (nbat->ntype*nbat->ntype*4)};
+	ibuffers[10] = (packet_buffer){nbat->type, sizeof(int) * (nbat->natoms)};
+	ibuffers[11] = (packet_buffer){nbat->lj_comb, sizeof(real) * (nbat->natoms*2)};
+	ibuffers[12] = (packet_buffer){nbat->q, sizeof(real) * (nbat->natoms)};
+	ibuffers[13] = (packet_buffer){nbat->energrp, sizeof(int) * ((nbat->nenergrp>1) ? (nbat->natoms/nbat->na_c):0)};
+	ibuffers[14] = (packet_buffer){nbat->shift_vec, sizeof(rvec) * SHIFTS};
+	ibuffers[15] = (packet_buffer){nbat->x, sizeof(real) * (nbat->natoms * nbat->xstride)};
+	ibuffers[16] = (packet_buffer){nbat->buffer_flags.flag, sizeof(gmx_bitmask_t) * (nbat->buffer_flags.flag_nalloc)};
+	ibuffers[17] = (packet_buffer){ic, sizeof(interaction_const_t)};
+	ibuffers[18] = (packet_buffer){fr->shift_vec, sizeof(rvec) * SHIFTS};
+	void *fshift = fr->fshift[0];
+	void *Vc = enerd->grpp.ener[egCOULSR];
+	void *Vvdw = fr->bBHAM ? enerd->grpp.ener[egBHAMSR] : enerd->grpp.ener[egLJSR];
+	ibuffers[19] = (packet_buffer){fshift, sizeof(real) * (DIM*SHIFTS)};
+	ibuffers[20] = (packet_buffer){Vc, sizeof(real) * (enerd->grpp.nener)};
+	ibuffers[21] = (packet_buffer){Vvdw, sizeof(real) * (enerd->grpp.nener)};
+	ibuffers[22] = (packet_buffer){fr->nbv->nbs, sizeof(struct nbnxn_search)};
+	ibuffers[23] = (packet_buffer){fr->nbv->nbs->cell, sizeof(int) * (fr->nbv->nbs->cell_nalloc)};
+	ibuffers[24] = (packet_buffer){force_buffer, sizeof(rvec) * fb_size};
 
-	reset_timer(ct);
-	if (nbat->comb_rule == ljcrNONE)
-	{
-		nbfp_comb_p = offload_dummy_ptr;
-		nbfp_comb_p_len = 0;
-	}
-
-	OFFGETPTR(interaction_const_t, ic_buffer, ic, ic_buffer_len, 1);
-	OFFGETPTR(rvec, shift_vec, (fr->shift_vec), shift_vec_len, SHIFTS);
-	OFFGETPTR(real, fshift, (fr->fshift[0]), fshift_len, DIM*SHIFTS);
-	OFFGETPTR(real, Vc, (enerd->grpp.ener[egCOULSR]), Vc_len, enerd->grpp.nener);
-	OFFGETPTR(real, Vvdw, (fr->bBHAM ? enerd->grpp.ener[egBHAMSR] : enerd->grpp.ener[egLJSR]), Vvdw_len, enerd->grpp.nener);
+	// TODO: Figure out if we ever need this
 	int                   ewald_excl = nbvg->ewald_excl;
 
 	// Data needed for force and shift reductions
-	OFFGETPTR(struct nbnxn_search, nbs, fr->nbv->nbs, nbs_len, 1);
-	OFFGETPTR(int, cell_p, fr->nbv->nbs->cell, cell_p_len, fr->nbv->nbs->cell_nalloc);
-	OFFGETPTR(rvec, f_p, force_buffer, f_p_len, fb_size);
-	// dprintf(2, "Are great pointers %p %p %p %p %p %p %p %p %p %p %p %p %p %p %p %p %p %p %p %p %p %p %p\n", cib, scib, cjb, cj4b, nbat, nbfp_p, nbfp_comb_p, nbfp_s4_p, type_p, lj_comb_p, q_p, energrp_p,
-			                  // shift_vec_p, x_p, flag_p, ic_buffer, shift_vec, fshift, Vc, Vvdw, nbs, cell_p, f_p);
-	 // dprintf(2, "Are great lengths %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n", cib_len, scib_len, cjb_len, cj4b_len, nbat_len, nbfp_p_len, nbfp_comb_p_len, nbfp_s4_p_len, type_p_len,
-        //     lj_comb_p_len, q_p_len, energrp_p_len, shift_vec_p_len, x_p_len, flag_p_len, ic_buffer_len, shift_vec_len, fshift_len, Vc_len, Vvdw_len,
-			//    nbs_len, cell_p_len, f_p_len);
-	// dprintf(2, "Fshifty things %p %d %d\n", fshift, fshift_len, SHIFTS);
-	void *transfer_in_buffers[25] = {nbl_lists_p, nblb, cib, scib, cjb, cj4b, nbat, nbfp_p, nbfp_comb_p, nbfp_s4_p, type_p, lj_comb_p, q_p, energrp_p,
-			                  shift_vec_p, x_p, flag_p, ic_buffer, shift_vec, fshift, Vc, Vvdw, nbs, cell_p, f_p};
-	size_t transfer_in_sizes[25] = {nbl_lists_p_len, nblb_len, cib_len, scib_len, cjb_len, cj4b_len, nbat_len, nbfp_p_len, nbfp_comb_p_len, nbfp_s4_p_len, type_p_len,
-			               lj_comb_p_len, q_p_len, energrp_p_len, shift_vec_p_len, x_p_len, flag_p_len, ic_buffer_len, shift_vec_len, fshift_len, Vc_len, Vvdw_len,
-						   nbs_len, cell_p_len, f_p_len};
 	static char *transfer_in_packet = NULL;
-	size_t packet_in_size = compute_required_size(transfer_in_sizes, 25);
+	size_t packet_in_size = compute_required_size(ibuffers, 25);
 	if (transfer_in_packet == NULL)
 	{
 		transfer_in_packet = mmalloc(packet_in_size);
@@ -242,11 +206,15 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	{
 		transfer_in_packet = mrenew(transfer_in_packet, packet_in_size);
 	}
-	packdata(transfer_in_packet, transfer_in_buffers, transfer_in_sizes, 25);
+	packdata(transfer_in_packet, ibuffers, 25);
 
-	size_t transfer_out_sizes[4] = {fshift_len, Vc_len, Vvdw_len, f_p_len};
+	packet_buffer obuffers[4];
+	obuffers[0] = ibuffers[19]; // FShift
+	obuffers[1] = ibuffers[20]; // Vc
+	obuffers[2] = ibuffers[21]; // Vvdw
+	obuffers[3] = ibuffers[24]; // Force
 	static char *transfer_out_packet = NULL;
-	size_t packet_out_size = compute_required_size(transfer_out_sizes, 4);
+	size_t packet_out_size = compute_required_size(obuffers, 4);
 	if (transfer_out_packet == NULL)
 	{
 		transfer_out_packet = mmalloc(packet_out_size);
@@ -259,9 +227,9 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	// TODO: Figure out why we need this kludge for static variables and how to handle it best.
 	char *tip = transfer_in_packet;
 	char *top = transfer_out_packet;
-	dprintf(2, "Packet sizes in out %d %d\n", packet_in_size, packet_out_size);
+	// dprintf(2, "Packet sizes in out %d %d\n", packet_in_size, packet_out_size);
 	// dprintf(2, "Transfer packet information: %p %d %d\n", transfer_out_packet, packet_out_size, current_packet_out_size);
-	dprintf(2, "Sizes of stuff %d %d %d %d\n", sizeof(nbnxn_pairlist_set_t), sizeof(nbnxn_pairlist_t), sizeof(nbnxn_ci_t), sizeof(nbnxn_sci_t));
+	// dprintf(2, "Sizes of stuff %d %d %d %d\n", sizeof(nbnxn_pairlist_set_t), sizeof(nbnxn_pairlist_t), sizeof(nbnxn_ci_t), sizeof(nbnxn_sci_t));
 	int off_signal = 0;
 #define NUM_TIMES 10
 	double *phi_times;
@@ -276,8 +244,8 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	                          nocopy(sci_buffer) \
 	                          nocopy(cj_buffer) \
 	                          nocopy(cj4_buffer) \
-                              in (OFFEXTPTR(tip, packet_in_size)) \
-	                          out(OFFEXTPTR(top, packet_out_size)) \
+                              in (tip:length(packet_in_size)  REUSE) \
+	                          out(top:length(packet_out_size) REUSE) \
 							  inout(phi_times:length(NUM_TIMES) alloc_if(1) free_if(1))
 							  // signal(&off_signal) // nocopy(excl:length(nbl[i]->nexcl) ALLOC)
 	{
@@ -416,12 +384,12 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		// Fshift reduction time
 		phi_times[4] = get_elapsed_time(ct_phi);
 		reset_timer(ct_phi);
-        void *transfer_out_buffers[4] = {fshift, Vc, Vvdw, f_p};
-        size_t transfer_out_sizes[4] = {get_buffer_size(tip, 19),  // fshift
-        								get_buffer_size(tip, 20),  // Vc
-										get_buffer_size(tip, 21),  // Vvdw
-										get_buffer_size(tip, 24)}; // f_p
-		packdata(top, transfer_out_buffers, transfer_out_sizes, 4);
+		packet_buffer phi_buffers[4];
+		phi_buffers[0] = get_buffer(tip, 19);
+		phi_buffers[1] = get_buffer(tip, 20);
+		phi_buffers[2] = get_buffer(tip, 21);
+		phi_buffers[3] = get_buffer(tip, 24);
+		packdata(top, phi_buffers, 4);
 		// Pack output buffer time
 		phi_times[5] = get_elapsed_time(ct_phi);
 		free_code_timer(ct_phi);
@@ -434,9 +402,9 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		dprintf(2, "Total offload time %f\n", get_elapsed_time(ct));
 	}
 	reset_timer(ct);
-	void *phi_out_buffers[4] = {fshift, Vc, Vvdw, f_p};
+	void *phi_out_buffers[4] = {fshift, Vc, Vvdw, force_buffer};
 	unpackdata(transfer_out_packet, phi_out_buffers, 4);
-    dprintf(2, "Vc is %f and Vvdw is %f\n", Vc[0], Vvdw[0]);
+    // dprintf(2, "Vc is %f and Vvdw is %f\n", Vc[0], Vvdw[0]);
     if (counter > 5)
     {
     	dprintf(2, "Unpack output buffer time %f\n", get_elapsed_time(ct));

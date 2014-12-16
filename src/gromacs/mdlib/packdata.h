@@ -37,15 +37,20 @@
 #define PACK_BUFFER_ALIGN 64
 #define size_t unsigned long
 
+typedef struct packet_buffer_struct
+{
+	void   *p;
+	size_t s;
+} packet_buffer;
+
 // Packet-level operations
-__declspec(target(mic)) void packdata  (void *packet, void **buffers, size_t *sizes, int num_buffers);
+__declspec(target(mic)) void packdata  (void *packet, packet_buffer *buffers, int num_buffers);
 
-__declspec(target(mic)) void unpackdata(void *packet, void **buffers,                int num_buffers);
+__declspec(target(mic)) void unpackdata(void *packet, void **buffers,         int num_buffers);
 
-__declspec(target(mic)) size_t compute_required_size(size_t *sizes, int num_buffers);
+__declspec(target(mic)) size_t compute_required_size(packet_buffer *buffers, int num_buffers);
 
-__declspec(target(mic)) size_t get_buffer_size(void *packet, int buffer_num);
-
+__declspec(target(mic)) packet_buffer get_buffer(void *packet, int buffer_num);
 
 // Buffer-level operations
 __declspec(target(mic))
