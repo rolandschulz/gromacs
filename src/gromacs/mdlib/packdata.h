@@ -56,8 +56,8 @@ __declspec(target(mic)) packet_buffer get_buffer(void *packet, int buffer_num);
 __declspec(target(mic))
 typedef struct packet_iter_struct
 {
-	void *packet;
-	void *ptr;
+	char *packet;
+	char *ptr;
 } packet_iter;
 
 __declspec(target(mic)) void create_packet_iter(void *packet, packet_iter *iter);
