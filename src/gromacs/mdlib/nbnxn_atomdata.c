@@ -868,7 +868,6 @@ void nbnxn_atomdata_init(FILE *fp,
         {
             fprintf(fp, "Using tree force reduction\n\n");
         }
-        snew(nbat->syncStep, nth);
     }
 }
 
@@ -1482,7 +1481,7 @@ static gmx_inline unsigned char reverse_bits(unsigned char b)
 }
 
 gmx_offload
-static void nbnxn_atomdata_add_nbat_f_to_f_treereduce(nbnxn_atomdata_t *nbat,
+static void nbnxn_atomdata_add_nbat_f_to_f_treereduce(const nbnxn_atomdata_t *nbat,
                                                       int                     nth)
 {
     const nbnxn_buffer_flags_t *flags = &nbat->buffer_flags;
@@ -1491,8 +1490,9 @@ static void nbnxn_atomdata_add_nbat_f_to_f_treereduce(nbnxn_atomdata_t *nbat,
 
     assert(nbat->nout == nth); /* tree-reduce currently only works for nout==nth */
 
-	nbat->syncStep = (struct tMPI_Atomic *)malloc(sizeof(struct tMPI_Atomic) * nth);
-    memset(nbat->syncStep, 0, sizeof(*(nbat->syncStep))*nth);
+    tMPI_Atomic_t *syncStep;
+    snew(syncStep, nth);
+    memset(syncStep, 0, sizeof(*(syncStep))*nth);
 
 #pragma omp parallel num_threads(nth)
     {
@@ -1514,7 +1514,7 @@ static void nbnxn_atomdata_add_nbat_f_to_f_treereduce(nbnxn_atomdata_t *nbat,
                 int sync_th, sync_group_size;
 
                 tMPI_Atomic_memory_barrier();                         /* gurantee data is saved before marking work as done */
-                tMPI_Atomic_set(&(nbat->syncStep[th]), group_size/2); /* mark previous step as completed */
+                tMPI_Atomic_set(&(syncStep[th]), group_size/2); /* mark previous step as completed */
 
                 /* find thread to sync with. Equal to partner_th unless nth is not a power of two. */
                 for (sync_th = partner_th, sync_group_size = group_size; sync_th >= nth && sync_group_size > 2; sync_group_size /= 2)
@@ -1524,7 +1524,7 @@ static void nbnxn_atomdata_add_nbat_f_to_f_treereduce(nbnxn_atomdata_t *nbat,
                 if (sync_th < nth) /* otherwise nothing to sync index[1] will be >=nout */
                 {
                     /* wait on the thread which computed input data in previous step */
-                    while (tMPI_Atomic_get((volatile tMPI_Atomic_t*)&(nbat->syncStep[sync_th])) < group_size/2)
+                    while (tMPI_Atomic_get((volatile tMPI_Atomic_t*)&(syncStep[sync_th])) < group_size/2)
                     {
                         gmx_pause();
                     }
@@ -1605,6 +1605,7 @@ static void nbnxn_atomdata_add_nbat_f_to_f_treereduce(nbnxn_atomdata_t *nbat,
             }
         }
     }
+    sfree(syncStep);
 }
 
 static void nbnxn_atomdata_add_nbat_f_to_f_stdreduce(const nbnxn_atomdata_t *nbat,

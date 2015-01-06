@@ -267,7 +267,6 @@ typedef struct nbnxn_atomdata_t {
     gmx_bool                 bUseBufferFlags;        /* Use the flags or operate on all atoms     */
     nbnxn_buffer_flags_t     buffer_flags;           /* Flags for buffer zeroing+reduc.  */
     gmx_bool                 bUseTreeReduce;         /* Use tree for force reduction */
-    tMPI_Atomic_t           *syncStep;               /* Synchronization step for tree reduce */
 } nbnxn_atomdata_t;
 
 #ifdef __cplusplus
