@@ -281,6 +281,9 @@ void gmx_fatal_mpi_va(int f_errno, const char *file, int line,
     }
 
     do_exit(bMaster, bFinalize);
+#else
+    //TODO: How much should the coprocessor do if this function is called?
+    std::exit(1);
 #endif
 }
 
@@ -341,6 +344,9 @@ void _gmx_error(const char *key, const char *msg, const char *file, int line)
 #ifndef GMX_ACCELERATOR /* anyhow not compiled (no gmx_offload) but otherwise compiler produces warning */
     call_error_handler(key, file, line, msg);
     do_exit(true, false);
+#else
+    //TODO: How much should the coprocessor do if this function is called?
+    std::exit(1);
 #endif
 }
 
