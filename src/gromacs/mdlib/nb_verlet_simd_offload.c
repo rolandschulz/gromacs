@@ -57,28 +57,23 @@ size_t fb_size = 0;
 // host and coprocessor, and the two are linked to support offloading operations.
 void *mmalloc(size_t s)
 {
-	void *p;
-	smalloc(p,s);
-	char *c = (char *)p;
-#pragma offload_transfer target(mic:0) in(c:length(s) alloc_if(1) free_if(0))
-	return p;
-}
-
-void *mrenew(void *p, size_t s)
-{
-	char *oldc = (char *)p;
-	srenew(p,s);
-	char *newc = (char *)p;
-#pragma offload_transfer target(mic:0) in(oldc:length(0) alloc_if(0) free_if(1))
-#pragma offload_transfer target(mic:0) in(newc:length(s) alloc_if(1) free_if(0))
+	char *p;
+	snew_aligned(p,s,64);
+#pragma offload_transfer target(mic:0) in(p:length(s) alloc_if(1) free_if(0))
 	return p;
 }
 
 void mfree(void *p)
 {
-	sfree(p);
-	char *c = (char *)p;
+    char *c = (char *)p;
 #pragma offload_transfer target(mic:0) in(c:length(0) alloc_if(0) free_if(1))
+    sfree_aligned(c);
+}
+
+void *mrenew(void *p, size_t s)
+{
+    mfree(p);
+    return mmalloc(s);
 }
 
 // TODO: move so that forward declaration isn't needed
@@ -227,7 +222,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	// TODO: Figure out why we need this kludge for static variables and how to handle it best.
 	char *tip = transfer_in_packet;
 	char *top = transfer_out_packet;
-	// dprintf(2, "Packet sizes in out %d %d\n", packet_in_size, packet_out_size);
+	// dprintf(2, "Packet sizes in out %lu %lu\n", packet_in_size, packet_out_size);
 	// dprintf(2, "Transfer packet information: %p %d %d\n", transfer_out_packet, packet_out_size, current_packet_out_size);
 	// dprintf(2, "Sizes of stuff %d %d %d %d\n", sizeof(nbnxn_pairlist_set_t), sizeof(nbnxn_pairlist_t), sizeof(nbnxn_ci_t), sizeof(nbnxn_sci_t));
 	int off_signal = 0;
