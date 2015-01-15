@@ -70,6 +70,27 @@ void mfree(void *p)
     sfree_aligned(c);
 }
 
+gmx_offload
+void *refresh_buffer(void **buffer, packet_iter *iter)
+{
+    if (size(iter) > 0)
+    {
+        dprintf(2, "Refreshing!\n");
+        if (*buffer != NULL)
+        {
+            free(*buffer);
+        }
+        *buffer = anext(iter);
+    }
+    else
+    {
+        dprintf(2, "NOT refreshing!\n");
+        next(iter);
+    }
+
+    return *buffer;
+}
+
 // TODO: move so that forward declaration isn't needed
 gmx_offload void nbnxn_atomdata_init_simple_exclusion_masks(nbnxn_atomdata_t *nbat);
 
@@ -98,6 +119,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	gmx_offload static nbnxn_sci_t *sci_buffer;
 	gmx_offload static nbnxn_cj_t  *cj_buffer;
 	gmx_offload static nbnxn_cj4_t *cj4_buffer;
+	gmx_offload static real *q_buffer = NULL;
 
 	gmx_offload static gmx_bool firstRefresh = TRUE;
 	reset_timer(ct);
@@ -198,7 +220,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	ibuffers[9] =  (packet_buffer){nbat->nbfp_s4, sizeof(real) * (nbat->ntype*nbat->ntype*4)};
 	ibuffers[10] = (packet_buffer){nbat->type, sizeof(int) * (nbat->natoms)};
 	ibuffers[11] = (packet_buffer){nbat->lj_comb, sizeof(real) * (nbat->natoms*2)};
-	ibuffers[12] = (packet_buffer){nbat->q, sizeof(real) * (nbat->natoms)};
+	ibuffers[12] = (packet_buffer){nbat->q, sizeof(real) * (bRefreshNbl ? (nbat->natoms):0)};
 	ibuffers[13] = (packet_buffer){nbat->energrp, sizeof(int) * ((nbat->nenergrp>1) ? (nbat->natoms/nbat->na_c):0)};
 	ibuffers[14] = (packet_buffer){nbat->shift_vec, sizeof(rvec) * SHIFTS};
 	ibuffers[15] = (packet_buffer){nbat->x, sizeof(real) * (nbat->natoms * nbat->xstride)};
@@ -271,6 +293,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	                          nocopy(sci_buffer) \
 	                          nocopy(cj_buffer) \
 	                          nocopy(cj4_buffer) \
+	                          nocopy(q_buffer) \
                               in (tip:length(packet_in_size)  REUSE) \
 	                          out(top:length(packet_out_size) REUSE) \
 							  inout(phi_times:length(NUM_TIMES) alloc_if(1) free_if(1))
@@ -312,7 +335,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		nbat->nbfp_s4 = next(it);
 		nbat->type = next(it);
 		nbat->lj_comb = next(it);
-		nbat->q = next(it);
+		nbat->q = refresh_buffer(&q_buffer, it);
 		nbat->energrp = next(it);
 		nbat->shift_vec = next(it);
 		nbat->x = next(it);
