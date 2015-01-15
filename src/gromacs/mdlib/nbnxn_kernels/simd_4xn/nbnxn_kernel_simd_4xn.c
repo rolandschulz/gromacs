@@ -384,14 +384,14 @@ nbnxn_kernel_simd_4xn(nbnxn_pairlist_set_t      gmx_unused *nbl_list,
         for (b = 0; b < flags->nflag; b++)
         {
             gmx_bool r = 1;
-            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tmout);
+            // clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tmout);
             for (i = 0; i < BITMASK_ALEN; i++)
             {
                 r = r && !((flags->flag[b])[i] & our_flag[i]);
             }
-            struct timespec tmout2;
-            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tmout2);
-            timings[nb][5] += diff_clocks(tmout, tmout2);
+            // struct timespec tmout2;
+            // clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tmout2);
+            // timings[nb][5] += diff_clocks(tmout, tmout2);
             if (!r)
             {
                 a0 = b*NBNXN_BUFFERFLAG_SIZE;
