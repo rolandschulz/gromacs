@@ -480,17 +480,17 @@ nbnxn_kernel_simd_4xn(nbnxn_pairlist_set_t      gmx_unused *nbl_list,
         timings[nb][4] = diff_clocks(tmin, tmout);
     }
 
-    int john;
-    int eblen;
-    for (john=0; john<236; john++)
-    {
-    	dprintf(2, "Etimes:");
-    	for (eblen=0; eblen<6; eblen++)
-    	{
-    		dprintf(2, " %ld", timings[john][eblen]);
-    	}
-    	dprintf(2, "\n");
-    }
+//    int john;
+//    int eblen;
+//    for (john=0; john<236; john++)
+//    {
+//    	dprintf(2, "Etimes:");
+//    	for (eblen=0; eblen<6; eblen++)
+//    	{
+//    		dprintf(2, " %ld", timings[john][eblen]);
+//    	}
+//    	dprintf(2, "\n");
+//    }
     if (force_flags & GMX_FORCE_ENERGY)
     {
         reduce_energies_over_lists(nbat, nnbl, Vvdw, Vc);

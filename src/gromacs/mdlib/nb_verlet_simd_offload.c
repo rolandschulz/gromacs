@@ -70,12 +70,6 @@ void mfree(void *p)
     sfree_aligned(c);
 }
 
-void *mrenew(void *p, size_t s)
-{
-    mfree(p);
-    return mmalloc(s);
-}
-
 // TODO: move so that forward declaration isn't needed
 gmx_offload void nbnxn_atomdata_init_simple_exclusion_masks(nbnxn_atomdata_t *nbat);
 
@@ -110,31 +104,65 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	if (bRefreshNbl)
 	{
 		dprintf(2, "Refresh nbl\n");
-		if (nbl_buffer_size > 0) mfree(nbl_buffer);
-		if (ci_buffer_size > 0)  mfree(ci_buffer);
-		if (sci_buffer_size > 0) mfree(sci_buffer);
-		if (cj_buffer_size > 0)  mfree(cj_buffer);
-		if (cj4_buffer_size > 0) mfree(cj4_buffer);
-
-		nbl_buffer_size = nbvg->nbl_lists.nnbl;
-		ci_buffer_size = 0;
-		sci_buffer_size = 0;
-		cj_buffer_size = 0;
-		cj4_buffer_size = 0;
+		int nbl_buffer_size_req = nbvg->nbl_lists.nnbl;
+		int ci_buffer_size_req = 0;
+		int sci_buffer_size_req = 0;
+		int cj_buffer_size_req = 0;
+		int cj4_buffer_size_req = 0;
 		nbnxn_pairlist_t **nbl = nbl_lists->nbl;
-		for (i=0; i<nbl_buffer_size; i++)
+		for (i=0; i<nbl_buffer_size_req; i++)
 		{
-			ci_buffer_size   += nbl[i]->nci;
-			sci_buffer_size  += nbl[i]->nsci;
-			cj_buffer_size   += nbl[i]->ncj;
-			cj4_buffer_size  += nbl[i]->ncj4;
+			ci_buffer_size_req   += nbl[i]->nci;
+			sci_buffer_size_req  += nbl[i]->nsci;
+			cj_buffer_size_req   += nbl[i]->ncj;
+			cj4_buffer_size_req  += nbl[i]->ncj4;
 		}
-		// dprintf(2, "Buffer sizes %d %d %d %d\n", ci_buffer_size, sci_buffer_size, cj_buffer_size, cj4_buffer_size);
-		nbl_buffer = mmalloc(sizeof(nbnxn_pairlist_t)*nbl_buffer_size);
-		if (ci_buffer_size > 0)  ci_buffer = mmalloc(sizeof(nbnxn_ci_t)*ci_buffer_size);
-		if (sci_buffer_size > 0) sci_buffer = mmalloc(sizeof(nbnxn_sci_t)*sci_buffer_size);
-		if (cj_buffer_size > 0)  cj_buffer = mmalloc(sizeof(nbnxn_cj_t)*cj_buffer_size);
-		if (cj4_buffer_size > 0) cj4_buffer = mmalloc(sizeof(nbnxn_cj4_t)*cj4_buffer_size);
+		dprintf(2, "Buffer sizes %d %d %d %d\n", ci_buffer_size_req, sci_buffer_size_req, cj_buffer_size_req, cj4_buffer_size_req);
+		if (nbl_buffer_size_req > nbl_buffer_size)
+		{
+			if (nbl_buffer_size > 0)
+			{
+				mfree(nbl_buffer);
+			}
+			nbl_buffer = mmalloc(sizeof(nbnxn_pairlist_t)*nbl_buffer_size_req);
+			nbl_buffer_size = nbl_buffer_size_req;
+		}
+		if (ci_buffer_size_req > ci_buffer_size)
+		{
+			if (ci_buffer_size > 0)
+			{
+				mfree(ci_buffer);
+			}
+			ci_buffer = mmalloc(sizeof(nbnxn_ci_t)*ci_buffer_size_req);
+			ci_buffer_size = ci_buffer_size_req;
+		}
+		if (sci_buffer_size_req > sci_buffer_size)
+		{
+			if (sci_buffer_size > 0)
+			{
+				mfree(sci_buffer);
+			}
+			sci_buffer = mmalloc(sizeof(nbnxn_sci_t)*sci_buffer_size_req);
+			sci_buffer_size = sci_buffer_size_req;
+		}
+		if (cj_buffer_size_req > cj_buffer_size)
+		{
+			if (cj_buffer_size > 0)
+			{
+				mfree(cj_buffer);
+			}
+			cj_buffer = mmalloc(sizeof(nbnxn_cj_t)*cj_buffer_size_req);
+			cj_buffer_size = cj_buffer_size_req;
+		}
+		if (cj4_buffer_size_req > cj4_buffer_size)
+		{
+			if (cj4_buffer_size > 0)
+			{
+				mfree(cj4_buffer);
+			}
+			cj4_buffer = mmalloc(sizeof(nbnxn_cj4_t)*cj4_buffer_size_req);
+			cj4_buffer_size = cj4_buffer_size_req;
+		}
 
 		// dprintf(2, "Malloced buffers are %p %p %p %p\n", ci_buffer, sci_buffer, cj_buffer, cj4_buffer);
 		int ci_offset  = 0;
@@ -192,14 +220,16 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 
 	// Data needed for force and shift reductions
 	static char *transfer_in_packet = NULL;
+	static size_t current_packet_in_size = 0;
 	size_t packet_in_size = compute_required_size(ibuffers, 25);
-	if (transfer_in_packet == NULL)
+	if (packet_in_size > current_packet_in_size)
 	{
+		if (transfer_in_packet != NULL)
+		{
+			mfree(transfer_in_packet);
+		}
 		transfer_in_packet = mmalloc(packet_in_size);
-	}
-	else
-	{
-		transfer_in_packet = mrenew(transfer_in_packet, packet_in_size);
+		current_packet_in_size = packet_in_size;
 	}
 	packdata(transfer_in_packet, ibuffers, 25);
 
@@ -209,14 +239,16 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	obuffers[2] = ibuffers[21]; // Vvdw
 	obuffers[3] = ibuffers[24]; // Force
 	static char *transfer_out_packet = NULL;
+	static size_t current_packet_out_size = 0;
 	size_t packet_out_size = compute_required_size(obuffers, 4);
-	if (transfer_out_packet == NULL)
+	if (packet_out_size > current_packet_out_size)
 	{
+		if (transfer_out_packet != NULL)
+		{
+			mfree(transfer_out_packet);
+		}
 		transfer_out_packet = mmalloc(packet_out_size);
-	}
-	else
-	{
-		transfer_out_packet = mrenew(transfer_out_packet, packet_out_size);
+		current_packet_out_size = packet_out_size;
 	}
 
 	// TODO: Figure out why we need this kludge for static variables and how to handle it best.
