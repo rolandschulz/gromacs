@@ -67,7 +67,7 @@ void packdata(void *packet, packet_buffer *buffers, int num_buffers)
 		header_ptr += sizeof(size_t);
 		size_t ptr_offset = (size_t)(data_ptr - (char *)packet);
 		memcpy(header_ptr, &ptr_offset, sizeof(size_t));
-		header_ptr += sizeof(void *);
+		header_ptr += sizeof(size_t);
 		memcpy(data_ptr, buffers[i].p, buffers[i].s);
         data_ptr = roundup_ptr(data_ptr + buffers[i].s);
 	}
