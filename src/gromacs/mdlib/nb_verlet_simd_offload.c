@@ -75,7 +75,6 @@ void *refresh_buffer(void **buffer, packet_iter *iter)
 {
     if (size(iter) > 0)
     {
-        dprintf(2, "Refreshing!\n");
         if (*buffer != NULL)
         {
             sfree_aligned(*buffer);
@@ -84,7 +83,6 @@ void *refresh_buffer(void **buffer, packet_iter *iter)
     }
     else
     {
-        dprintf(2, "NOT refreshing!\n");
         next(iter);
     }
 
@@ -119,7 +117,9 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	gmx_offload static nbnxn_sci_t *sci_buffer;
 	gmx_offload static nbnxn_cj_t  *cj_buffer;
 	gmx_offload static nbnxn_cj4_t *cj4_buffer;
-	gmx_offload static real *q_buffer = NULL;
+	gmx_offload static int *type_buffer = NULL;
+    gmx_offload static real *lj_comb_buffer = NULL;
+    gmx_offload static real *q_buffer = NULL;
 
 	gmx_offload static gmx_bool firstRefresh = TRUE;
 	reset_timer(ct);
@@ -218,8 +218,8 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	ibuffers[7] =  (packet_buffer){nbat->nbfp, sizeof(real) * (nbat->ntype*nbat->ntype*2)};
 	ibuffers[8] =  (packet_buffer){nbat->nbfp_comb, sizeof(real) * (nbat->comb_rule != ljcrNONE ? nbat->ntype*2 : 0)};
 	ibuffers[9] =  (packet_buffer){nbat->nbfp_s4, sizeof(real) * (nbat->ntype*nbat->ntype*4)};
-	ibuffers[10] = (packet_buffer){nbat->type, sizeof(int) * (nbat->natoms)};
-	ibuffers[11] = (packet_buffer){nbat->lj_comb, sizeof(real) * (nbat->natoms*2)};
+	ibuffers[10] = (packet_buffer){nbat->type, sizeof(int) * (bRefreshNbl ? (nbat->natoms):0)};
+	ibuffers[11] = (packet_buffer){nbat->lj_comb, sizeof(real) * (bRefreshNbl ? (nbat->natoms*2):0)};
 	ibuffers[12] = (packet_buffer){nbat->q, sizeof(real) * (bRefreshNbl ? (nbat->natoms):0)};
 	ibuffers[13] = (packet_buffer){nbat->energrp, sizeof(int) * ((nbat->nenergrp>1) ? (nbat->natoms/nbat->na_c):0)};
 	ibuffers[14] = (packet_buffer){nbat->shift_vec, sizeof(rvec) * SHIFTS};
@@ -236,6 +236,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	ibuffers[22] = (packet_buffer){fr->nbv->nbs, sizeof(struct nbnxn_search)};
 	ibuffers[23] = (packet_buffer){fr->nbv->nbs->cell, sizeof(int) * (fr->nbv->nbs->cell_nalloc)};
 	ibuffers[24] = (packet_buffer){force_buffer, sizeof(rvec) * fb_size};
+	// dprintf(2, "Force buffer size %lu %lu %lu\n", sizeof(rvec) * fb_size, sizeof(int) * (fr->nbv->nbs->cell_nalloc), sizeof(real) * (nbat->natoms * nbat->xstride));
 
 	// TODO: Figure out if we ever need this
 	int                   ewald_excl = nbvg->ewald_excl;
@@ -293,6 +294,8 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	                          nocopy(sci_buffer) \
 	                          nocopy(cj_buffer) \
 	                          nocopy(cj4_buffer) \
+	                          nocopy(type_buffer) \
+	                          nocopy(lj_comb_buffer) \
 	                          nocopy(q_buffer) \
                               in (tip:length(packet_in_size)  REUSE) \
 	                          out(top:length(packet_out_size) REUSE) \
@@ -333,8 +336,8 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		nbat->nbfp = next(it);
 		nbat->nbfp_comb = next(it);
 		nbat->nbfp_s4 = next(it);
-		nbat->type = next(it);
-		nbat->lj_comb = next(it);
+		nbat->type = refresh_buffer(&type_buffer, it);
+		nbat->lj_comb = refresh_buffer(&lj_comb_buffer, it);
 		nbat->q = refresh_buffer(&q_buffer, it);
 		nbat->energrp = next(it);
 		nbat->shift_vec = next(it);
