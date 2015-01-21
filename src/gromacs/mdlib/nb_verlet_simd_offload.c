@@ -78,7 +78,7 @@ void *refresh_buffer(void **buffer, packet_iter *iter)
         dprintf(2, "Refreshing!\n");
         if (*buffer != NULL)
         {
-            free(*buffer);
+            sfree_aligned(*buffer);
         }
         *buffer = anext(iter);
     }

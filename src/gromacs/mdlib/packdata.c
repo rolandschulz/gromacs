@@ -37,6 +37,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "packdata.h"
+#include "gromacs/utility/smalloc.h"
 
 __declspec(target(mic))
 void *roundup_ptr(void *addr)
@@ -139,8 +140,9 @@ void *next(packet_iter *iter)
 
 void *anext(packet_iter *iter)
 {
+	void *buffer;
 	size_t len = size(iter);
-	void *p = malloc(len);
-	memcpy(p, next(iter), len);
-	return p;
+	snew_aligned(buffer, len, 64);
+	memcpy(buffer, next(iter), len);
+	return buffer;
 }
