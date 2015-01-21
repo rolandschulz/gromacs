@@ -42,6 +42,7 @@
 #include "nbnxn_kernels/simd_2xnn/nbnxn_kernel_simd_2xnn.h"
 #include "gromacs/pbcutil/pbc.h"
 #include "gromacs/utility/smalloc.h"
+#include "gromacs/math/vec.h"
 #include "nb_verlet_simd_offload.h"
 #include "timing.h"
 #include "packdata.h"
@@ -120,6 +121,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	gmx_offload static int *type_buffer = NULL;
     gmx_offload static real *lj_comb_buffer = NULL;
     gmx_offload static real *q_buffer = NULL;
+    gmx_offload static rvec *f_buffer = NULL;
 
 	gmx_offload static gmx_bool firstRefresh = TRUE;
 	reset_timer(ct);
@@ -206,7 +208,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		}
 	}
 
-	packet_buffer ibuffers[25];
+	packet_buffer ibuffers[24];
 	ibuffers[0] =  (packet_buffer){nbl_lists, sizeof(nbnxn_pairlist_set_t) * (bRefreshNbl ? 1:0)};
 	ibuffers[1] =  (packet_buffer){nbl_buffer, sizeof(nbnxn_pairlist_t) * (bRefreshNbl ? nbl_buffer_size : 0)};
 	ibuffers[2] =  (packet_buffer){ci_buffer, sizeof(nbnxn_ci_t) * (bRefreshNbl ? ci_buffer_size : 0)};
@@ -235,7 +237,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	ibuffers[21] = (packet_buffer){Vvdw, sizeof(real) * (enerd->grpp.nener)};
 	ibuffers[22] = (packet_buffer){fr->nbv->nbs, sizeof(struct nbnxn_search)};
 	ibuffers[23] = (packet_buffer){fr->nbv->nbs->cell, sizeof(int) * (fr->nbv->nbs->cell_nalloc)};
-	ibuffers[24] = (packet_buffer){force_buffer, sizeof(rvec) * fb_size};
 	// dprintf(2, "Force buffer size %lu %lu %lu\n", sizeof(rvec) * fb_size, sizeof(int) * (fr->nbv->nbs->cell_nalloc), sizeof(real) * (nbat->natoms * nbat->xstride));
 
 	// TODO: Figure out if we ever need this
@@ -244,7 +245,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	// Data needed for force and shift reductions
 	static char *transfer_in_packet = NULL;
 	static size_t current_packet_in_size = 0;
-	size_t packet_in_size = compute_required_size(ibuffers, 25);
+	size_t packet_in_size = compute_required_size(ibuffers, 24);
 	if (packet_in_size > current_packet_in_size)
 	{
 		if (transfer_in_packet != NULL)
@@ -254,13 +255,13 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		transfer_in_packet = mmalloc(packet_in_size);
 		current_packet_in_size = packet_in_size;
 	}
-	packdata(transfer_in_packet, ibuffers, 25);
+	packdata(transfer_in_packet, ibuffers, 24);
 
 	packet_buffer obuffers[4];
 	obuffers[0] = ibuffers[19]; // FShift
 	obuffers[1] = ibuffers[20]; // Vc
 	obuffers[2] = ibuffers[21]; // Vvdw
-	obuffers[3] = ibuffers[24]; // Force
+	obuffers[3] = (packet_buffer){force_buffer, sizeof(rvec) * fb_size}; // Force
 	static char *transfer_out_packet = NULL;
 	static size_t current_packet_out_size = 0;
 	size_t packet_out_size = compute_required_size(obuffers, 4);
@@ -287,6 +288,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	int j;
 	for (j=0; j<NUM_TIMES; j++) phi_times[j] = 0;
 	reset_timer(ct);
+	size_t fbuffer_size = fb_size;
 #pragma offload target(mic:0) nocopy(out_for_phi) \
 	                          nocopy(nbl_lists) \
 	                          nocopy(nbl_buffer) \
@@ -297,6 +299,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	                          nocopy(type_buffer) \
 	                          nocopy(lj_comb_buffer) \
 	                          nocopy(q_buffer) \
+	                          nocopy(f_buffer) \
                               in (tip:length(packet_in_size)  REUSE) \
 	                          out(top:length(packet_out_size) REUSE) \
 							  inout(phi_times:length(NUM_TIMES) alloc_if(1) free_if(1))
@@ -351,8 +354,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		real *Vvdw = next(it);
 		struct nbnxn_search *nbs = next(it);
 		nbs->cell = next(it);
-		rvec *f_p = next(it);
-        real *flat_f = (real *)f_p;
 		sfree(it);
 
 		code_timer *ct_phi = create_code_timer();
@@ -426,9 +427,14 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		phi_times[2] = get_elapsed_time(ct_phi);
 		reset_timer(ct_phi);
 		bRefreshNbl = FALSE;
-		// Force and shift reductions
 
-        nbnxn_atomdata_add_nbat_f_to_f(nbs, eatAll, nbat, f_p);
+		// Force and shift reductions
+		if (f_buffer == NULL)
+		{
+		    snew_aligned(f_buffer, sizeof(rvec) * fbuffer_size, 64);
+		}
+        clear_rvecs(fbuffer_size, f_buffer);
+        nbnxn_atomdata_add_nbat_f_to_f(nbs, eatAll, nbat, f_buffer);
         // Force reduction time
 		phi_times[3] = get_elapsed_time(ct_phi);
 		reset_timer(ct_phi);
@@ -441,7 +447,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		phi_buffers[0] = get_buffer(tip, 19);
 		phi_buffers[1] = get_buffer(tip, 20);
 		phi_buffers[2] = get_buffer(tip, 21);
-		phi_buffers[3] = get_buffer(tip, 24);
+		phi_buffers[3] = (packet_buffer){f_buffer, sizeof(rvec) * fbuffer_size};
 		packdata(top, phi_buffers, 4);
 		// Pack output buffer time
 		phi_times[5] = get_elapsed_time(ct_phi);

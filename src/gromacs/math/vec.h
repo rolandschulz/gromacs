@@ -423,6 +423,7 @@ static gmx_inline void clear_ivec(ivec a)
     a[ZZ] = 0;
 }
 
+gmx_offload
 static gmx_inline void clear_rvecs(int n, rvec v[])
 {
     int i;
