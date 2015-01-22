@@ -113,17 +113,16 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	static int sci_buffer_size = 0;
 	static int cj_buffer_size  = 0;
 	static int cj4_buffer_size = 0;
-	gmx_offload static nbnxn_pairlist_t *nbl_buffer;
-	gmx_offload static nbnxn_ci_t  *ci_buffer;
-	gmx_offload static nbnxn_sci_t *sci_buffer;
-	gmx_offload static nbnxn_cj_t  *cj_buffer;
-	gmx_offload static nbnxn_cj4_t *cj4_buffer;
+	gmx_offload static nbnxn_pairlist_t *nbl_buffer = NULL;
+	gmx_offload static nbnxn_ci_t  *ci_buffer = NULL;
+	gmx_offload static nbnxn_sci_t *sci_buffer = NULL;
+	gmx_offload static nbnxn_cj_t  *cj_buffer = NULL;
+	gmx_offload static nbnxn_cj4_t *cj4_buffer = NULL;
 	gmx_offload static int *type_buffer = NULL;
     gmx_offload static real *lj_comb_buffer = NULL;
     gmx_offload static real *q_buffer = NULL;
     gmx_offload static rvec *f_buffer = NULL;
 
-	gmx_offload static gmx_bool firstRefresh = TRUE;
 	reset_timer(ct);
 	if (bRefreshNbl)
 	{
@@ -146,45 +145,45 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		{
 			if (nbl_buffer_size > 0)
 			{
-				mfree(nbl_buffer);
+				sfree_aligned(nbl_buffer);
 			}
-			nbl_buffer = mmalloc(sizeof(nbnxn_pairlist_t)*nbl_buffer_size_req);
+			snew_aligned(nbl_buffer, sizeof(nbnxn_pairlist_t)*nbl_buffer_size_req, 64);
 			nbl_buffer_size = nbl_buffer_size_req;
 		}
 		if (ci_buffer_size_req > ci_buffer_size)
 		{
 			if (ci_buffer_size > 0)
 			{
-				mfree(ci_buffer);
+				sfree_aligned(ci_buffer);
 			}
-			ci_buffer = mmalloc(sizeof(nbnxn_ci_t)*ci_buffer_size_req);
+			snew_aligned(ci_buffer, sizeof(nbnxn_ci_t)*ci_buffer_size_req, 64);
 			ci_buffer_size = ci_buffer_size_req;
 		}
 		if (sci_buffer_size_req > sci_buffer_size)
 		{
 			if (sci_buffer_size > 0)
 			{
-				mfree(sci_buffer);
+				sfree_aligned(sci_buffer);
 			}
-			sci_buffer = mmalloc(sizeof(nbnxn_sci_t)*sci_buffer_size_req);
+			snew_aligned(sci_buffer, sizeof(nbnxn_sci_t)*sci_buffer_size_req, 64);
 			sci_buffer_size = sci_buffer_size_req;
 		}
 		if (cj_buffer_size_req > cj_buffer_size)
 		{
 			if (cj_buffer_size > 0)
 			{
-				mfree(cj_buffer);
+				sfree_aligned(cj_buffer);
 			}
-			cj_buffer = mmalloc(sizeof(nbnxn_cj_t)*cj_buffer_size_req);
+			snew_aligned(cj_buffer, sizeof(nbnxn_cj_t)*cj_buffer_size_req, 64);
 			cj_buffer_size = cj_buffer_size_req;
 		}
 		if (cj4_buffer_size_req > cj4_buffer_size)
 		{
 			if (cj4_buffer_size > 0)
 			{
-				mfree(cj4_buffer);
+				sfree_aligned(cj4_buffer);
 			}
-			cj4_buffer = mmalloc(sizeof(nbnxn_cj4_t)*cj4_buffer_size_req);
+			snew_aligned(cj4_buffer, sizeof(nbnxn_cj4_t)*cj4_buffer_size_req, 64);
 			cj4_buffer_size = cj4_buffer_size_req;
 		}
 
@@ -287,8 +286,8 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	smalloc(phi_times, NUM_TIMES * sizeof(double));
 	int j;
 	for (j=0; j<NUM_TIMES; j++) phi_times[j] = 0;
-	reset_timer(ct);
 	size_t fbuffer_size = fb_size;
+	reset_timer(ct);
 #pragma offload target(mic:0) nocopy(out_for_phi) \
 	                          nocopy(nbl_lists) \
 	                          nocopy(nbl_buffer) \
@@ -300,41 +299,24 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	                          nocopy(lj_comb_buffer) \
 	                          nocopy(q_buffer) \
 	                          nocopy(f_buffer) \
-                              in (tip:length(packet_in_size)  REUSE) \
+							  in (tip:length(packet_in_size)  REUSE) \
 	                          out(top:length(packet_out_size) REUSE) \
 							  inout(phi_times:length(NUM_TIMES) alloc_if(1) free_if(1))
-							  // signal(&off_signal) // nocopy(excl:length(nbl[i]->nexcl) ALLOC)
+	//						  signal(&off_signal) // nocopy(excl:length(nbl[i]->nexcl) ALLOC)
 	{
+		code_timer *ct_phi = create_code_timer();
+		reset_timer(ct_phi);
 		// Unpack data
 		packet_iter *it;
 		smalloc(it, sizeof(packet_iter));
 
 		create_packet_iter(tip, it);
-
-		if (bRefreshNbl)
-		{
-			if (!firstRefresh)
-			{
-				free(nbl_lists);
-				free(nbl_buffer);
-				free(ci_buffer);
-				free(sci_buffer);
-				free(cj_buffer);
-				free(cj4_buffer);
-			}
-			nbl_lists = anext(it);
-			nbl_buffer = anext(it);
-			ci_buffer = anext(it);
-			sci_buffer = anext(it);
-			cj_buffer = anext(it);
-			cj4_buffer = anext(it);
-			firstRefresh = FALSE;
-		}
-		else
-		{
-			int i;
-			for (i=0; i<6; i++) next(it);
-		}
+		refresh_buffer(&nbl_lists, it);
+		refresh_buffer(&nbl_buffer, it);
+		refresh_buffer(&ci_buffer, it);
+		refresh_buffer(&sci_buffer, it);
+		refresh_buffer(&cj_buffer, it);
+		refresh_buffer(&cj4_buffer, it);
 		nbnxn_atomdata_t *nbat = next(it);
 		nbat->nbfp = next(it);
 		nbat->nbfp_comb = next(it);
@@ -355,9 +337,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		struct nbnxn_search *nbs = next(it);
 		nbs->cell = next(it);
 		sfree(it);
-
-		code_timer *ct_phi = create_code_timer();
-        reset_timer(ct_phi);
 
         // Neighbor list pointer assignments
         int ci_offset = 0;
@@ -456,7 +435,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	// while(!_Offload_signaled(0, &off_signal)) {}
 	static int counter = -1;
 	counter++;
-	if (counter > 5)
+	if (counter > -1)
 	{
 		dprintf(2, "Total offload time %f\n", get_elapsed_time(ct));
 	}
@@ -464,15 +443,14 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	void *phi_out_buffers[4] = {fshift, Vc, Vvdw, force_buffer};
 	unpackdata(transfer_out_packet, phi_out_buffers, 4);
     // dprintf(2, "Vc is %f and Vvdw is %f\n", Vc[0], Vvdw[0]);
-    if (counter > 5)
+    if (counter > -1)
     {
     	dprintf(2, "Unpack output buffer time %f\n", get_elapsed_time(ct));
     	dprintf(2, "Phi times:");
     	for (int i=0; i<NUM_TIMES; i++) dprintf(2, " %f", phi_times[i]);
     	dprintf(2, "\n");
 	}
+	// dprintf(2, "Off init times %d %f %f\n", counter, off_transfer_time, off_init_time);
 	sfree(phi_times);
-	static int first_kernel_run = 0;
-	if (first_kernel_run) first_kernel_run = 0;
 	free_code_timer(ct);
 }
