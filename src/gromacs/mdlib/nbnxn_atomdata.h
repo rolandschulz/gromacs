@@ -111,12 +111,24 @@ void nbnxn_atomdata_copy_x_to_nbat_x(const nbnxn_search_t nbs,
                                      rvec                *x,
                                      nbnxn_atomdata_t    *nbat);
 
+gmx_offload
+void nbnxn_atomdata_add_nbat_f_to_f_treereduce(const nbnxn_atomdata_t *nbat,
+                                               int                     nth);
+
 /* Add the forces stored in nbat to f, zeros the forces in nbat */
 gmx_offload
 void nbnxn_atomdata_add_nbat_f_to_f(const nbnxn_search_t    nbs,
                                     int                     locality,
                                     const nbnxn_atomdata_t *nbat,
                                     rvec                   *f);
+
+/* Actual adding of force arrays to f - assumes force reductions have been done */
+gmx_offload
+void nbnxn_atomdata_add_nbat_f_to_f_final(const nbnxn_search_t    nbs,
+                                          int                     locality,
+                                          const nbnxn_atomdata_t *nbat,
+                                          rvec                   *f,
+										  int                    nth);
 
 /* Add the fshift force stored in nbat to fshift */
 gmx_offload

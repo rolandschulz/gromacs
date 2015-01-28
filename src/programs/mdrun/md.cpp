@@ -303,8 +303,6 @@ double do_md(FILE *fplog, t_commrec *cr, int nfile, const t_filenm fnm[],
     else
     {
         snew(f, top_global->natoms);
-        force_buffer = f;
-        fb_size = top_global->natoms;
     }
 
     /* Kinetic energy data */

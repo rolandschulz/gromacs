@@ -152,6 +152,12 @@ void nbnxn_atomdata_realloc(nbnxn_atomdata_t *nbat, int n)
     }
     else
     {
+		// Only nbat->out[0] needed on the CPU to store the forces after they
+    	// are reduced on the coprocessor.
+		nbnxn_realloc_void((void **)&nbat->out[0].f,
+		    				nbat->natoms*nbat->fstride*sizeof(*nbat->out[0].f),
+		    				n*nbat->fstride*sizeof(*nbat->out[0].f),
+		    				nbat->alloc, nbat->free);
 #pragma offload target(mic:0) in(nbat:length(1)) nocopy(out_for_phi)
     	{
     		for (t = 0; t < nbat->nout; t++)
@@ -827,6 +833,13 @@ void nbnxn_atomdata_init(FILE *fp,
     }
     else
     {
+		// Only nbat->out[0] needed on the CPU to store the forces after they
+    	// are reduced on the coprocessor.
+    	snew(nbat->out, 1);
+		nbnxn_atomdata_output_init(&nbat->out[0],
+				nb_kernel_type,
+				nbat->nenergrp, 1<<nbat->neg_2log,
+				nbat->alloc);
 #pragma offload target(mic:0) in(nbat:length(1)) nocopy(out_for_phi)
     	{
     		int i;
@@ -1480,9 +1493,8 @@ static gmx_inline unsigned char reverse_bits(unsigned char b)
     return (b * 0x0202020202ULL & 0x010884422010ULL) % 1023;
 }
 
-gmx_offload
-static void nbnxn_atomdata_add_nbat_f_to_f_treereduce(const nbnxn_atomdata_t *nbat,
-                                                      int                     nth)
+void nbnxn_atomdata_add_nbat_f_to_f_treereduce(const nbnxn_atomdata_t *nbat,
+                                               int                     nth)
 {
     const nbnxn_buffer_flags_t *flags = &nbat->buffer_flags;
 
@@ -1668,28 +1680,11 @@ void nbnxn_atomdata_add_nbat_f_to_f(const nbnxn_search_t    nbs,
                                     const nbnxn_atomdata_t *nbat,
                                     rvec                   *f)
 {
-    int a0 = 0, na = 0;
     int nth, th;
 
 #ifndef GMX_OFFLOAD
     nbs_cycle_start(&nbs->cc[enbsCCreducef]);
 #endif
-
-    switch (locality)
-    {
-        case eatAll:
-            a0 = 0;
-            na = nbs->natoms_nonlocal;
-            break;
-        case eatLocal:
-            a0 = 0;
-            na = nbs->natoms_local;
-            break;
-        case eatNonlocal:
-            a0 = nbs->natoms_local;
-            na = nbs->natoms_nonlocal - nbs->natoms_local;
-            break;
-    }
 
     nth = gmx_omp_nthreads_get(emntNonbonded);
 
@@ -1714,6 +1709,40 @@ void nbnxn_atomdata_add_nbat_f_to_f(const nbnxn_search_t    nbs,
 #endif
         }
     }
+
+    nbnxn_atomdata_add_nbat_f_to_f_final(nbs, locality, nbat, f, nth);
+
+#ifndef GMX_OFFLOAD
+    nbs_cycle_stop(&nbs->cc[enbsCCreducef]);
+#endif
+}
+
+/* Actual adding of force arrays to f - assumes force reductions have been done */
+void nbnxn_atomdata_add_nbat_f_to_f_final(const nbnxn_search_t    nbs,
+                                          int                     locality,
+                                          const nbnxn_atomdata_t *nbat,
+                                          rvec                   *f,
+										  int                    nth)
+{
+    int a0 = 0, na = 0;
+    int th;
+
+    switch (locality)
+    {
+        case eatAll:
+            a0 = 0;
+            na = nbs->natoms_nonlocal;
+            break;
+        case eatLocal:
+            a0 = 0;
+            na = nbs->natoms_local;
+            break;
+        case eatNonlocal:
+            a0 = nbs->natoms_local;
+            na = nbs->natoms_nonlocal - nbs->natoms_local;
+            break;
+    }
+
 #pragma omp parallel for num_threads(nth) schedule(static)
     for (th = 0; th < nth; th++)
     {
@@ -1724,10 +1753,6 @@ void nbnxn_atomdata_add_nbat_f_to_f(const nbnxn_search_t    nbs,
                                             a0+((th+1)*na)/nth,
                                             f);
     }
-
-#ifndef GMX_OFFLOAD
-    nbs_cycle_stop(&nbs->cc[enbsCCreducef]);
-#endif
 }
 
 /* Adds the shift forces from nbnxn_atomdata_t to fshift */

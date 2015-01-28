@@ -40,6 +40,7 @@
 #include "nbnxn_atomdata.h"
 #include "nb_verlet.h"
 #include "nbnxn_kernels/simd_2xnn/nbnxn_kernel_simd_2xnn.h"
+#include "gromacs/legacyheaders/gmx_omp_nthreads.h"
 #include "gromacs/pbcutil/pbc.h"
 #include "gromacs/utility/smalloc.h"
 #include "gromacs/math/vec.h"
@@ -49,14 +50,15 @@
 
 gmx_bool bUseOffloadedKernel = FALSE;
 gmx_offload gmx_bool bRefreshNbl = TRUE;
-rvec *force_buffer = NULL;
-size_t fb_size = 0;
 gmx_offload char *input_buffer;
 gmx_offload char *output_buffer;
 
 #define REUSE alloc_if(0) free_if(0)
 #define ALLOC alloc_if(1) free_if(0)
 #define FREE  alloc_if(0) free_if(1)
+
+#define NUM_OFFLOAD_BUFFERS 22
+
 // "Mirror" malloc with corresponding renew and free. Memory is allocated on both
 // host and coprocessor, and the two are linked to support offloading operations.
 
@@ -133,7 +135,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	gmx_offload static int *type_buffer = NULL;
     gmx_offload static real *lj_comb_buffer = NULL;
     gmx_offload static real *q_buffer = NULL;
-    gmx_offload static rvec *f_buffer = NULL;
 
 	reset_timer(ct);
 	if (bRefreshNbl)
@@ -219,7 +220,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		}
 	}
 
-	packet_buffer ibuffers[24];
+	packet_buffer ibuffers[NUM_OFFLOAD_BUFFERS];
 	ibuffers[0] =  (packet_buffer){nbl_lists, sizeof(nbnxn_pairlist_set_t) * (bRefreshNbl ? 1:0)};
 	ibuffers[1] =  (packet_buffer){nbl_buffer, sizeof(nbnxn_pairlist_t) * (bRefreshNbl ? nbl_buffer_size : 0)};
 	ibuffers[2] =  (packet_buffer){ci_buffer, sizeof(nbnxn_ci_t) * (bRefreshNbl ? ci_buffer_size : 0)};
@@ -246,9 +247,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	ibuffers[19] = (packet_buffer){fshift, sizeof(real) * (DIM*SHIFTS)};
 	ibuffers[20] = (packet_buffer){Vc, sizeof(real) * (enerd->grpp.nener)};
 	ibuffers[21] = (packet_buffer){Vvdw, sizeof(real) * (enerd->grpp.nener)};
-	ibuffers[22] = (packet_buffer){fr->nbv->nbs, sizeof(struct nbnxn_search)};
-	ibuffers[23] = (packet_buffer){fr->nbv->nbs->cell, sizeof(int) * (fr->nbv->nbs->cell_nalloc)};
-	// dprintf(2, "Force buffer size %lu %lu %lu\n", sizeof(rvec) * fb_size, sizeof(int) * (fr->nbv->nbs->cell_nalloc), sizeof(real) * (nbat->natoms * nbat->xstride));
 
 	// TODO: Figure out if we ever need this
 	int                   ewald_excl = nbvg->ewald_excl;
@@ -256,7 +254,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	// Data needed for force and shift reductions
 	static char *transfer_in_packet = NULL;
 	static size_t current_packet_in_size = 0;
-	size_t packet_in_size = compute_required_size(ibuffers, 24);
+	size_t packet_in_size = compute_required_size(ibuffers, NUM_OFFLOAD_BUFFERS);
 	if (packet_in_size > current_packet_in_size)
 	{
 		if (transfer_in_packet != NULL)
@@ -266,13 +264,13 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		transfer_in_packet = mmalloc(packet_in_size, &input_buffer);
 		current_packet_in_size = packet_in_size;
 	}
-	packdata(transfer_in_packet, ibuffers, 24);
+	packdata(transfer_in_packet, ibuffers, NUM_OFFLOAD_BUFFERS);
 
 	packet_buffer obuffers[4];
 	obuffers[0] = ibuffers[19]; // FShift
 	obuffers[1] = ibuffers[20]; // Vc
 	obuffers[2] = ibuffers[21]; // Vvdw
-	obuffers[3] = (packet_buffer){force_buffer, sizeof(rvec) * fb_size}; // Force
+	obuffers[3] = (packet_buffer){nbat->out[0].f, sizeof(real) * nbat->natoms * nbat->fstride}; // Force
 	static char *transfer_out_packet = NULL;
 	static size_t current_packet_out_size = 0;
 	size_t packet_out_size = compute_required_size(obuffers, 4);
@@ -298,7 +296,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	smalloc(phi_times, NUM_TIMES * sizeof(double));
 	int j;
 	for (j=0; j<NUM_TIMES; j++) phi_times[j] = 0;
-	size_t fbuffer_size = fb_size;
 	reset_timer(ct);
 #pragma offload target(mic:0) nocopy(out_for_phi) \
 	                          nocopy(nbl_lists) \
@@ -310,7 +307,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	                          nocopy(type_buffer) \
 	                          nocopy(lj_comb_buffer) \
 	                          nocopy(q_buffer) \
-	                          nocopy(f_buffer) \
 							  in (tip[0:packet_in_size] :  into(input_buffer[0:packet_in_size]) REUSE targetptr) \
 							  out(output_buffer[0:packet_out_size] : into(top[0:packet_out_size]) REUSE targetptr) \
 	//						  signal(&off_signal) // nocopy(excl:length(nbl[i]->nexcl) ALLOC)
@@ -347,8 +343,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		real *fshift = next(it);
 		real *Vc = next(it);
 		real *Vvdw = next(it);
-		struct nbnxn_search *nbs = next(it);
-		nbs->cell = next(it);
 		sfree(it);
 
         // Neighbor list pointer assignments
@@ -421,12 +415,8 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		bRefreshNbl = FALSE;
 
 		// Force and shift reductions
-		if (f_buffer == NULL)
-		{
-		    snew_aligned(f_buffer, sizeof(rvec) * fbuffer_size, 64);
-		}
-        clear_rvecs(fbuffer_size, f_buffer);
-        nbnxn_atomdata_add_nbat_f_to_f(nbs, eatAll, nbat, f_buffer);
+        nbnxn_atomdata_add_nbat_f_to_f_treereduce(nbat, gmx_omp_nthreads_get(emntNonbonded));
+
         // Force reduction time
 		// phi_times[3] = get_elapsed_time(ct_phi);
 		reset_timer(ct_phi);
@@ -439,7 +429,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		phi_buffers[0] = get_buffer(tip, 19);
 		phi_buffers[1] = get_buffer(tip, 20);
 		phi_buffers[2] = get_buffer(tip, 21);
-		phi_buffers[3] = (packet_buffer){f_buffer, sizeof(rvec) * fbuffer_size};
+		phi_buffers[3] = (packet_buffer){nbat->out[0].f, sizeof(real) * nbat->natoms * nbat->fstride};
 		packdata(top, phi_buffers, 4);
 		// Pack output buffer time
 		// phi_times[5] = get_elapsed_time(ct_phi);
@@ -453,7 +443,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		dprintf(2, "Total offload time %f\n", get_elapsed_time(ct));
 	}
 	reset_timer(ct);
-	void *phi_out_buffers[4] = {fshift, Vc, Vvdw, force_buffer};
+	void *phi_out_buffers[4] = {fshift, Vc, Vvdw, nbat->out[0].f};
 	unpackdata(transfer_out_packet, phi_out_buffers, 4);
     // dprintf(2, "Vc is %f and Vvdw is %f\n", Vc[0], Vvdw[0]);
     if (counter > -1)

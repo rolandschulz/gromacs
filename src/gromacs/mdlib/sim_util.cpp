@@ -1184,6 +1184,12 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
         /* Maybe we should move this into do_force_lowlevel */
         do_nb_verlet(fr, ic, enerd, flags, eintLocal, enbvClearFYes,
                      nrnb, wcycle);
+        if (bUseOffloadedKernel)
+        {
+            nbnxn_atomdata_add_nbat_f_to_f_final(fr->nbv->nbs, eatAll,
+                                                 fr->nbv->grp[eintLocal].nbat, f,
+                                                 gmx_omp_nthreads_get(emntDefault));
+        }
     }
 
     if (fr->efep != efepNO)
