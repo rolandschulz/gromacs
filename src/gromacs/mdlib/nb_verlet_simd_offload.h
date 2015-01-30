@@ -62,6 +62,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
                                     int clearF,
                                     t_nrnb *nrnb,
                                     gmx_wallcycle_t wcycle);
+void wait_for_offload();
 #ifdef __cplusplus
 }
 #endif

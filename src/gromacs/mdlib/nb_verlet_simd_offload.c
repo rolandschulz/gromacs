@@ -52,6 +52,7 @@ gmx_bool bUseOffloadedKernel = FALSE;
 gmx_offload gmx_bool bRefreshNbl = TRUE;
 gmx_offload char *input_buffer;
 gmx_offload char *output_buffer;
+static float off_signal = 0;
 
 #define REUSE alloc_if(0) free_if(0)
 #define ALLOC alloc_if(1) free_if(0)
@@ -290,13 +291,13 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	// dprintf(2, "Packet sizes in out %lu %lu\n", packet_in_size, packet_out_size);
 	// dprintf(2, "Transfer packet information: %p %d %d\n", transfer_out_packet, packet_out_size, current_packet_out_size);
 	// dprintf(2, "Sizes of stuff %d %d %d %d\n", sizeof(nbnxn_pairlist_set_t), sizeof(nbnxn_pairlist_t), sizeof(nbnxn_ci_t), sizeof(nbnxn_sci_t));
-	int off_signal = 0;
 #define NUM_TIMES 10
 	double *phi_times;
 	smalloc(phi_times, NUM_TIMES * sizeof(double));
 	int j;
 	for (j=0; j<NUM_TIMES; j++) phi_times[j] = 0;
 	reset_timer(ct);
+	dprintf(2, "Starting the offload!\n");
 #pragma offload target(mic:0) nocopy(out_for_phi) \
 	                          nocopy(nbl_lists) \
 	                          nocopy(nbl_buffer) \
@@ -309,7 +310,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	                          nocopy(q_buffer) \
 							  in (tip[0:packet_in_size] :  into(input_buffer[0:packet_in_size]) REUSE targetptr) \
 							  out(output_buffer[0:packet_out_size] : into(top[0:packet_out_size]) REUSE targetptr) \
-	//						  signal(&off_signal) // nocopy(excl:length(nbl[i]->nexcl) ALLOC)
+    						  signal(&off_signal) // nocopy(excl:length(nbl[i]->nexcl) ALLOC)
 	{
 	    void *tip = input_buffer;
 	    void *top = output_buffer;
@@ -434,8 +435,8 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		// Pack output buffer time
 		// phi_times[5] = get_elapsed_time(ct_phi);
 		free_code_timer(ct_phi);
+		dprintf(2, "Offload compute finished\n");
 	}
-	// while(!_Offload_signaled(0, &off_signal)) {}
 	static int counter = -1;
 	counter++;
 	if (counter > -1)
@@ -454,6 +455,14 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
     	dprintf(2, "\n");
 	}
 	// dprintf(2, "Off init times %d %f %f\n", counter, off_transfer_time, off_init_time);
-	sfree(phi_times);
+    // TODO: Memory leak because we can no longer free this for async. This is debugging,
+    // though, and should eventually be removed.
+	// sfree(phi_times);
 	free_code_timer(ct);
+}
+
+void wait_for_offload()
+{
+#pragma offload_wait target(mic:0) wait(&off_signal)
+	dprintf(2, "Offload is done!\n");
 }
