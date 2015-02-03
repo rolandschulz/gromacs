@@ -51,17 +51,63 @@ gmx_bool bUseOffloadedKernel = FALSE;
 gmx_offload gmx_bool bRefreshNbl = TRUE;
 rvec *force_buffer = NULL;
 size_t fb_size = 0;
+gmx_offload char *input_buffer;
+gmx_offload char *output_buffer;
 
 #define REUSE alloc_if(0) free_if(0)
-
+#define ALLOC alloc_if(1) free_if(0)
+#define FREE  alloc_if(0) free_if(1)
 // "Mirror" malloc with corresponding renew and free. Memory is allocated on both
 // host and coprocessor, and the two are linked to support offloading operations.
-void *mmalloc(size_t s)
+
+void *mmalloc_in(size_t s)
 {
 	char *p;
 	snew_aligned(p,s,64);
-#pragma offload_transfer target(mic:0) in(p:length(s) alloc_if(1) free_if(0))
+#pragma offload target(mic:0) nocopy(input_buffer:length(s) ALLOC preallocated targetptr)
+	{
+	  snew_aligned(input_buffer,s,64);
+	}
 	return p;
+}
+
+void mfree_in(void *p)
+{
+    char *c = (char *)p;
+#pragma offload target(mic:0) nocopy(input_buffer:length(0) FREE preallocated targetptr)
+    {
+        sfree_aligned(input_buffer);
+    }
+    sfree_aligned(c);
+}
+
+void *mmalloc_out(size_t s)
+{
+    char *p;
+    snew_aligned(p,s,64);
+#pragma offload target(mic:0) nocopy(p) nocopy(output_buffer:length(s) ALLOC preallocated targetptr)
+    {
+      snew_aligned(output_buffer,s,64);
+    }
+    return p;
+}
+
+void mfree_out(void *p)
+{
+    char *c = (char *)p;
+#pragma offload target(mic:0) nocopy(output_buffer:length(0) FREE preallocated targetptr)
+    {
+        sfree_aligned(output_buffer);
+    }
+    sfree_aligned(c);
+}
+
+void *mmalloc(size_t s)
+{
+        char *p;
+        snew_aligned(p,s,64);
+#pragma offload_transfer target(mic:0) in(p:length(s) alloc_if(1) free_if(0))
+        return p;
 }
 
 void mfree(void *p)
@@ -247,11 +293,12 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	size_t packet_in_size = compute_required_size(ibuffers, 24);
 	if (packet_in_size > current_packet_in_size)
 	{
+	    dprintf(2, "Need more memory %lu %lu\n", packet_in_size, current_packet_in_size);
 		if (transfer_in_packet != NULL)
 		{
-			mfree(transfer_in_packet);
+			mfree_in(transfer_in_packet);
 		}
-		transfer_in_packet = mmalloc(packet_in_size);
+		transfer_in_packet = mmalloc_in(packet_in_size);
 		current_packet_in_size = packet_in_size;
 	}
 	packdata(transfer_in_packet, ibuffers, 24);
@@ -268,9 +315,9 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	{
 		if (transfer_out_packet != NULL)
 		{
-			mfree(transfer_out_packet);
+			mfree_out(transfer_out_packet);
 		}
-		transfer_out_packet = mmalloc(packet_out_size);
+		transfer_out_packet = mmalloc_out(packet_out_size);
 		current_packet_out_size = packet_out_size;
 	}
 
@@ -299,11 +346,12 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	                          nocopy(lj_comb_buffer) \
 	                          nocopy(q_buffer) \
 	                          nocopy(f_buffer) \
-							  in (tip:length(packet_in_size)  REUSE) \
-	                          out(top:length(packet_out_size) REUSE) \
-							  inout(phi_times:length(NUM_TIMES) alloc_if(1) free_if(1))
+							  in (tip[0:packet_in_size] :  into(input_buffer[0:packet_in_size]) REUSE targetptr) \
+							  out(output_buffer[0:packet_out_size] : into(top[0:packet_out_size]) REUSE targetptr) \
 	//						  signal(&off_signal) // nocopy(excl:length(nbl[i]->nexcl) ALLOC)
 	{
+	    void *tip = input_buffer;
+	    void *top = output_buffer;
 		code_timer *ct_phi = create_code_timer();
 		reset_timer(ct_phi);
 		// Unpack data
@@ -371,7 +419,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		//                nbat->simd_exclusion_filter1       = simd_exclusion_filter1_p;
 		//                nbat->simd_exclusion_filter2       = simd_exclusion_filter2_p;
         // Unpacking time
-        phi_times[0] = get_elapsed_time(ct_phi);
+        // phi_times[0] = get_elapsed_time(ct_phi);
         reset_timer(ct_phi);
 		nbnxn_atomdata_init_simple_exclusion_masks(nbat); //TODO: much better to just init that on the MIC - but the function is static there. Probably the whole copy code should be moved there anyhow and then we call this functions
 		/*TODO: ic: table (only if tables are used)
@@ -387,7 +435,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
         		        it isn't OK to reuse the data and not free it. This is currently the case for the elements within nbl_lists and nbat
 		 */
 		// Mask time
-		phi_times[1] = get_elapsed_time(ct_phi);
+		// phi_times[1] = get_elapsed_time(ct_phi);
 		reset_timer(ct_phi);
 		nbnxn_kernel_simd_2xnn(nbl_lists,   //Neighbor list: needs to be send after each update
 				//nbat contains cordinates (need to be send each step), forces (have to be send back), static information (e.g. charges)
@@ -403,7 +451,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		// TODO: Put back in when we figure out how to know when to free.
 		// free (nbl_lists->nbl);
 		// Kernel only time
-		phi_times[2] = get_elapsed_time(ct_phi);
+		// phi_times[2] = get_elapsed_time(ct_phi);
 		reset_timer(ct_phi);
 		bRefreshNbl = FALSE;
 
@@ -415,12 +463,12 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
         clear_rvecs(fbuffer_size, f_buffer);
         nbnxn_atomdata_add_nbat_f_to_f(nbs, eatAll, nbat, f_buffer);
         // Force reduction time
-		phi_times[3] = get_elapsed_time(ct_phi);
+		// phi_times[3] = get_elapsed_time(ct_phi);
 		reset_timer(ct_phi);
         // TODO: Figure out if we can always assume that this is done.
         nbnxn_atomdata_add_nbat_fshift_to_fshift(nbat, (rvec *)fshift);
 		// Fshift reduction time
-		phi_times[4] = get_elapsed_time(ct_phi);
+		// phi_times[4] = get_elapsed_time(ct_phi);
 		reset_timer(ct_phi);
 		packet_buffer phi_buffers[4];
 		phi_buffers[0] = get_buffer(tip, 19);
@@ -429,7 +477,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		phi_buffers[3] = (packet_buffer){f_buffer, sizeof(rvec) * fbuffer_size};
 		packdata(top, phi_buffers, 4);
 		// Pack output buffer time
-		phi_times[5] = get_elapsed_time(ct_phi);
+		// phi_times[5] = get_elapsed_time(ct_phi);
 		free_code_timer(ct_phi);
 	}
 	// while(!_Offload_signaled(0, &off_signal)) {}
