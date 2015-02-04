@@ -60,60 +60,26 @@ gmx_offload char *output_buffer;
 // "Mirror" malloc with corresponding renew and free. Memory is allocated on both
 // host and coprocessor, and the two are linked to support offloading operations.
 
-void *mmalloc_in(size_t s)
+void *mmalloc(size_t s, void **off_ptr)
 {
 	char *p;
 	snew_aligned(p,s,64);
-#pragma offload target(mic:0) nocopy(input_buffer:length(s) ALLOC preallocated targetptr)
+	char *off_ptr_val;
+#pragma offload target(mic:0) nocopy(off_ptr_val:length(s) ALLOC preallocated targetptr)
 	{
-	  snew_aligned(input_buffer,s,64);
+	  snew_aligned(off_ptr_val,s,64);
 	}
+	*off_ptr = off_ptr_val;
 	return p;
 }
 
-void mfree_in(void *p)
+void mfree(void *p, void *off_ptr_val)
 {
     char *c = (char *)p;
-#pragma offload target(mic:0) nocopy(input_buffer:length(0) FREE preallocated targetptr)
+#pragma offload target(mic:0) nocopy(off_ptr_val:length(0) FREE preallocated targetptr)
     {
-        sfree_aligned(input_buffer);
+        sfree_aligned(off_ptr_val);
     }
-    sfree_aligned(c);
-}
-
-void *mmalloc_out(size_t s)
-{
-    char *p;
-    snew_aligned(p,s,64);
-#pragma offload target(mic:0) nocopy(p) nocopy(output_buffer:length(s) ALLOC preallocated targetptr)
-    {
-      snew_aligned(output_buffer,s,64);
-    }
-    return p;
-}
-
-void mfree_out(void *p)
-{
-    char *c = (char *)p;
-#pragma offload target(mic:0) nocopy(output_buffer:length(0) FREE preallocated targetptr)
-    {
-        sfree_aligned(output_buffer);
-    }
-    sfree_aligned(c);
-}
-
-void *mmalloc(size_t s)
-{
-        char *p;
-        snew_aligned(p,s,64);
-#pragma offload_transfer target(mic:0) in(p:length(s) alloc_if(1) free_if(0))
-        return p;
-}
-
-void mfree(void *p)
-{
-    char *c = (char *)p;
-#pragma offload_transfer target(mic:0) in(c:length(0) alloc_if(0) free_if(1))
     sfree_aligned(c);
 }
 
@@ -293,12 +259,11 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	size_t packet_in_size = compute_required_size(ibuffers, 24);
 	if (packet_in_size > current_packet_in_size)
 	{
-	    dprintf(2, "Need more memory %lu %lu\n", packet_in_size, current_packet_in_size);
 		if (transfer_in_packet != NULL)
 		{
-			mfree_in(transfer_in_packet);
+			mfree(transfer_in_packet, input_buffer);
 		}
-		transfer_in_packet = mmalloc_in(packet_in_size);
+		transfer_in_packet = mmalloc(packet_in_size, &input_buffer);
 		current_packet_in_size = packet_in_size;
 	}
 	packdata(transfer_in_packet, ibuffers, 24);
@@ -315,9 +280,9 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	{
 		if (transfer_out_packet != NULL)
 		{
-			mfree_out(transfer_out_packet);
+			mfree(transfer_out_packet, output_buffer);
 		}
-		transfer_out_packet = mmalloc_out(packet_out_size);
+		transfer_out_packet = mmalloc(packet_out_size, &output_buffer);
 		current_packet_out_size = packet_out_size;
 	}
 
