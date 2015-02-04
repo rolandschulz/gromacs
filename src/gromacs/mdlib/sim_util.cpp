@@ -1438,13 +1438,15 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
 
     if (bUseOffloadedKernel)
     {
-    	dprintf(2, "Waiting for Phi\n");
     	wait_for_offload();
-    	dprintf(2, "About time!\n");
         nbnxn_atomdata_add_nbat_f_to_f_final(fr->nbv->nbs, eatAll,
                                              fr->nbv->grp[eintLocal].nbat, f,
                                              gmx_omp_nthreads_get(emntDefault));
-        dprintf(2, "Okay - forces computed\n");
+        int j;
+        for (j=0; j<DIM * SHIFTS; j++)
+        {
+        	((real *)fr->fshift)[j] += fr->nbv->grp[eintLocal].nbat->out[0].fshift[j];
+        }
     }
 
     if (DOMAINDECOMP(cr))
