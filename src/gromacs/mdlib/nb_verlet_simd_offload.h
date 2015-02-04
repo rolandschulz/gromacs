@@ -58,7 +58,7 @@ extern size_t fb_size;
 void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
                                     interaction_const_t *ic,
                                     gmx_enerdata_t *enerd,
-                                    int flags, int ilocality,
+									int flags, int ilocality,
                                     int clearF,
                                     t_nrnb *nrnb,
                                     gmx_wallcycle_t wcycle);

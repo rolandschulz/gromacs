@@ -60,6 +60,14 @@ static float off_signal = 0;
 
 #define NUM_OFFLOAD_BUFFERS 22
 
+typedef struct offload_unpack_data_struct
+{
+    char *out_packet_addr;
+    void *cpu_buffers[4];
+} offload_unpack_data;
+
+static offload_unpack_data unpack_data;
+
 // "Mirror" malloc with corresponding renew and free. Memory is allocated on both
 // host and coprocessor, and the two are linked to support offloading operations.
 
@@ -113,7 +121,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
                                     gmx_enerdata_t *enerd,
                                     int flags, int ilocality,
                                     int clearF,
-                                    t_nrnb *nrnb,
+									t_nrnb *nrnb,
                                     gmx_wallcycle_t wcycle)
 {
 	code_timer *ct = create_code_timer();
@@ -268,7 +276,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	packdata(transfer_in_packet, ibuffers, NUM_OFFLOAD_BUFFERS);
 
 	packet_buffer obuffers[4];
-	obuffers[0] = ibuffers[19]; // FShift
+	obuffers[0] = (packet_buffer){nbat->out[0].fshift, sizeof(real) * SHIFTS * DIM};
 	obuffers[1] = ibuffers[20]; // Vc
 	obuffers[2] = ibuffers[21]; // Vvdw
 	obuffers[3] = (packet_buffer){nbat->out[0].f, sizeof(real) * nbat->natoms * nbat->fstride}; // Force
@@ -444,9 +452,11 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		dprintf(2, "Total offload time %f\n", get_elapsed_time(ct));
 	}
 	reset_timer(ct);
-	void *phi_out_buffers[4] = {fshift, Vc, Vvdw, nbat->out[0].f};
-	unpackdata(transfer_out_packet, phi_out_buffers, 4);
-    // dprintf(2, "Vc is %f and Vvdw is %f\n", Vc[0], Vvdw[0]);
+	unpack_data.out_packet_addr = transfer_out_packet;
+	unpack_data.cpu_buffers[0] = nbat->out[0].fshift;
+	unpack_data.cpu_buffers[1] = Vc;
+	unpack_data.cpu_buffers[2] = Vvdw;
+	unpack_data.cpu_buffers[3] = nbat->out[0].f;
     if (counter > -1)
     {
     	dprintf(2, "Unpack output buffer time %f\n", get_elapsed_time(ct));
@@ -454,7 +464,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
     	for (int i=0; i<NUM_TIMES; i++) dprintf(2, " %f", phi_times[i]);
     	dprintf(2, "\n");
 	}
-	// dprintf(2, "Off init times %d %f %f\n", counter, off_transfer_time, off_init_time);
     // TODO: Memory leak because we can no longer free this for async. This is debugging,
     // though, and should eventually be removed.
 	// sfree(phi_times);
@@ -464,5 +473,5 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 void wait_for_offload()
 {
 #pragma offload_wait target(mic:0) wait(&off_signal)
-	dprintf(2, "Offload is done!\n");
+	unpackdata(unpack_data.out_packet_addr, unpack_data.cpu_buffers, 4);
 }
