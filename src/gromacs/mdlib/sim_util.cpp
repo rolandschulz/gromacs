@@ -97,9 +97,12 @@
 #include "gromacs/utility/gmxmpi.h"
 #include "gromacs/utility/smalloc.h"
 #include "gromacs/utility/sysinfo.h"
+#include "gromacs/mdlib/timing.h"
 
 #include "adress.h"
 #include "nbnxn_gpu.h"
+
+static code_timer *sim_ct;
 
 void print_time(FILE                     *out,
                 gmx_walltime_accounting_t walltime_accounting,
@@ -519,7 +522,11 @@ static void do_nb_verlet(t_forcerec *fr,
         case nbnxnk4xN_SIMD_2xNN:
         	if (bUseOffloadedKernel)
         	{
+        		sim_ct = create_code_timer();
+        		reset_timer(sim_ct);
         		nbnxn_kernel_simd_2xnn_offload(fr, ic, enerd, flags, ilocality, clearF, nrnb, wcycle);
+        		dprintf(2, "Offload call overhead %f\n", get_elapsed_time(sim_ct));
+        		reset_timer(sim_ct);
         	}
         	else
         	{
@@ -1438,11 +1445,21 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
 
     if (bUseOffloadedKernel)
     {
+    	code_timer *ct = create_code_timer();
+    	reset_timer(ct);
+    	dprintf(2, "Other force time %f\n", get_elapsed_time(sim_ct));
     	wait_for_offload();
+    	dprintf(2, "Offload wait time %f\n", get_elapsed_time(ct));
+    	int j;
+    	dprintf(2, "Offload timings:");
+    	for (j=0; j<NUM_TIMES; j++)
+    	{
+    		dprintf(2, " %f", phi_times[j]);
+    	}
+    	dprintf(2, "\n");
         nbnxn_atomdata_add_nbat_f_to_f_final(fr->nbv->nbs, eatAll,
                                              fr->nbv->grp[eintLocal].nbat, f,
                                              gmx_omp_nthreads_get(emntDefault));
-        int j;
         for (j=0; j<DIM * SHIFTS; j++)
         {
         	((real *)fr->fshift)[j] += fr->nbv->grp[eintLocal].nbat->out[0].fshift[j];

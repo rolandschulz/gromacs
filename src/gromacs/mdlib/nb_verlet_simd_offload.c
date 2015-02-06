@@ -53,6 +53,7 @@ gmx_offload gmx_bool bRefreshNbl = TRUE;
 gmx_offload char *input_buffer;
 gmx_offload char *output_buffer;
 static float off_signal = 0;
+double phi_times[NUM_TIMES];
 
 #define REUSE alloc_if(0) free_if(0)
 #define ALLOC alloc_if(1) free_if(0)
@@ -299,9 +300,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	// dprintf(2, "Packet sizes in out %lu %lu\n", packet_in_size, packet_out_size);
 	// dprintf(2, "Transfer packet information: %p %d %d\n", transfer_out_packet, packet_out_size, current_packet_out_size);
 	// dprintf(2, "Sizes of stuff %d %d %d %d\n", sizeof(nbnxn_pairlist_set_t), sizeof(nbnxn_pairlist_t), sizeof(nbnxn_ci_t), sizeof(nbnxn_sci_t));
-#define NUM_TIMES 10
-	double *phi_times;
-	smalloc(phi_times, NUM_TIMES * sizeof(double));
 	int j;
 	for (j=0; j<NUM_TIMES; j++) phi_times[j] = 0;
 	reset_timer(ct);
@@ -323,7 +321,9 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	    void *tip = input_buffer;
 	    void *top = output_buffer;
 		code_timer *ct_phi = create_code_timer();
+		code_timer *ct_phi_total = create_code_timer();
 		reset_timer(ct_phi);
+		reset_timer(ct_phi_total);
 		// Unpack data
 		packet_iter *it;
 		smalloc(it, sizeof(packet_iter));
@@ -387,7 +387,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		//                nbat->simd_exclusion_filter1       = simd_exclusion_filter1_p;
 		//                nbat->simd_exclusion_filter2       = simd_exclusion_filter2_p;
         // Unpacking time
-        // phi_times[0] = get_elapsed_time(ct_phi);
+        phi_times[0] = get_elapsed_time(ct_phi);
         reset_timer(ct_phi);
 		nbnxn_atomdata_init_simple_exclusion_masks(nbat); //TODO: much better to just init that on the MIC - but the function is static there. Probably the whole copy code should be moved there anyhow and then we call this functions
 		/*TODO: ic: table (only if tables are used)
@@ -403,7 +403,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
         		        it isn't OK to reuse the data and not free it. This is currently the case for the elements within nbl_lists and nbat
 		 */
 		// Mask time
-		// phi_times[1] = get_elapsed_time(ct_phi);
+		phi_times[1] = get_elapsed_time(ct_phi);
 		reset_timer(ct_phi);
 		nbnxn_kernel_simd_2xnn(nbl_lists,   //Neighbor list: needs to be send after each update
 				//nbat contains cordinates (need to be send each step), forces (have to be send back), static information (e.g. charges)
@@ -419,7 +419,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		// TODO: Put back in when we figure out how to know when to free.
 		// free (nbl_lists->nbl);
 		// Kernel only time
-		// phi_times[2] = get_elapsed_time(ct_phi);
+		phi_times[2] = get_elapsed_time(ct_phi);
 		reset_timer(ct_phi);
 		bRefreshNbl = FALSE;
 
@@ -427,12 +427,12 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
         nbnxn_atomdata_add_nbat_f_to_f_treereduce(nbat, gmx_omp_nthreads_get(emntNonbonded));
 
         // Force reduction time
-		// phi_times[3] = get_elapsed_time(ct_phi);
+		phi_times[3] = get_elapsed_time(ct_phi);
 		reset_timer(ct_phi);
         // TODO: Figure out if we can always assume that this is done.
         nbnxn_atomdata_add_nbat_fshift_to_fshift(nbat, (rvec *)fshift);
 		// Fshift reduction time
-		// phi_times[4] = get_elapsed_time(ct_phi);
+		phi_times[4] = get_elapsed_time(ct_phi);
 		reset_timer(ct_phi);
 		packet_buffer phi_buffers[4];
 		phi_buffers[0] = get_buffer(tip, 19);
@@ -441,9 +441,10 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		phi_buffers[3] = (packet_buffer){nbat->out[0].f, sizeof(real) * nbat->natoms * nbat->fstride};
 		packdata(top, phi_buffers, 4);
 		// Pack output buffer time
-		// phi_times[5] = get_elapsed_time(ct_phi);
+		phi_times[5] = get_elapsed_time(ct_phi);
+		phi_times[NUM_TIMES-1] = get_elapsed_time(ct_phi_total);
 		free_code_timer(ct_phi);
-		dprintf(2, "Offload compute finished\n");
+		free_code_timer(ct_phi_total);
 	}
 	static int counter = -1;
 	counter++;

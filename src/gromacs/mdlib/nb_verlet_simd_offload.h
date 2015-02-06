@@ -48,6 +48,8 @@ extern gmx_bool bUseOffloadedKernel;
 extern gmx_bool bRefreshNbl;
 extern rvec *force_buffer;
 extern size_t fb_size;
+#define NUM_TIMES 10
+gmx_offload extern double phi_times[NUM_TIMES];
 
 #define REUSED 0
 #define TEMP   1

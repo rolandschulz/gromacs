@@ -208,10 +208,10 @@ static void pick_offload_nthreads(FILE *fplog)
         sscanf(env, "%d", &nthreads);
     }
     fprintf(fplog, "Setting number of coprocessor threads to %d\n", nthreads);
-    omp_nthreads_offload = nthreads > 0 ? nthreads : 236;
+    omp_nthreads_offload = nthreads > 0 ? nthreads : 118;
 #pragma offload target(mic:0) in(nthreads)
 	{
-		omp_nthreads_offload = nthreads > 0 ? nthreads : 236;
+		omp_nthreads_offload = nthreads > 0 ? nthreads : 118;
 	}
 }
 
