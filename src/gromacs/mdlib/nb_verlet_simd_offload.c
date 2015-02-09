@@ -349,6 +349,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		nbat->buffer_flags.flag = next(it);
 		interaction_const_t *ic_buffer = next(it);
 		rvec *shift_vec = next(it);
+		// TODO: Remove from package - not used.
 		real *fshift = next(it);
 		real *Vc = next(it);
 		real *Vvdw = next(it);
@@ -429,19 +430,14 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
         // Force reduction time
 		phi_times[3] = get_elapsed_time(ct_phi);
 		reset_timer(ct_phi);
-        // TODO: Figure out if we can always assume that this is done.
-        nbnxn_atomdata_add_nbat_fshift_to_fshift(nbat, (rvec *)fshift);
-		// Fshift reduction time
-		phi_times[4] = get_elapsed_time(ct_phi);
-		reset_timer(ct_phi);
 		packet_buffer phi_buffers[4];
-		phi_buffers[0] = get_buffer(tip, 19);
+		phi_buffers[0] = (packet_buffer){nbat->out[0].fshift, sizeof(real) * SHIFTS * DIM};
 		phi_buffers[1] = get_buffer(tip, 20);
 		phi_buffers[2] = get_buffer(tip, 21);
 		phi_buffers[3] = (packet_buffer){nbat->out[0].f, sizeof(real) * nbat->natoms * nbat->fstride};
 		packdata(top, phi_buffers, 4);
 		// Pack output buffer time
-		phi_times[5] = get_elapsed_time(ct_phi);
+		phi_times[4] = get_elapsed_time(ct_phi);
 		phi_times[NUM_TIMES-1] = get_elapsed_time(ct_phi_total);
 		free_code_timer(ct_phi);
 		free_code_timer(ct_phi_total);

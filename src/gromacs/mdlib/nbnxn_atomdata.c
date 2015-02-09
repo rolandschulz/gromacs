@@ -1614,6 +1614,16 @@ void nbnxn_atomdata_add_nbat_f_to_f_treereduce(const nbnxn_atomdata_t *nbat,
 
                     }
                 }
+
+                // TODO: Can we assume that fshift is always needed? Does it matter?
+                /* Calculate the cell-block range for our thread */
+                b0 = (SHIFTS * DIM * group_pos   )/group_size;
+                b1 = (SHIFTS * DIM *(group_pos+1))/group_size;
+                nbnxn_atomdata_reduce_reals
+				        (nbat->out[index[0]].fshift,
+						TRUE,
+						&(nbat->out[index[1]].fshift), 1, b0, b1);
+
             }
         }
     }
