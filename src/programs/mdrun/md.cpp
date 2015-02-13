@@ -152,6 +152,10 @@ static void reset_all_counters(FILE *fplog, t_commrec *cr,
     *step_rel      = 0;
     wallcycle_start(wcycle, ewcRUN);
     walltime_accounting_start(walltime_accounting);
+    if (bUseOffloadedKernel)
+    {
+    	reset_counters_for_offload();
+    }
     print_date_and_time(fplog, cr->nodeid, "Restarted time", gmx_gettime());
 }
 

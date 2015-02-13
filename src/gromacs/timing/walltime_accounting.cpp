@@ -68,6 +68,10 @@ typedef struct gmx_walltime_accounting {
     double          start_time_stamp;
     //! Seconds since the epoch recorded at the start of the simulation for this thread
     double          start_time_stamp_per_thread;
+    //! Seconds since the epoch recorded when simulation resumed
+    double          resume_time_stamp;
+    //! Seconds since the epoch recorded when simulation resumed for this thread
+    double          resume_time_stamp_per_thread;
     //! Total seconds elapsed over the simulation
     double          elapsed_time;
     //! Total seconds elapsed over the simulation running this thread
@@ -94,7 +98,7 @@ typedef struct gmx_walltime_accounting {
  * threads migrate between sockets. If thread-specific timers are not
  * supported by the OS (e.g. if the OS is not POSIX-compliant), this
  * function is implemented by gmx_gettime. */
-static double gmx_gettime_per_thread();
+gmx_offload static double gmx_gettime_per_thread();
 
 // TODO In principle, all this should get protected by checks that
 // walltime_accounting is not null. In practice, that NULL condition
@@ -109,11 +113,13 @@ walltime_accounting_init(int numOpenMPThreads)
     gmx_walltime_accounting_t walltime_accounting;
 
     snew(walltime_accounting, 1);
-    walltime_accounting->start_time_stamp            = 0;
-    walltime_accounting->start_time_stamp_per_thread = 0;
-    walltime_accounting->elapsed_time                = 0;
-    walltime_accounting->nsteps_done                 = 0;
-    walltime_accounting->numOpenMPThreads            = numOpenMPThreads;
+    walltime_accounting->start_time_stamp             = 0;
+    walltime_accounting->start_time_stamp_per_thread  = 0;
+    walltime_accounting->resume_time_stamp            = 0;
+    walltime_accounting->resume_time_stamp_per_thread = 0;
+    walltime_accounting->elapsed_time                 = 0;
+    walltime_accounting->nsteps_done                  = 0;
+    walltime_accounting->numOpenMPThreads             = numOpenMPThreads;
 
     return walltime_accounting;
 }
@@ -127,10 +133,24 @@ walltime_accounting_destroy(gmx_walltime_accounting_t walltime_accounting)
 void
 walltime_accounting_start(gmx_walltime_accounting_t walltime_accounting)
 {
-    walltime_accounting->start_time_stamp            = gmx_gettime();
-    walltime_accounting->start_time_stamp_per_thread = gmx_gettime_per_thread();
-    walltime_accounting->elapsed_time                = 0;
-    walltime_accounting->nsteps_done                 = 0;
+    double now, now_per_thread;
+
+    now            = gmx_gettime();
+    now_per_thread = gmx_gettime_per_thread();
+
+    walltime_accounting->start_time_stamp             = now;
+    walltime_accounting->start_time_stamp_per_thread  = now_per_thread;
+    walltime_accounting->resume_time_stamp            = now;
+	walltime_accounting->resume_time_stamp_per_thread = now_per_thread;
+    walltime_accounting->elapsed_time                 = 0;
+    walltime_accounting->nsteps_done                  = 0;
+}
+
+void
+walltime_accounting_resume(gmx_walltime_accounting_t walltime_accounting)
+{
+    walltime_accounting->resume_time_stamp            = gmx_gettime();
+    walltime_accounting->resume_time_stamp_per_thread = gmx_gettime_per_thread();
 }
 
 void
@@ -141,8 +161,7 @@ walltime_accounting_end(gmx_walltime_accounting_t walltime_accounting)
     now            = gmx_gettime();
     now_per_thread = gmx_gettime_per_thread();
 
-    walltime_accounting->elapsed_time                  = now - walltime_accounting->start_time_stamp;
-    walltime_accounting->elapsed_time_over_all_threads = now_per_thread - walltime_accounting->start_time_stamp_per_thread;
+    walltime_accounting->elapsed_time                  += now - walltime_accounting->resume_time_stamp;
     /* For thread-MPI, the per-thread CPU timer makes this just
      * work. For OpenMP threads, the per-thread CPU timer measurement
      * needs to be multiplied by the number of OpenMP threads used,
@@ -150,13 +169,14 @@ walltime_accounting_end(gmx_walltime_accounting_t walltime_accounting)
      * within a process are of the same size, and each thread should
      * keep one core busy.
      */
-    walltime_accounting->elapsed_time_over_all_threads *= walltime_accounting->numOpenMPThreads;
+    walltime_accounting->elapsed_time_over_all_threads += ((now_per_thread - walltime_accounting->resume_time_stamp_per_thread) *
+    		                                                walltime_accounting->numOpenMPThreads);
 }
 
 double
 walltime_accounting_get_current_elapsed_time(gmx_walltime_accounting_t walltime_accounting)
 {
-    return gmx_gettime() - walltime_accounting->start_time_stamp;
+    return gmx_gettime() - walltime_accounting->resume_time_stamp;
 }
 
 double
@@ -177,6 +197,12 @@ walltime_accounting_get_start_time_stamp(gmx_walltime_accounting_t walltime_acco
     return walltime_accounting->start_time_stamp;
 }
 
+double
+walltime_accounting_get_resume_time_stamp(gmx_walltime_accounting_t walltime_accounting)
+{
+    return walltime_accounting->resume_time_stamp;
+}
+
 gmx_int64_t
 walltime_accounting_get_nsteps_done(gmx_walltime_accounting_t walltime_accounting)
 {
@@ -193,7 +219,12 @@ walltime_accounting_set_nsteps_done(gmx_walltime_accounting_t   walltime_account
 double
 gmx_gettime()
 {
-#if defined HAVE_CLOCK_GETTIME && _POSIX_TIMERS >= 0
+#ifdef HAVE_CLOCK_GETTIME
+#endif
+#ifdef _POSIX_TIMERS
+#endif
+
+#if __MIC__ || defined HAVE_CLOCK_GETTIME && _POSIX_TIMERS >= 0
     /* Mac and Windows do not support this. For added fun, Windows
      * defines _POSIX_TIMERS without actually providing the
      * implementation. */

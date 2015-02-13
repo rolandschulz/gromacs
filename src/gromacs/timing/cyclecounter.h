@@ -343,6 +343,7 @@ static int gmx_cycles_have_counter(void)
  */
 #if ((defined(__GNUC__) || defined(__INTEL_COMPILER) || defined(__PATHSCALE__) || defined(__PGIC__)) && \
     (defined(__i386__) || defined(__x86_64__)) && !defined(_CRAYC))
+gmx_offload
 static __inline__ gmx_cycles_t gmx_cycles_read(void)
 {
     /* x86 with GCC inline assembly - pentium TSC register */

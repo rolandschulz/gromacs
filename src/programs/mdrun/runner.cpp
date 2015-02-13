@@ -1087,7 +1087,14 @@ int mdrunner(gmx_hw_opt_t *hw_opt,
     /* TODO nthreads_pp is only used for pinning threads.
      * This is a temporary solution until we have a hw topology library.
      */
-    nthreads_pp  = gmx_omp_nthreads_get(emntNonbonded);
+    if (!bUseOffloadedKernel)
+    {
+    	nthreads_pp  = gmx_omp_nthreads_get(emntNonbonded);
+    }
+    else
+    {
+    	nthreads_pp = gmx_omp_nthreads_get(emntDefault);
+    }
     nthreads_pme = gmx_omp_nthreads_get(emntPME);
 
     wcycle = wallcycle_init(fplog, resetstep, cr, nthreads_pp, nthreads_pme);
