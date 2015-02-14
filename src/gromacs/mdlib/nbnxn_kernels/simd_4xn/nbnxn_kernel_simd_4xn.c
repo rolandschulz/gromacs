@@ -37,7 +37,6 @@
  * kernel type 4xn.
  */
 
-#include <time.h>
 #include "gmxpre.h"
 
 #include "config.h"
@@ -258,13 +257,6 @@ reduce_group_energies(int ng, int ng_2log,
 
 #endif /* GMX_NBNXN_SIMD_4XN */
 
-__declspec(target(mic))
-long diff_clocks(struct timespec start, struct timespec end)
-{
-  #define BILLION 1000000000L
-  return BILLION * (end.tv_sec - start.tv_sec) + end.tv_nsec - start.tv_nsec;
-}
-
 void
 nbnxn_kernel_simd_4xn(nbnxn_pairlist_set_t      gmx_unused *nbl_list,
                       const nbnxn_atomdata_t    gmx_unused *nbat,
@@ -355,9 +347,6 @@ nbnxn_kernel_simd_4xn(nbnxn_pairlist_set_t      gmx_unused *nbl_list,
     }
 
     nthreads = gmx_omp_nthreads_get(emntNonbonded);
-    long timings[236][10];
-    struct timespec tmin;
-    clock_gettime(CLOCK_MONOTONIC_RAW, &tmin);
 #pragma omp parallel for schedule(static) num_threads(nthreads)
     for (nb = 0; nb < nnbl; nb++)
     {
@@ -366,52 +355,10 @@ nbnxn_kernel_simd_4xn(nbnxn_pairlist_set_t      gmx_unused *nbl_list,
 
         out = &nbat->out[nb];
 
-        struct timespec tmout;
-        clock_gettime(CLOCK_MONOTONIC_RAW, &tmout);
-        timings[nb][0] = diff_clocks(tmin, tmout);
-        //=============== Code Copy Begin =============================
-        const nbnxn_buffer_flags_t *flags;
-        gmx_bitmask_t               our_flag;
-        int g, b, a0, a1, i;
-
-        flags = &nbat->buffer_flags;
-
-        bitmask_init_bit(&our_flag, nb);
-        clock_gettime(CLOCK_MONOTONIC_RAW, &tmout);
-        timings[nb][1] = diff_clocks(tmin, tmout);
-
-        timings[nb][5] = 0;
-        for (b = 0; b < flags->nflag; b++)
+        if (clearF == enbvClearFYes)
         {
-            gmx_bool r = 1;
-            // clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tmout);
-            for (i = 0; i < BITMASK_ALEN; i++)
-            {
-                r = r && !((flags->flag[b])[i] & our_flag[i]);
-            }
-            // struct timespec tmout2;
-            // clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tmout2);
-            // timings[nb][5] += diff_clocks(tmout, tmout2);
-            if (!r)
-            {
-                a0 = b*NBNXN_BUFFERFLAG_SIZE;
-                a1 = a0 + NBNXN_BUFFERFLAG_SIZE;
-                for (i = a0*nbat->fstride; i < a1*nbat->fstride; i++)
-                {
-                    out->f[i] = 0;
-                }
-            }
+            clear_f(nbat, nb, out->f);
         }
-        clock_gettime(CLOCK_MONOTONIC_RAW, &tmout);
-        timings[nb][2] = diff_clocks(tmin, tmout);
-
-        //==================== Code Copy End ========================
-        // if (clearF == enbvClearFYes)
-        // {
-        //    clear_f(nbat, nb, out->f);
-        // }
-        clock_gettime(CLOCK_MONOTONIC_RAW, &tmout);
-        timings[nb][3] = diff_clocks(tmin, tmout);
 
         if ((force_flags & GMX_FORCE_VIRIAL) && nnbl == 1)
         {
@@ -476,21 +423,8 @@ nbnxn_kernel_simd_4xn(nbnxn_pairlist_set_t      gmx_unused *nbl_list,
                                   out->VSvdw, out->VSc,
                                   out->Vvdw, out->Vc);
         }
-        clock_gettime(CLOCK_MONOTONIC_RAW, &tmout);
-        timings[nb][4] = diff_clocks(tmin, tmout);
     }
 
-//    int john;
-//    int eblen;
-//    for (john=0; john<236; john++)
-//    {
-//    	dprintf(2, "Etimes:");
-//    	for (eblen=0; eblen<6; eblen++)
-//    	{
-//    		dprintf(2, " %ld", timings[john][eblen]);
-//    	}
-//    	dprintf(2, "\n");
-//    }
     if (force_flags & GMX_FORCE_ENERGY)
     {
         reduce_energies_over_lists(nbat, nnbl, Vvdw, Vc);
