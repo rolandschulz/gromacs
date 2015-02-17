@@ -130,6 +130,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 									t_nrnb *nrnb)
 {
 	code_timer *ct = create_code_timer();
+	reset_timer(ct);
 
 	int i;
 	nonbonded_verlet_group_t  *nbvg = &fr->nbv->grp[ilocality];
@@ -150,7 +151,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
     gmx_offload static real *lj_comb_buffer = NULL;
     gmx_offload static real *q_buffer = NULL;
 
-	reset_timer(ct);
 	if (bRefreshNbl)
 	{
 		dprintf(2, "Refresh nbl\n");
@@ -233,6 +233,8 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 			cj4_offset += nbl[i]->ncj4;
 		}
 	}
+	dprintf(2, "CPU refresh repacking time %f\n", get_elapsed_time(ct));
+	reset_timer(ct);
 
 	packet_buffer ibuffers[NUM_OFFLOAD_BUFFERS];
 	ibuffers[0] =  (packet_buffer){nbl_lists, sizeof(nbnxn_pairlist_set_t) * (bRefreshNbl ? 1:0)};
@@ -275,8 +277,8 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		{
 			mfree(transfer_in_packet, input_buffer);
 		}
-		transfer_in_packet = mmalloc(packet_in_size, &input_buffer);
-		current_packet_in_size = packet_in_size;
+		transfer_in_packet = mmalloc(2*packet_in_size, &input_buffer);
+		current_packet_in_size = 2*packet_in_size;
 	}
 	packdata(transfer_in_packet, ibuffers, NUM_OFFLOAD_BUFFERS);
 
@@ -294,8 +296,8 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		{
 			mfree(transfer_out_packet, output_buffer);
 		}
-		transfer_out_packet = mmalloc(packet_out_size, &output_buffer);
-		current_packet_out_size = packet_out_size;
+		transfer_out_packet = mmalloc(2*packet_out_size, &output_buffer);
+		current_packet_out_size = 2*packet_out_size;
 	}
 
 	// TODO: Figure out why we need this kludge for static variables and how to handle it best.
@@ -306,8 +308,8 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	// dprintf(2, "Sizes of stuff %d %d %d %d\n", sizeof(nbnxn_pairlist_set_t), sizeof(nbnxn_pairlist_t), sizeof(nbnxn_ci_t), sizeof(nbnxn_sci_t));
 	int j;
 	// for (j=0; j<NUM_TIMES; j++) phi_times[j] = 0;
+	dprintf(2, "Remainder of time before offload %f\n", get_elapsed_time(ct));
 	reset_timer(ct);
-	dprintf(2, "Starting the offload!\n");
 #pragma offload target(mic:0) nocopy(out_for_phi) \
 	                          nocopy(nbl_lists) \
 	                          nocopy(nbl_buffer) \
@@ -472,19 +474,19 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	{
 		dprintf(2, "Total offload time %f\n", get_elapsed_time(ct));
 	}
-	reset_timer(ct);
+	// reset_timer(ct);
 	unpack_data.out_packet_addr = transfer_out_packet;
 	unpack_data.cpu_buffers[0] = nbat->out[0].fshift;
 	unpack_data.cpu_buffers[1] = Vc;
 	unpack_data.cpu_buffers[2] = Vvdw;
 	unpack_data.cpu_buffers[3] = nbat->out[0].f;
-    if (counter > -1)
-    {
-    	dprintf(2, "Unpack output buffer time %f\n", get_elapsed_time(ct));
-    	dprintf(2, "Phi times:");
-    	// for (int i=0; i<NUM_TIMES; i++) dprintf(2, " %f", phi_times[i]);
-    	dprintf(2, "\n");
-	}
+//    if (counter > -1)
+//    {
+//    	dprintf(2, "Unpack output buffer time %f\n", get_elapsed_time(ct));
+//    	dprintf(2, "Phi times:");
+//    	// for (int i=0; i<NUM_TIMES; i++) dprintf(2, " %f", phi_times[i]);
+//    	dprintf(2, "\n");
+//	}
     // TODO: Memory leak because we can no longer free this for async. This is debugging,
     // though, and should eventually be removed.
 	// sfree(phi_times);
