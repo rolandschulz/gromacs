@@ -59,6 +59,7 @@ gmx_offload gmx_cycles_t force_cycles = 0;
 gmx_offload gmx_cycles_t reduce_cycles = 0;
 gmx_offload gmx_cycles_t other_cycles = 0;
 gmx_offload gmx_walltime_accounting_t waccount = NULL;
+gmx_offload static size_t phi_buffer_sizes[9];
 
 #define REUSE alloc_if(0) free_if(0)
 #define ALLOC alloc_if(1) free_if(0)
@@ -100,20 +101,28 @@ void mfree(void *p, void *off_ptr_val)
     sfree_aligned(c);
 }
 
+// Helper method for copying packet buffer into an external buffer.
+// Allocates buffer and updates both the passed buffer pointer and
+// passed buffer size as needed. Advances iter to the next buffer.
 gmx_offload
-void *refresh_buffer(void **buffer, packet_iter *iter)
+void *refresh_buffer(void **buffer, size_t *bsize, packet_iter *iter)
 {
-    if (size(iter) > 0)
+	if (size(iter) <= 0)
+	{
+		next(iter);
+	}
+	else if (size(iter) <= *bsize)
+	{
+		cnext(iter, *buffer);
+	}
+	else
     {
         if (*buffer != NULL)
         {
             sfree_aligned(*buffer);
         }
-        *buffer = anext(iter);
-    }
-    else
-    {
-        next(iter);
+        *bsize = 2*size(iter);
+        *buffer = anext(iter,2);
     }
 
     return *buffer;
@@ -153,7 +162,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 
 	if (bRefreshNbl)
 	{
-		dprintf(2, "Refresh nbl\n");
+		// dprintf(2, "Refresh nbl\n");
 		int nbl_buffer_size_req = nbvg->nbl_lists.nnbl;
 		int ci_buffer_size_req = 0;
 		int sci_buffer_size_req = 0;
@@ -167,7 +176,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 			cj_buffer_size_req   += nbl[i]->ncj;
 			cj4_buffer_size_req  += nbl[i]->ncj4;
 		}
-		dprintf(2, "Buffer sizes %d %d %d %d\n", ci_buffer_size_req, sci_buffer_size_req, cj_buffer_size_req, cj4_buffer_size_req);
+		// dprintf(2, "Buffer sizes %d %d %d %d\n", ci_buffer_size_req, sci_buffer_size_req, cj_buffer_size_req, cj4_buffer_size_req);
 		if (nbl_buffer_size_req > nbl_buffer_size)
 		{
 			if (nbl_buffer_size > 0)
@@ -233,7 +242,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 			cj4_offset += nbl[i]->ncj4;
 		}
 	}
-	dprintf(2, "CPU refresh repacking time %f\n", get_elapsed_time(ct));
+	// dprintf(2, "CPU refresh repacking time %f\n", get_elapsed_time(ct));
 	reset_timer(ct);
 
 	packet_buffer ibuffers[NUM_OFFLOAD_BUFFERS];
@@ -308,7 +317,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	// dprintf(2, "Sizes of stuff %d %d %d %d\n", sizeof(nbnxn_pairlist_set_t), sizeof(nbnxn_pairlist_t), sizeof(nbnxn_ci_t), sizeof(nbnxn_sci_t));
 	int j;
 	// for (j=0; j<NUM_TIMES; j++) phi_times[j] = 0;
-	dprintf(2, "Remainder of time before offload %f\n", get_elapsed_time(ct));
+	// dprintf(2, "Remainder of time before offload %f\n", get_elapsed_time(ct));
 	reset_timer(ct);
 #pragma offload target(mic:0) nocopy(out_for_phi) \
 	                          nocopy(nbl_lists) \
@@ -321,6 +330,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	                          nocopy(lj_comb_buffer) \
 	                          nocopy(q_buffer) \
 							  nocopy(waccount) \
+							  nocopy(phi_buffer_sizes) \
 							  inout(force_cycles) inout(reduce_cycles) inout(other_cycles) \
 							  in (tip[0:packet_in_size] :  into(input_buffer[0:packet_in_size]) REUSE targetptr) \
 							  out(output_buffer[0:packet_out_size] : into(top[0:packet_out_size]) REUSE targetptr) \
@@ -347,19 +357,19 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		smalloc(it, sizeof(packet_iter));
 
 		create_packet_iter(tip, it);
-		refresh_buffer(&nbl_lists, it);
-		refresh_buffer(&nbl_buffer, it);
-		refresh_buffer(&ci_buffer, it);
-		refresh_buffer(&sci_buffer, it);
-		refresh_buffer(&cj_buffer, it);
-		refresh_buffer(&cj4_buffer, it);
+		refresh_buffer(&nbl_lists, &phi_buffer_sizes[0], it);
+		refresh_buffer(&nbl_buffer, &phi_buffer_sizes[1], it);
+		refresh_buffer(&ci_buffer, &phi_buffer_sizes[2], it);
+		refresh_buffer(&sci_buffer, &phi_buffer_sizes[3], it);
+		refresh_buffer(&cj_buffer, &phi_buffer_sizes[4], it);
+		refresh_buffer(&cj4_buffer, &phi_buffer_sizes[5], it);
 		nbnxn_atomdata_t *nbat = next(it);
 		nbat->nbfp = next(it);
 		nbat->nbfp_comb = next(it);
 		nbat->nbfp_s4 = next(it);
-		nbat->type = refresh_buffer(&type_buffer, it);
-		nbat->lj_comb = refresh_buffer(&lj_comb_buffer, it);
-		nbat->q = refresh_buffer(&q_buffer, it);
+		nbat->type = refresh_buffer(&type_buffer, &phi_buffer_sizes[6], it);
+		nbat->lj_comb = refresh_buffer(&lj_comb_buffer, &phi_buffer_sizes[7], it);
+		nbat->q = refresh_buffer(&q_buffer, &phi_buffer_sizes[8], it);
 		nbat->energrp = next(it);
 		nbat->shift_vec = next(it);
 		nbat->x = next(it);
@@ -468,12 +478,12 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		other_cycles += (_rdtsc() - start_cycle);
 		walltime_accounting_end(waccount);
 	}
-	static int counter = -1;
-	counter++;
-	if (counter > -1)
-	{
-		dprintf(2, "Total offload time %f\n", get_elapsed_time(ct));
-	}
+//	static int counter = -1;
+//	counter++;
+//	if (counter > -1)
+//	{
+//		dprintf(2, "Total offload time %f\n", get_elapsed_time(ct));
+//	}
 	// reset_timer(ct);
 	unpack_data.out_packet_addr = transfer_out_packet;
 	unpack_data.cpu_buffers[0] = nbat->out[0].fshift;
@@ -496,7 +506,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 void wait_for_offload()
 {
 #pragma offload_wait target(mic:0) wait(&off_signal)
-	dprintf(2, "Unpacking stuff from offload\n");
+	// dprintf(2, "Unpacking stuff from offload\n");
 	unpackdata(unpack_data.out_packet_addr, unpack_data.cpu_buffers, 4);
 }
 

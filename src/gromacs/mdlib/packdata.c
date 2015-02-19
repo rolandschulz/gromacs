@@ -138,11 +138,17 @@ void *next(packet_iter *iter)
 	return oldval;
 }
 
-void *anext(packet_iter *iter)
+void *anext(packet_iter *iter, int multiplier)
 {
 	void *buffer;
 	size_t len = size(iter);
-	snew_aligned(buffer, len, 64);
+	snew_aligned(buffer, len*multiplier, 64);
 	memcpy(buffer, next(iter), len);
 	return buffer;
+}
+
+void cnext(packet_iter *iter, void *buffer)
+{
+	size_t bsize = size(iter);
+	memcpy(buffer, next(iter), bsize);
 }

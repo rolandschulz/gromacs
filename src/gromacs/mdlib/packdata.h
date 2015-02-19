@@ -70,8 +70,10 @@ __declspec(target(mic))	size_t size(packet_iter *iter);
 __declspec(target(mic))	void *next(packet_iter *iter);
 
 // Same as "next" except allocates a new buffer and copies the current buffer's contents to it
-// instead of returning a pointer to the buffer inside the packet.
-__declspec(target(mic)) void *anext(packet_iter *iter);
+// instead of returning a pointer to the buffer inside the packet. Allocated buffer size is
+// (size * multiplier).
+__declspec(target(mic)) void *anext(packet_iter *iter, int multiplier);
 
-// Possible future extension "cnext" - copy contents to an existing buffer.
-
+// Copy contents of current buffer to an existing buffer and advance to next buffer.
+// Client must make sure destination buffer is large enough.
+__declspec(target(mic)) void cnext(packet_iter *iter, void *buffer);
