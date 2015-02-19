@@ -78,7 +78,7 @@ static offload_unpack_data unpack_data;
 // "Mirror" malloc with corresponding renew and free. Memory is allocated on both
 // host and coprocessor, and the two are linked to support offloading operations.
 
-void *mmalloc(size_t s, void **off_ptr)
+void *mmalloc(size_t s, void *off_ptr)
 {
 	char *p;
 	snew_aligned(p,s,64);
@@ -87,7 +87,7 @@ void *mmalloc(size_t s, void **off_ptr)
 	{
 	  snew_aligned(off_ptr_val,s,64);
 	}
-	*off_ptr = off_ptr_val;
+	*(void **)off_ptr = off_ptr_val;
 	return p;
 }
 
@@ -105,27 +105,28 @@ void mfree(void *p, void *off_ptr_val)
 // Allocates buffer and updates both the passed buffer pointer and
 // passed buffer size as needed. Advances iter to the next buffer.
 gmx_offload
-void *refresh_buffer(void **buffer, size_t *bsize, packet_iter *iter)
+void *refresh_buffer(void *buffer, size_t *bsize, packet_iter *iter)
 {
+	void **buf = (void **)buffer;
 	if (size(iter) <= 0)
 	{
 		next(iter);
 	}
 	else if (size(iter) <= *bsize)
 	{
-		cnext(iter, *buffer);
+		cnext(iter, *buf);
 	}
 	else
     {
-        if (*buffer != NULL)
+        if (*buf != NULL)
         {
-            sfree_aligned(*buffer);
+            sfree_aligned(*buf);
         }
         *bsize = 2*size(iter);
-        *buffer = anext(iter,2);
+        *buf = anext(iter,2);
     }
 
-    return *buffer;
+    return *buf;
 }
 
 // TODO: move so that forward declaration isn't needed
