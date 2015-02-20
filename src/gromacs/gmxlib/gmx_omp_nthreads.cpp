@@ -53,9 +53,6 @@
 #include "gromacs/utility/fatalerror.h"
 #include "gromacs/utility/gmxassert.h"
 #include "gromacs/utility/gmxomp.h"
-#ifdef GMX_ACCELERATOR
-#include <omp.h>
-#endif
 
 /** Structure with the number of threads for each OpenMP multi-threaded
  *  algorithmic module in mdrun. */
@@ -97,14 +94,8 @@ static const char *mod_name[emntNR] =
  *  All fields are initialized to 0 which should result in errors if
  *  the init call is omitted.
  * */
-static omp_module_nthreads_t modth = { 0, 0, {0, 0, 0, 0, 0, 0, 0, 0, 0}, FALSE};
-
-/**
- * Number of threads for coprocessor.
- */
 gmx_offload
-static int omp_nthreads_offload = 0;
-
+static omp_module_nthreads_t modth = { 0, 0, {0, 0, 0, 0, 0, 0, 0, 0, 0}, FALSE};
 
 /** Determine the number of threads for module \p mod.
  *
@@ -121,7 +112,8 @@ static int omp_nthreads_offload = 0;
 static void pick_module_nthreads(FILE *fplog, int m,
                                  gmx_bool bSimMaster,
                                  gmx_bool bFullOmpSupport,
-                                 gmx_bool bSepPME)
+                                 gmx_bool bSepPME,
+                                 gmx_bool bUseOffloadedKernel)
 {
     char    *env;
     int      nth;
@@ -193,26 +185,25 @@ static void pick_module_nthreads(FILE *fplog, int m,
         /* pick the global PME node nthreads if we are setting the number
          * of threads in separate PME nodes  */
         nth = (bSepPME && m == emntPME) ? modth.gnth_pme : modth.gnth;
+        /* Nonbonded nthreads must agree on CPU and coprocessor because of
+         * shared data structures.
+         */
+        if (bUseOffloadedKernel && m == emntNonbonded)
+        {
+        	/* TODO: Make this a changeable variable */
+        	nth = 118;
+        }
     }
 
     gmx_omp_nthreads_set(m, nth);
-}
-
-static void pick_offload_nthreads(FILE *fplog)
-{
-	int nthreads = 0;
-	char *env;
-
-    if ((env = getenv(modth_env_var[emntNonbonded])) != NULL)
+    /* Logic needs to change if we do more than nonbonded on the coprocessor */
+    if (bUseOffloadedKernel && m == emntNonbonded)
     {
-        sscanf(env, "%d", &nthreads);
+#pragma offload target(mic:0)
+    	{
+    		gmx_omp_nthreads_set(m, nth);
+    	}
     }
-    fprintf(fplog, "Setting number of coprocessor threads to %d\n", nthreads);
-    omp_nthreads_offload = nthreads > 0 ? nthreads : 118;
-#pragma offload target(mic:0) in(nthreads)
-	{
-		omp_nthreads_offload = nthreads > 0 ? nthreads : 118;
-	}
 }
 
 void gmx_omp_nthreads_read_env(int     *nthreads_omp,
@@ -276,7 +267,8 @@ static void manage_number_of_openmp_threads(FILE               *fplog,
                                             gmx_bool gmx_unused bThisNodePMEOnly,
                                             gmx_bool            bFullOmpSupport,
                                             int                 nppn,
-                                            gmx_bool            bSepPME)
+                                            gmx_bool            bSepPME,
+                                            gmx_bool            bUseOffloadedKernel)
 {
     int      nth;
     char    *env;
@@ -384,20 +376,15 @@ static void manage_number_of_openmp_threads(FILE               *fplog,
 
     /* now set the per-module values */
     modth.nth[emntDefault] = modth.gnth;
-    pick_module_nthreads(fplog, emntDomdec, SIMMASTER(cr), bFullOmpSupport, bSepPME);
-    pick_module_nthreads(fplog, emntPairsearch, SIMMASTER(cr), bFullOmpSupport, bSepPME);
-    pick_module_nthreads(fplog, emntNonbonded, SIMMASTER(cr), bFullOmpSupport, bSepPME);
-    pick_module_nthreads(fplog, emntBonded, SIMMASTER(cr), bFullOmpSupport, bSepPME);
-    pick_module_nthreads(fplog, emntPME, SIMMASTER(cr), bFullOmpSupport, bSepPME);
-    pick_module_nthreads(fplog, emntUpdate, SIMMASTER(cr), bFullOmpSupport, bSepPME);
-    pick_module_nthreads(fplog, emntVSITE, SIMMASTER(cr), bFullOmpSupport, bSepPME);
-    pick_module_nthreads(fplog, emntLINCS, SIMMASTER(cr), bFullOmpSupport, bSepPME);
-    pick_module_nthreads(fplog, emntSETTLE, SIMMASTER(cr), bFullOmpSupport, bSepPME);
-
-    /*
-     * Set value for coprocessor
-     */
-    pick_offload_nthreads(fplog);
+    pick_module_nthreads(fplog, emntDomdec, SIMMASTER(cr), bFullOmpSupport, bSepPME, bUseOffloadedKernel);
+    pick_module_nthreads(fplog, emntPairsearch, SIMMASTER(cr), bFullOmpSupport, bSepPME, bUseOffloadedKernel);
+    pick_module_nthreads(fplog, emntNonbonded, SIMMASTER(cr), bFullOmpSupport, bSepPME, bUseOffloadedKernel);
+    pick_module_nthreads(fplog, emntBonded, SIMMASTER(cr), bFullOmpSupport, bSepPME, bUseOffloadedKernel);
+    pick_module_nthreads(fplog, emntPME, SIMMASTER(cr), bFullOmpSupport, bSepPME, bUseOffloadedKernel);
+    pick_module_nthreads(fplog, emntUpdate, SIMMASTER(cr), bFullOmpSupport, bSepPME, bUseOffloadedKernel);
+    pick_module_nthreads(fplog, emntVSITE, SIMMASTER(cr), bFullOmpSupport, bSepPME, bUseOffloadedKernel);
+    pick_module_nthreads(fplog, emntLINCS, SIMMASTER(cr), bFullOmpSupport, bSepPME, bUseOffloadedKernel);
+    pick_module_nthreads(fplog, emntSETTLE, SIMMASTER(cr), bFullOmpSupport, bSepPME, bUseOffloadedKernel);
 
     /* set the number of threads globally */
     if (bOMP)
@@ -553,7 +540,8 @@ void gmx_omp_nthreads_init(FILE *fplog, t_commrec *cr,
                            int omp_nthreads_req,
                            int omp_nthreads_pme_req,
                            gmx_bool bThisNodePMEOnly,
-                           gmx_bool bFullOmpSupport)
+                           gmx_bool bFullOmpSupport,
+                           gmx_bool bUseOffloadedKernel)
 {
     int      nppn;
     gmx_bool bSepPME, bOMP;
@@ -574,7 +562,7 @@ void gmx_omp_nthreads_init(FILE *fplog, t_commrec *cr,
                                     nthreads_hw_avail,
                                     omp_nthreads_req, omp_nthreads_pme_req,
                                     bThisNodePMEOnly, bFullOmpSupport,
-                                    nppn, bSepPME);
+                                    nppn, bSepPME, bUseOffloadedKernel);
 #ifdef GMX_THREAD_MPI
     /* Non-master threads have to wait for the OpenMP management to be
      * done, so that code elsewhere that uses OpenMP can be certain
@@ -592,13 +580,6 @@ void gmx_omp_nthreads_init(FILE *fplog, t_commrec *cr,
 gmx_offload 
 int gmx_omp_nthreads_get(int mod)
 {
-#ifndef GMX_ACCELERATOR
-#ifdef GMX_OFFLOAD
-	if (mod == emntNonbonded)
-	{
-		return omp_nthreads_offload;
-	}
-#endif
     if (mod < 0 || mod >= emntNR)
     {
         /* invalid module queried */
@@ -608,9 +589,6 @@ int gmx_omp_nthreads_get(int mod)
     {
         return modth.nth[mod];
     }
-#else
-    return omp_nthreads_offload;
-#endif
 }
 
 void

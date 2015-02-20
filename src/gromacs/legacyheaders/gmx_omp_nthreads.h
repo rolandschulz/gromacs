@@ -71,7 +71,8 @@ void gmx_omp_nthreads_init(FILE *fplog, struct t_commrec *cr,
                            int omp_nthreads_req,
                            int omp_nthreads_pme_req,
                            gmx_bool bCurrNodePMEOnly,
-                           gmx_bool bFullOmpSupport);
+                           gmx_bool bFullOmpSupport,
+						   gmx_bool bUseOffloadedKernel);
 
 /*! \brief
  * Returns the number of threads to be used in the given module \p mod. */
@@ -81,6 +82,7 @@ int gmx_omp_nthreads_get(int mod);
 /*! \brief Sets the number of threads to be used in module.
  *
  * Intended for use in testing. */
+gmx_offload
 void gmx_omp_nthreads_set(int mod, int nthreads);
 
 /*! \brief
