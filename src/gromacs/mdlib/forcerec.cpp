@@ -1574,7 +1574,7 @@ static void pick_nbnxn_kernel_cpu(const t_inputrec gmx_unused *ir,
         *kernel_type = nbnxnk4xN_SIMD_2xNN;
 #endif
 
-#if defined GMX_NBNXN_SIMD_2XNN && defined GMX_NBNXN_SIMD_4XN && !defined GMX_OFFLOAD
+#if defined GMX_NBNXN_SIMD_2XNN && defined GMX_NBNXN_SIMD_4XN
         /* We need to choose if we want 2x(N+N) or 4xN kernels.
          * Currently this is based on the SIMD acceleration choice,
          * but it might be better to decide this at runtime based on CPU.
@@ -1591,16 +1591,26 @@ static void pick_nbnxn_kernel_cpu(const t_inputrec gmx_unused *ir,
          * use of HT, use 4x8 to avoid a potential performance hit.
          * On Intel Haswell 4x8 is always faster.
          */
-        *kernel_type = nbnxnk4xN_SIMD_4xN;
+
+        /* Only 2xNN is currently supported for offload, but it is okay to have
+         * 4xN only (offloading is just not used) */
+        if (ir->bOffloadKernel)
+        {
+        	*kernel_type = nbnxnk4xN_SIMD_2xNN;
+        }
+        else
+        {
+        	*kernel_type = nbnxnk4xN_SIMD_4xN;
 
 #ifndef GMX_SIMD_HAVE_FMA
-        if (EEL_PME_EWALD(ir->coulombtype) ||
-            EVDW_PME(ir->vdwtype))
-        {
-            /* We have Ewald kernels without FMA (Intel Sandy/Ivy Bridge).
-             * There are enough instructions to make 2x(4+4) efficient.
-             */
-            *kernel_type = nbnxnk4xN_SIMD_2xNN;
+        	if (EEL_PME_EWALD(ir->coulombtype) ||
+        			EVDW_PME(ir->vdwtype))
+        	{
+        		/* We have Ewald kernels without FMA (Intel Sandy/Ivy Bridge).
+        		 * There are enough instructions to make 2x(4+4) efficient.
+        		 */
+        		*kernel_type = nbnxnk4xN_SIMD_2xNN;
+        	}
         }
 #endif
 #endif  /* GMX_NBNXN_SIMD_2XNN && GMX_NBNXN_SIMD_4XN */
