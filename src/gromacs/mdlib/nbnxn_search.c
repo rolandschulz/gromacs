@@ -282,11 +282,7 @@ int nbnxn_kernel_to_cj_size(int nb_kernel_type)
             cj_size = nbnxn_simd_width;
             break;
         case nbnxnk4xN_SIMD_2xNN:
-// #ifdef GMX_ACCELERATOR
-//            cj_size = 8;
-// #else
             cj_size = nbnxn_simd_width/2;
-// #endif
             break;
         case nbnxnk8x8x8_GPU:
         case nbnxnk8x8x8_PlainC:
