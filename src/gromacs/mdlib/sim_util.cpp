@@ -2691,22 +2691,25 @@ void finish_run(FILE *fplog, t_commrec *cr,
     if (SIMMASTER(cr))
     {
         struct gmx_wallclock_gpu_t* gputimes = use_GPU(nbv) ? nbnxn_gpu_get_timings(nbv->gpu_nbv) : NULL;
-
         // TODO: Should use bOffUseOffloadedKernel, but it isn't in scope...
+        /* Prepare and print a separate, small report for coprocessor times */
+        if (inputrec->bOffloadKernel)
+        {
 #ifdef GMX_OFFLOAD
-        int nthreads = gmx_omp_nthreads_get(emntNonbonded);
-        gmx_wallcycle_t wcycle_offload = wallcycle_init(fplog, wcycle_get_reset_counters(wcycle),
-        		cr, nthreads, nthreads);
-        gmx_cycles_t force_cycles = get_force_cycles_for_offload();
-        gmx_cycles_t reduce_cycles = get_reduce_cycles_for_offload();
-        gmx_cycles_t other_cycles = get_other_cycles_for_offload();
-        wallcycle_add(wcycle_offload, ewcFORCE, force_cycles, inputrec->nsteps);
-        wallcycle_add(wcycle_offload, ewcNB_XF_BUF_OPS, reduce_cycles, inputrec->nsteps);
-        wallcycle_sub_add(wcycle_offload, ewcsNB_F_BUF_OPS, reduce_cycles, inputrec->nsteps);
-        wallcycle_add(wcycle_offload, ewcRUN, force_cycles + reduce_cycles + other_cycles, inputrec->nsteps);
-        wallcycle_sum(cr, wcycle_offload);
-        wallcycle_print(fplog, 1, 0, get_walltime_for_offload(), wcycle_offload, NULL);
+            int nthreads = gmx_omp_nthreads_get(emntNonbonded);
+            gmx_wallcycle_t wcycle_offload = wallcycle_init(fplog, wcycle_get_reset_counters(wcycle),
+            		cr, nthreads, nthreads);
+            gmx_cycles_t force_cycles = get_force_cycles_for_offload();
+            gmx_cycles_t reduce_cycles = get_reduce_cycles_for_offload();
+            gmx_cycles_t other_cycles = get_other_cycles_for_offload();
+            wallcycle_add(wcycle_offload, ewcFORCE, force_cycles, inputrec->nsteps);
+            wallcycle_add(wcycle_offload, ewcNB_XF_BUF_OPS, reduce_cycles, inputrec->nsteps);
+            wallcycle_sub_add(wcycle_offload, ewcsNB_F_BUF_OPS, reduce_cycles, inputrec->nsteps);
+            wallcycle_add(wcycle_offload, ewcRUN, force_cycles + reduce_cycles + other_cycles, inputrec->nsteps);
+            wallcycle_sum(cr, wcycle_offload);
+            wallcycle_print(fplog, 1, 0, get_walltime_for_offload(), wcycle_offload, NULL);
 #endif
+        }
         wallcycle_print(fplog, cr->nnodes, cr->npmenodes,
                         elapsed_time_over_all_ranks,
                         wcycle, gputimes);
