@@ -89,7 +89,7 @@ gmx_load1p1_pr(gmx_simd_float_t *a, const real *b)
                                 b+1, _MM_UPCONV_PS_NONE, _MM_BROADCAST_1X16, _MM_HINT_NONE);
 }
 
-/* Load 4 at reals at 4-aligned pointer a into b. Repeat each element quarter-width times. */
+/* Load 4 reals at 4-aligned pointer a into b. Repeat each element quarter-width times. */
 static gmx_inline void
 gmx_bcast4_repeat_pr(gmx_simd_float_t *a, const real *b)
 {

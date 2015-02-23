@@ -506,9 +506,9 @@
         /* Load i atom data */
         sciy             = scix + STRIDE;
         sciz             = sciy + STRIDE;
-        gmx_load1p1_pr(&ix_S0, x+scix);
-        gmx_load1p1_pr(&iy_S0, x+sciy);
-        gmx_load1p1_pr(&iz_S0, x+sciz);
+        gmx_bcast4_repeat_pr(&ix_S0, x+scix);
+        gmx_bcast4_repeat_pr(&iy_S0, x+sciy);
+        gmx_bcast4_repeat_pr(&iz_S0, x+sciz);
         ix_S0          = gmx_simd_add_r(ix_S0, shX_S);
         iy_S0          = gmx_simd_add_r(iy_S0, shY_S);
         iz_S0          = gmx_simd_add_r(iz_S0, shZ_S);
@@ -519,17 +519,17 @@
 
             facel_S    = gmx_simd_set1_r(facel);
 
-            gmx_load1p1_pr(&iq_S0, q+sci);
+            gmx_bcast4_repeat_pr(&iq_S0, q+sci);
             iq_S0      = gmx_simd_mul_r(facel_S, iq_S0);
         }
 
 #ifdef LJ_COMB_LB
-        gmx_load1p1_pr(&hsig_i_S0, ljc+sci2+0);
-        gmx_load1p1_pr(&seps_i_S0, ljc+sci2+STRIDE+0);
+        gmx_bcast4_repeat_pr(&hsig_i_S0, ljc+sci2+0);
+        gmx_bcast4_repeat_pr(&seps_i_S0, ljc+sci2+STRIDE+0);
 #else
 #ifdef LJ_COMB_GEOM
-        gmx_load1p1_pr(&c6s_S0, ljc+sci2+0);
-        gmx_load1p1_pr(&c12s_S0, ljc+sci2+STRIDE+0);
+        gmx_bcast4_repeat_pr(&c6s_S0, ljc+sci2+0);
+        gmx_bcast4_repeat_pr(&c12s_S0, ljc+sci2+STRIDE+0);
 #else
         nbfp0     = nbfp_ptr + type[sci  ]*nbat->ntype*nbfp_stride;
         nbfp1     = nbfp_ptr + type[sci+1]*nbat->ntype*nbfp_stride;
@@ -542,7 +542,7 @@
 #endif
 #ifdef LJ_EWALD_GEOM
         /* We need the geometrically combined C6 for the PME grid correction */
-        gmx_load1p1_pr(&c6s_S0, ljc+sci2+0);
+        gmx_bcast4_repeat_pr(&c6s_S0, ljc+sci2+0);
 #endif
 
         /* Zero the potential energy for this list */

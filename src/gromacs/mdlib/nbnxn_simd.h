@@ -77,6 +77,9 @@
 #if GMX_SIMD_REAL_WIDTH == 8 || GMX_SIMD_REAL_WIDTH == 16
 #define GMX_NBNXN_SIMD_2XNN
 #endif
+#if GMX_SIMD_REAL_WIDTH == 16
+#define GMX_NBNXN_SIMD_4x4xN
+#endif
 
 #if !(defined GMX_NBNXN_SIMD_4XN || defined GMX_NBNXN_SIMD_2XNN)
 #error "No SIMD kernel type defined"
