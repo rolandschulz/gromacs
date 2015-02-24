@@ -41,8 +41,6 @@
  *
  * \inlibraryapi
  */
-#include "gromacs/utility/gmx_header_config.h"
-
 /* Use OpenMP multithreading */
 #define GMX_SIMD_X86_MIC
 #define GMX_OPENMP

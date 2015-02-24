@@ -44,8 +44,6 @@
 #ifndef GMX_CONFIG_H
 #define GMX_CONFIG_H
 
-#include "gromacs/utility/gmx_header_config.h"
-
 #ifdef __INTEL_OFFLOAD
 /* Coprocessor offload is available (defined for both CPU and coprocessor) */
 #define GMX_OFFLOAD

@@ -46,7 +46,6 @@
 #include "gromacs/legacyheaders/types/nbnxn_cuda_types_ext.h"
 #include "gromacs/timing/cyclecounter.h"
 #include "gromacs/utility/basedefinitions.h"
-#include "gromacs/utility/gmx_header_config.h"
 
 #ifdef __cplusplus
 extern "C" {

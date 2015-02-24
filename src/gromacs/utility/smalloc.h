@@ -72,7 +72,6 @@
 #define GMX_UTILITY_SMALLOC_H
 
 #include <stddef.h>
-#include "gmx_header_config.h"
 #include "config.h"
 
 #include "gromacs/utility/basedefinitions.h"
