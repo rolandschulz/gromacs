@@ -43,6 +43,7 @@
 #include "gromacs/utility/basedefinitions.h"
 #include "gromacs/utility/real.h"
 #include "gromacs/utility/gmx_header_config.h"
+#include "config.h"
 
 #ifdef __cplusplus
 extern "C" {

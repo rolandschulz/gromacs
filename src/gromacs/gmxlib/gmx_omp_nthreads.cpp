@@ -42,6 +42,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "gromacs/legacyheaders/copyrite.h"
 #include "gromacs/legacyheaders/macros.h"

@@ -38,8 +38,6 @@
 
 #include "utilities.h"
 
-#include "config.h"
-
 #include <assert.h>
 #include <limits.h>
 #include <math.h>

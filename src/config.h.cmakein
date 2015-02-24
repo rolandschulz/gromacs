@@ -46,6 +46,23 @@
 
 #include "gromacs/utility/gmx_header_config.h"
 
+#ifdef __INTEL_OFFLOAD
+/* Coprocessor offload is available (defined for both CPU and coprocessor) */
+#define GMX_OFFLOAD
+#ifdef __MIC__ 
+/* Define to 1 if GMX_OFFLOAD is defined but only on the coprocessor */
+#define GMX_ACCELERATOR
+#endif
+#endif
+
+#ifdef GMX_OFFLOAD
+#define gmx_offload __declspec(target(mic))
+#else
+#define gmx_offload
+#endif
+
+/* Alternative config file for the accelerator, because created config is for
+   the CPU */
 #ifdef GMX_ACCELERATOR
 #include "config_mic.h"
 #else

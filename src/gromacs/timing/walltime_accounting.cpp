@@ -40,6 +40,7 @@
 #include "config.h"
 
 #include <ctime>
+#include <time.h>
 
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>

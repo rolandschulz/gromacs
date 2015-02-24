@@ -38,8 +38,6 @@
 
 #include "fatalerror.h"
 
-#include "config.h"
-
 #include <cerrno>
 #include <cstddef>
 #include <cstdlib>
