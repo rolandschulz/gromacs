@@ -144,7 +144,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 
     int i;
     nonbonded_verlet_group_t  *nbvg = &fr->nbv->grp[ilocality];
-    gmx_offload static nbnxn_pairlist_set_t *nbl_lists;
+    gmx_offload static nbnxn_pairlist_set_t *nbl_lists = NULL;
     nbl_lists = &nbvg->nbl_lists;
 
     static int nbl_buffer_size = 0;
@@ -317,7 +317,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
     //                nbat->simd_exclusion_filter2       = simd_exclusion_filter2_p;
 
     // TODO: What about nbl->excl ?
-    // TODO: Figure out why we need this kludge for static variables and how to handle it best.
 
     // dprintf(2, "Packet sizes in out %lu %lu\n", packet_in_size, packet_out_size);
     // dprintf(2, "Transfer packet information: %p %d %d\n", cpu_in_packet, packet_out_size, current_packet_out_size);
@@ -362,6 +361,13 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
         smalloc(it, sizeof(packet_iter));
 
         create_packet_iter(phi_in_packet, it);
+        // Memory for nbl_lists->nbl is handled by the Phi. So we store
+        // the value in case refresh overwrites it and restore it later.
+        nbnxn_pairlist_t **nbl_ptr = NULL;
+        if (nbl_lists != NULL)
+        {
+            nbl_ptr = nbl_lists->nbl;
+        }
         refresh_buffer(&nbl_lists, &phi_buffer_sizes[0], it);
         refresh_buffer(&nbl_buffer, &phi_buffer_sizes[1], it);
         refresh_buffer(&ci_buffer, &phi_buffer_sizes[2], it);
@@ -394,8 +400,12 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
         int cj_offset = 0;
         int cj4_offset = 0;
 
-        // TODO: Should only need to malloc once, not every refresh. Transferring nbl_lists, though, wipes out the old nbl_lists->nbl pointer.
-        if (bRefreshNbl) nbl_lists->nbl = malloc(sizeof(nbnxn_pairlist_t *)*nbl_lists->nnbl);
+        // Restore nbl_lists->nbl or allocate if first time
+        nbl_lists->nbl = nbl_ptr;
+        if (nbl_lists->nbl == NULL)
+        {
+            nbl_lists->nbl = malloc(sizeof(nbnxn_pairlist_t *)*nbl_lists->nnbl);
+        }
 
         int i;
         for (i=0; i<nbl_lists->nnbl; i++)
@@ -440,8 +450,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
                                fshift,   //output
                                Vc, //output
                                Vvdw); //output
-        // TODO: Put back in when we figure out how to know when to free.
-        // free (nbl_lists->nbl);
         // Kernel only time
         force_cycles += (_rdtsc() - start_cycle);
         // phi_times[2] = get_elapsed_time(ct_phi);
