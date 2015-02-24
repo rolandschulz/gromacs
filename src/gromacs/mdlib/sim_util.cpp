@@ -520,29 +520,29 @@ static void do_nb_verlet(t_forcerec *fr,
                                   enerd->grpp.ener[egLJSR]);
             break;
         case nbnxnk4xN_SIMD_2xNN:
-        	if (bUseOffloadedKernel)
-        	{
-        		sim_ct = create_code_timer();
-        		reset_timer(sim_ct);
-        		nbnxn_kernel_simd_2xnn_offload(fr, ic, enerd, flags, ilocality, clearF, nrnb);
-        		// dprintf(2, "Offload call overhead %f\n", get_elapsed_time(sim_ct));
-        		reset_timer(sim_ct);
-        	}
-        	else
-        	{
-        		nbnxn_kernel_simd_2xnn(&nbvg->nbl_lists,
-        				nbvg->nbat, ic,
-        				nbvg->ewald_excl,
-        				fr->shift_vec,
-        				flags,
-        				clearF,
-        				fr->fshift[0],
-        				enerd->grpp.ener[egCOULSR],
-        				fr->bBHAM ?
-        						enerd->grpp.ener[egBHAMSR] :
-        						enerd->grpp.ener[egLJSR]);
-        	}
-        	break;
+            if (bUseOffloadedKernel)
+            {
+                sim_ct = create_code_timer();
+                reset_timer(sim_ct);
+                nbnxn_kernel_simd_2xnn_offload(fr, ic, enerd, flags, ilocality, clearF, nrnb);
+                // dprintf(2, "Offload call overhead %f\n", get_elapsed_time(sim_ct));
+                reset_timer(sim_ct);
+            }
+            else
+            {
+                nbnxn_kernel_simd_2xnn(&nbvg->nbl_lists,
+                        nbvg->nbat, ic,
+                        nbvg->ewald_excl,
+                        fr->shift_vec,
+                        flags,
+                        clearF,
+                        fr->fshift[0],
+                        enerd->grpp.ener[egCOULSR],
+                        fr->bBHAM ?
+                                enerd->grpp.ener[egBHAMSR] :
+                                enerd->grpp.ener[egLJSR]);
+            }
+            break;
 
         case nbnxnk8x8x8_GPU:
             nbnxn_gpu_launch_kernel(fr->nbv->gpu_nbv, nbvg->nbat, flags, ilocality);
@@ -943,7 +943,7 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
     /* do local pair search */
     if (bNS)
     {
-    	bRefreshNbl = TRUE;
+        bRefreshNbl = TRUE;
         wallcycle_start_nocount(wcycle, ewcNS);
         wallcycle_sub_start(wcycle, ewcsNBS_SEARCH_LOCAL);
         nbnxn_make_pairlist(nbv->nbs, nbv->grp[eintLocal].nbat,
@@ -1256,7 +1256,7 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
 
         /* if there are multiple fshift output buffers reduce them */
         if ((flags & GMX_FORCE_VIRIAL) &&
-        		nbv->grp[aloc].nbl_lists.nnbl > 1)
+                nbv->grp[aloc].nbl_lists.nnbl > 1)
         {
             /* This is not in a subcounter because it takes a
                negligible and constant-sized amount of time */
@@ -1445,20 +1445,20 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
 
     if (bUseOffloadedKernel)
     {
-    	code_timer *ct = create_code_timer();
-    	reset_timer(ct);
-    	// dprintf(2, "Other force time %f\n", get_elapsed_time(sim_ct));
-    	wallcycle_start(wcycle, ewcWAIT_MIC);
-    	wait_for_offload();
-    	wallcycle_stop(wcycle, ewcWAIT_MIC);
-    	// dprintf(2, "Offload wait time %f\n", get_elapsed_time(ct));
-    	int j;
-    	// dprintf(2, "Offload timings:");
-    	for (j=0; j<NUM_TIMES; j++)
-    	{
-    		// dprintf(2, " %f", phi_times[j]);
-    	}
-    	// dprintf(2, "\n");
+        code_timer *ct = create_code_timer();
+        reset_timer(ct);
+        // dprintf(2, "Other force time %f\n", get_elapsed_time(sim_ct));
+        wallcycle_start(wcycle, ewcWAIT_MIC);
+        wait_for_offload();
+        wallcycle_stop(wcycle, ewcWAIT_MIC);
+        // dprintf(2, "Offload wait time %f\n", get_elapsed_time(ct));
+        int j;
+        // dprintf(2, "Offload timings:");
+        for (j=0; j<NUM_TIMES; j++)
+        {
+            // dprintf(2, " %f", phi_times[j]);
+        }
+        // dprintf(2, "\n");
         wallcycle_start(wcycle, ewcNB_XF_BUF_OPS);
         wallcycle_sub_start(wcycle, ewcsNB_F_BUF_OPS);
         nbnxn_atomdata_add_nbat_f_to_f_final(fr->nbv->nbs, eatAll,
@@ -1466,7 +1466,7 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
                                              gmx_omp_nthreads_get(emntDefault));
         for (j=0; j<DIM * SHIFTS; j++)
         {
-        	((real *)fr->fshift)[j] += fr->nbv->grp[eintLocal].nbat->out[0].fshift[j];
+            ((real *)fr->fshift)[j] += fr->nbv->grp[eintLocal].nbat->out[0].fshift[j];
         }
         wallcycle_sub_stop(wcycle, ewcsNB_F_BUF_OPS);
         wallcycle_stop(wcycle, ewcNB_XF_BUF_OPS);
@@ -2698,7 +2698,7 @@ void finish_run(FILE *fplog, t_commrec *cr,
 #ifdef GMX_OFFLOAD
             int nthreads = gmx_omp_nthreads_get(emntNonbonded);
             gmx_wallcycle_t wcycle_offload = wallcycle_init(fplog, wcycle_get_reset_counters(wcycle),
-            		cr, nthreads, nthreads);
+                                                            cr, nthreads, nthreads);
             gmx_cycles_t force_cycles = get_force_cycles_for_offload();
             gmx_cycles_t reduce_cycles = get_reduce_cycles_for_offload();
             gmx_cycles_t other_cycles = get_other_cycles_for_offload();

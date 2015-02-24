@@ -60,7 +60,7 @@ gmx_offload extern double phi_times[NUM_TIMES];
 void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
                                     interaction_const_t *ic,
                                     gmx_enerdata_t *enerd,
-									int flags, int ilocality,
+                                    int flags, int ilocality,
                                     int clearF,
                                     t_nrnb *nrnb);
 void wait_for_offload();
