@@ -255,6 +255,7 @@ typedef struct nbnxn_atomdata_t {
      */
     real                    *simd_4xn_diagonal_j_minus_i;
     real                    *simd_2xnn_diagonal_j_minus_i;
+    real                    *simd_4x4xn_diagonal_j_minus_i;
     /* Filters for topology exclusion masks for the SIMD kernels.
      * filter2 is the same as filter1, but with each element duplicated.
      */

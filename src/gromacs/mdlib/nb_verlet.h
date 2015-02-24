@@ -51,6 +51,7 @@ typedef enum
     nbnxnk4x4_PlainC,
     nbnxnk4xN_SIMD_4xN,
     nbnxnk4xN_SIMD_2xNN,
+    nbnxnk4xN_SIMD_4x4xN,
     nbnxnk8x8x8_CUDA,
     nbnxnk8x8x8_PlainC,
     nbnxnkNR

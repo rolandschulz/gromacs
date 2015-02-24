@@ -93,7 +93,6 @@
 #ifdef CHECK_EXCLS
     /* Interaction (non-exclusion) mask of all 1's or 0's */
     gmx_simd_bool_t  interact_S0;
-    gmx_simd_bool_t  interact_S2;
 #endif
 
     gmx_simd_real_t  jx_S, jy_S, jz_S;
@@ -107,7 +106,6 @@
 #ifdef VDW_CUTOFF_CHECK
     gmx_simd_bool_t  wco_vdw_S0;
 #endif
-#endif
 
 #if (defined CALC_COULOMB && defined CALC_COUL_TAB) || defined LJ_FORCE_SWITCH || defined LJ_POT_SWITCH
     gmx_simd_real_t r_S0;
@@ -115,7 +113,6 @@
 
 #if defined LJ_FORCE_SWITCH || defined LJ_POT_SWITCH
     gmx_simd_real_t  rsw_S0, rsw2_S0, rsw2_r_S0;
-#endif
 #endif
 
 #ifdef CALC_COULOMB
@@ -165,12 +162,8 @@
     gmx_simd_real_t  hsig_j_S, seps_j_S;
     /* LJ sigma_ij and epsilon_ij */
     gmx_simd_real_t  sig_S0, eps_S0;
-#ifndef HALF_LJ
-#endif
 #ifdef CALC_ENERGIES
     gmx_simd_real_t  sig2_S0, sig6_S0;
-#ifndef HALF_LJ
-#endif
 #endif /* LJ_COMB_LB */
 #endif /* CALC_LJ */
 
@@ -186,29 +179,19 @@
 #ifndef FIX_LJ_C
     /* LJ C6 and C12 parameters, used with geometric comb. rule */
     gmx_simd_real_t  c6_S0, c12_S0;
-#ifndef HALF_LJ
-#endif
 #endif
 
     /* Intermediate variables for LJ calculation */
 #ifndef LJ_COMB_LB
     gmx_simd_real_t  rinvsix_S0;
-#ifndef HALF_LJ
-#endif
 #endif
 #ifdef LJ_COMB_LB
     gmx_simd_real_t  sir_S0, sir2_S0, sir6_S0;
-#ifndef HALF_LJ
-#endif
 #endif
 
     gmx_simd_real_t  FrLJ6_S0, FrLJ12_S0, frLJ_S0;
-#ifndef HALF_LJ
-#endif
 #if defined CALC_ENERGIES || defined LJ_POT_SWITCH
     gmx_simd_real_t  VLJ6_S0, VLJ12_S0, VLJ_S0;
-#ifndef HALF_LJ
-#endif
 #endif
 #endif /* CALC_LJ */
 
@@ -220,7 +203,7 @@
     /* Atom indices (of the first atom in the cluster) */
     aj            = cj*UNROLLJ;
 #if defined CALC_LJ && (defined LJ_COMB_GEOM || defined LJ_COMB_LB || defined LJ_EWALD_GEOM)
-    aj2           = aj*2;  //TODO: prob no need for aj2. Remove?
+    aj2           = aj*2;
 #endif
     ajx           = aj*DIM;
     ajy           = ajx + STRIDE;
@@ -331,7 +314,6 @@
 
 #ifndef NBNXN_CUTOFF_USE_BLENDV
     rinv_S0     = gmx_simd_blendzero_r(rinv_S0, wco_S0);
-    rinv_S2     = gmx_simd_blendzero_r(rinv_S2, wco_S2);
 #else
     /* This needs to be modified: It makes assumptions about the internal storage
      * of the SIMD representation, in particular that the blendv instruction always
@@ -643,7 +625,7 @@
 
 #ifdef CALC_COULOMB
 #ifndef ENERGY_GROUPS
-    vctot_S      = gmx_simd_add_r(vctot_S, gmx_simd_add_r(vcoul_S0, vcoul_S2));
+    vctot_S      = gmx_simd_add_r(vctot_S, vcoul_S0);
 #else
     add_ener_grp_halves(vcoul_S0, vctp[0], vctp[1], egp_jj);
 #endif
@@ -651,13 +633,7 @@
 
 #ifdef CALC_LJ
 #ifndef ENERGY_GROUPS
-    Vvdwtot_S    = gmx_simd_add_r(Vvdwtot_S,
-#ifndef HALF_LJ
-                                  gmx_simd_add_r(VLJ_S0, VLJ_S2)
-#else
-                                  VLJ_S0
-#endif
-                                  );
+    Vvdwtot_S    = gmx_simd_add_r(Vvdwtot_S, VLJ_S0);
 #else
     add_ener_grp_halves(VLJ_S0, vvdwtp[0], vvdwtp[1], egp_jj);
 #endif
@@ -685,9 +661,9 @@
     fiz_S0      = gmx_simd_add_r(fiz_S0, tz_S0);
 
     /* Decrement j atom force */
-    gmx_simd4_load_r(&fjx_S, f+ajx);
-    gmx_simd4_load_r(&fjy_S, f+ajy);
-    gmx_simd4_load_r(&fjz_S, f+ajz);
+    fjx_S = gmx_simd4_load_r(f+ajx);
+    fjy_S = gmx_simd4_load_r(f+ajy);
+    fjz_S = gmx_simd4_load_r(f+ajz);
     gmx_simd4_store_r(f+ajx, gmx_simd4_sub_r(fjx_S, gmx_sum4_qpr(tx_S0)));
     gmx_simd4_store_r(f+ajy, gmx_simd4_sub_r(fjy_S, gmx_sum4_qpr(ty_S0)));
     gmx_simd4_store_r(f+ajz, gmx_simd4_sub_r(fjz_S, gmx_sum4_qpr(tz_S0)));

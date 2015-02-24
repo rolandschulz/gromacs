@@ -32,6 +32,8 @@
  * To help us fund GROMACS development, we humbly ask that you cite
  * the research papers on the package. Check out http://www.gromacs.org.
  */
+#include <assert.h>
+
 #ifndef _nbnxn_kernel_simd_utils_x86_mic_h_
 #define _nbnxn_kernel_simd_utils_x86_mic_h_
 
@@ -94,7 +96,7 @@ static gmx_inline void
 gmx_bcast4_repeat_pr(gmx_simd_float_t *a, const real *b)
 {
     assert((size_t)a%16 == 0);
-    *a = _mm512_swizzle_ps(_mm512_loadunpacklo_ps(_mm512_undefined_ps(), _mm512_int2mask(0x1111), b), _MM_SWIZ_REG_AAAA);
+    *a = _mm512_swizzle_ps(_mm512_mask_loadunpacklo_ps(_mm512_undefined_ps(), _mm512_int2mask(0x1111), b), _MM_SWIZ_REG_AAAA);
     //for avx512: *a=_mm512_shuffle_ps(_mm512_mask_expand_ps(_mm512_undefined_ps(), _mm512_int2mask(0x1111), b), _MM_PERM_AAAA);
 }
 
@@ -149,7 +151,7 @@ gmx_sum4_qpr(gmx_simd_float_t a)
 {
     a = _mm512_permute4f128_ps(a, _MM_PERM_CDAB);
     a = _mm512_add_ps(a, a);
-    b = _mm512_permute4f128_ps(a, _MM_PERM_BADC);
+    a = _mm512_permute4f128_ps(a, _MM_PERM_BADC);
     return _mm512_add_ps(a, a);
 }
 
@@ -174,7 +176,7 @@ gmx_mm_transpose_sum4q_pr(gmx_simd_float_t a)
 {
     a = _mm512_add_ps(a, _mm512_swizzle_ps(a, _MM_SWIZ_REG_CDAB));
     a = _mm512_add_ps(a, _mm512_swizzle_ps(a, _MM_SWIZ_REG_BADC));
-    return _mm512_castsi512_ps(_mm512_setr4_epi32(0,4,8,12), _mm512_permutevar_epi32(_mm512_castps_si512(a)));
+    return _mm512_castsi512_ps(_mm512_permutevar_epi32(_mm512_setr4_epi32(0, 4, 8, 12), _mm512_castps_si512(a)));
 }
 
 

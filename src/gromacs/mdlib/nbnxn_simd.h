@@ -78,7 +78,7 @@
 #define GMX_NBNXN_SIMD_2XNN
 #endif
 #if GMX_SIMD_REAL_WIDTH == 16
-#define GMX_NBNXN_SIMD_4x4xN
+#define GMX_NBNXN_SIMD_4X4XN
 #endif
 
 #if !(defined GMX_NBNXN_SIMD_4XN || defined GMX_NBNXN_SIMD_2XNN)

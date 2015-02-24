@@ -475,6 +475,16 @@ nbnxn_atomdata_init_simple_exclusion_masks(nbnxn_atomdata_t *nbat)
         nbat->simd_2xnn_diagonal_j_minus_i[simd_width/2+j] = j - 1 - 0.5;
     }
 
+    snew_aligned(nbat->simd_4x4xn_diagonal_j_minus_i, simd_width, NBNXN_MEM_ALIGN);
+    for (j = 0; j < simd_width/4; j++)
+    {
+        for (i = 0; i < 4; i++)
+        {
+            /* The j-cluster size is quarter the SIMD width */
+            nbat->simd_4x4xn_diagonal_j_minus_i[j]          = j - i - 0.5;
+        }
+    }
+
     /* We use up to 32 bits for exclusion masking.
      * The same masks are used for the 4xN and 2x(N+N) kernels.
      * The masks are read either into epi32 SIMD registers or into

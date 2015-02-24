@@ -240,6 +240,7 @@ static int nbnxn_kernel_to_ci_size(int nb_kernel_type)
         case nbnxnk4x4_PlainC:
         case nbnxnk4xN_SIMD_4xN:
         case nbnxnk4xN_SIMD_2xNN:
+        case nbnxnk4xN_SIMD_4x4xN:
             return NBNXN_CPU_CLUSTER_I_SIZE;
         case nbnxnk8x8x8_CUDA:
         case nbnxnk8x8x8_PlainC:
@@ -274,6 +275,9 @@ int nbnxn_kernel_to_cj_size(int nb_kernel_type)
             break;
         case nbnxnk4xN_SIMD_2xNN:
             cj_size = nbnxn_simd_width/2;
+            break;
+        case nbnxnk4xN_SIMD_4x4xN:
+            cj_size = nbnxn_simd_width/4;
             break;
         case nbnxnk8x8x8_CUDA:
         case nbnxnk8x8x8_PlainC:
@@ -314,6 +318,7 @@ gmx_bool nbnxn_kernel_pairlist_simple(int nb_kernel_type)
         case nbnxnk4x4_PlainC:
         case nbnxnk4xN_SIMD_4xN:
         case nbnxnk4xN_SIMD_2xNN:
+        case nbnxnk4xN_SIMD_4x4xN:
             return TRUE;
 
         default:
@@ -5286,6 +5291,7 @@ static void nbnxn_make_pairlist_part(const nbnxn_search_t nbs,
                                     switch (nb_kernel_type)
                                     {
                                         case nbnxnk4x4_PlainC:
+                                        case nbnxnk4xN_SIMD_4x4xN: //TODO fast version
                                             check_subcell_list_space_simple(nbl, cl-cf+1);
 
                                             make_cluster_list_simple(gridj,

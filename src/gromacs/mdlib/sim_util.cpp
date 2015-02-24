@@ -82,6 +82,7 @@
 #include "gromacs/mdlib/nbnxn_kernels/nbnxn_kernel_gpu_ref.h"
 #include "gromacs/mdlib/nbnxn_kernels/nbnxn_kernel_ref.h"
 #include "gromacs/mdlib/nbnxn_kernels/simd_2xnn/nbnxn_kernel_simd_2xnn.h"
+#include "gromacs/mdlib/nbnxn_kernels/simd_4x4xn/nbnxn_kernel_simd_4x4xn.h"
 #include "gromacs/mdlib/nbnxn_kernels/simd_4xn/nbnxn_kernel_simd_4xn.h"
 #include "gromacs/pbcutil/ishift.h"
 #include "gromacs/pbcutil/mshift.h"
@@ -514,6 +515,19 @@ static void do_nb_verlet(t_forcerec *fr,
             break;
         case nbnxnk4xN_SIMD_2xNN:
             nbnxn_kernel_simd_2xnn(&nbvg->nbl_lists,
+                                   nbvg->nbat, ic,
+                                   nbvg->ewald_excl,
+                                   fr->shift_vec,
+                                   flags,
+                                   clearF,
+                                   fr->fshift[0],
+                                   enerd->grpp.ener[egCOULSR],
+                                   fr->bBHAM ?
+                                   enerd->grpp.ener[egBHAMSR] :
+                                   enerd->grpp.ener[egLJSR]);
+            break;
+        case nbnxnk4xN_SIMD_4x4xN:
+            nbnxn_kernel_simd_4x4xn(&nbvg->nbl_lists,
                                    nbvg->nbat, ic,
                                    nbvg->ewald_excl,
                                    fr->shift_vec,

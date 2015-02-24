@@ -1,4 +1,3 @@
-//TODO: check that all S2 are gone (other than where S1/S3 are also used (for I))
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
@@ -39,8 +38,7 @@
  * As the 4xn kernels are the "standard" kernels and some special operations
  * are required only here, we define those in nbnxn_kernel_simd_utils_...
  *
- * Half-width SIMD real type: //TODO: check that all half-width is gone and update comment
- * gmx_mm_hpr
+ * TODO: update comment
  *
  * Half-width SIMD operations
  * Load reals at half-width aligned pointer b into half-width SIMD register a:
@@ -76,7 +74,7 @@
     real               *nbfp_ptr;
     int                 n, ci, ci_sh;
     int                 ish, ish3;
-    gmx_bool            do_LJ, half_LJ, do_coul, do_self;
+    gmx_bool            do_LJ, do_coul, do_self;
     int                 sci, scix, sciy, sciz, sci2;
     int                 cjind0, cjind1, cjind;
     int                 ip, jp;
@@ -209,12 +207,10 @@
 #endif
 
     /* Load j-i for the first i */
-    diagonal_jmi_S    = gmx_simd_load_r(nbat->simd_2xnn_diagonal_j_minus_i);
+    diagonal_jmi_S    = gmx_simd_load_r(nbat->simd_4x4xn_diagonal_j_minus_i);
     /* Generate all the diagonal masks as comparison results */
 #if UNROLLI == UNROLLJ
     diagonal_mask_S0  = gmx_simd_cmplt_r(zero_S, diagonal_jmi_S);
-    diagonal_jmi_S    = gmx_simd_sub_r(diagonal_jmi_S, one_S);
-    diagonal_jmi_S    = gmx_simd_sub_r(diagonal_jmi_S, one_S);
 #else
 #if 2*UNROLLI == UNROLLJ //not supported
     diagonal_mask0_S0 = gmx_simd_cmplt_r(zero_S, diagonal_jmi_S);
@@ -403,7 +399,7 @@
 #if UNROLLJ <= 4
         sci              = ci*STRIDE;
         scix             = sci*DIM;
-        sci2             = sci*2;  //TODO: Does this need to be sci4?
+        sci2             = sci*2;
 #else //Not supported
         sci              = (ci>>1)*STRIDE;
         scix             = sci*DIM + (ci & 1)*(STRIDE>>1);
@@ -419,7 +415,6 @@
          */
         do_LJ   = (nbln->shift & NBNXN_CI_DO_LJ(0));
         do_coul = (nbln->shift & NBNXN_CI_DO_COUL(0));
-        half_LJ = ((nbln->shift & NBNXN_CI_HALF_LJ(0)) || !do_LJ) && do_coul;
 #ifdef LJ_EWALD_GEOM
         do_self = TRUE;
 #else
@@ -531,13 +526,10 @@
         gmx_bcast4_repeat_pr(&c6s_S0, ljc+sci2+0);
         gmx_bcast4_repeat_pr(&c12s_S0, ljc+sci2+STRIDE+0);
 #else
-        nbfp0     = nbfp_ptr + type[sci  ]*nbat->ntype*nbfp_stride;
-        nbfp1     = nbfp_ptr + type[sci+1]*nbat->ntype*nbfp_stride;
-        if (!half_LJ)
-        {
-            nbfp2 = nbfp_ptr + type[sci+2]*nbat->ntype*nbfp_stride;
-            nbfp3 = nbfp_ptr + type[sci+3]*nbat->ntype*nbfp_stride;
-        }
+        nbfp0 = nbfp_ptr + type[sci  ]*nbat->ntype*nbfp_stride;
+        nbfp1 = nbfp_ptr + type[sci+1]*nbat->ntype*nbfp_stride;
+        nbfp2 = nbfp_ptr + type[sci+2]*nbat->ntype*nbfp_stride;
+        nbfp3 = nbfp_ptr + type[sci+3]*nbat->ntype*nbfp_stride;
 #endif
 #endif
 #ifdef LJ_EWALD_GEOM
@@ -558,39 +550,20 @@
 
         /* Currently all kernels use (at least half) LJ */
 #define CALC_LJ
-        if (half_LJ)
-        {
-            /* Coulomb: all i-atoms, LJ: first half i-atoms */
-#define CALC_COULOMB
-#define HALF_LJ
-#define CHECK_EXCLS
-            while (cjind < cjind1 && nbl->cj[cjind].excl != NBNXN_INTERACTION_MASK_ALL)
-            {
-#include "gromacs/mdlib/nbnxn_kernels/simd_2xnn/nbnxn_kernel_simd_2xnn_inner.h"
-                cjind++;
-            }
-#undef CHECK_EXCLS
-            for (; (cjind < cjind1); cjind++)
-            {
-#include "gromacs/mdlib/nbnxn_kernels/simd_2xnn/nbnxn_kernel_simd_2xnn_inner.h"
-            }
-#undef HALF_LJ
-#undef CALC_COULOMB
-        }
-        else if (do_coul)
+        if (do_coul)
         {
             /* Coulomb: all i-atoms, LJ: all i-atoms */
 #define CALC_COULOMB
 #define CHECK_EXCLS
             while (cjind < cjind1 && nbl->cj[cjind].excl != NBNXN_INTERACTION_MASK_ALL)
             {
-#include "gromacs/mdlib/nbnxn_kernels/simd_2xnn/nbnxn_kernel_simd_2xnn_inner.h"
+#include "gromacs/mdlib/nbnxn_kernels/simd_4x4xn/nbnxn_kernel_simd_4x4xn_inner.h"
                 cjind++;
             }
 #undef CHECK_EXCLS
             for (; (cjind < cjind1); cjind++)
             {
-#include "gromacs/mdlib/nbnxn_kernels/simd_2xnn/nbnxn_kernel_simd_2xnn_inner.h"
+#include "gromacs/mdlib/nbnxn_kernels/simd_4x4xn/nbnxn_kernel_simd_4x4xn_inner.h"
             }
 #undef CALC_COULOMB
         }
@@ -600,13 +573,13 @@
 #define CHECK_EXCLS
             while (cjind < cjind1 && nbl->cj[cjind].excl != NBNXN_INTERACTION_MASK_ALL)
             {
-#include "gromacs/mdlib/nbnxn_kernels/simd_2xnn/nbnxn_kernel_simd_2xnn_inner.h"
+#include "gromacs/mdlib/nbnxn_kernels/simd_4x4xn/nbnxn_kernel_simd_4x4xn_inner.h"
                 cjind++;
             }
 #undef CHECK_EXCLS
             for (; (cjind < cjind1); cjind++)
             {
-#include "gromacs/mdlib/nbnxn_kernels/simd_2xnn/nbnxn_kernel_simd_2xnn_inner.h"
+#include "gromacs/mdlib/nbnxn_kernels/simd_4x4xn/nbnxn_kernel_simd_4x4xn_inner.h"
             }
         }
 #undef CALC_LJ

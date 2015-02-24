@@ -1595,6 +1595,9 @@ static void pick_nbnxn_kernel_cpu(const t_inputrec gmx_unused *ir,
 #ifdef GMX_NBNXN_SIMD_2XNN
         *kernel_type = nbnxnk4xN_SIMD_2xNN;
 #endif
+#ifdef GMX_NBNXN_SIMD_4X4XN
+        *kernel_type = nbnxnk4xN_SIMD_4x4xN;
+#endif
 
 #if defined GMX_NBNXN_SIMD_2XNN && defined GMX_NBNXN_SIMD_4XN
         /* We need to choose if we want 2x(N+N) or 4xN kernels.
@@ -1685,6 +1688,7 @@ const char *lookup_nbnxn_kernel_name(int kernel_type)
             break;
         case nbnxnk4xN_SIMD_4xN:
         case nbnxnk4xN_SIMD_2xNN:
+        case nbnxnk4xN_SIMD_4x4xN:
 #ifdef GMX_NBNXN_SIMD
 #if defined GMX_SIMD_X86_SSE2
             returnvalue = "SSE2";
