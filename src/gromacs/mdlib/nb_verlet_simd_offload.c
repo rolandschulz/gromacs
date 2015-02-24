@@ -273,8 +273,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	ibuffers[20] = (packet_buffer){Vc, sizeof(real) * (enerd->grpp.nener)};
 	ibuffers[21] = (packet_buffer){Vvdw, sizeof(real) * (enerd->grpp.nener)};
 
-	// TODO: Figure out if we ever need this
-	int                   ewald_excl = nbvg->ewald_excl;
+	int ewald_excl = nbvg->ewald_excl;
 
 	// Data needed for force and shift reductions
 	static char *transfer_in_packet = NULL;
@@ -309,6 +308,14 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		current_packet_out_size = 2*packet_out_size;
 	}
 
+	//TODO: if tables are used, the coul_F and coul_V need to be copied
+	//following not needed after. Instead we should call init_simple_exclusion_masks
+	//nbat->simd_4xn_diagonal_j_minus_i  = simd_4xn_diagonal_j_minus_i_p;
+	//                nbat->simd_2xnn_diagonal_j_minus_i = simd_2xnn_diagonal_j_minus_i_p;
+	//                nbat->simd_exclusion_filter1       = simd_exclusion_filter1_p;
+	//                nbat->simd_exclusion_filter2       = simd_exclusion_filter2_p;
+
+	// TODO: What about nbl->excl ?
 	// TODO: Figure out why we need this kludge for static variables and how to handle it best.
 	char *tip = transfer_in_packet;
 	char *top = transfer_out_packet;
@@ -334,7 +341,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 							  inout(force_cycles) inout(reduce_cycles) inout(other_cycles) \
 							  in (tip[0:packet_in_size] :  into(input_buffer[0:packet_in_size]) REUSE targetptr) \
 							  out(output_buffer[0:packet_out_size] : into(top[0:packet_out_size]) REUSE targetptr) \
-    						  signal(&off_signal) // nocopy(excl:length(nbl[i]->nexcl) ALLOC)
+    						  signal(&off_signal)
 	{
 		if (waccount == NULL)
 		{
@@ -401,7 +408,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		    nbl->sci  = sci_buffer + sci_offset;
 		    nbl->cj   = cj_buffer  + cj_offset;
 		    nbl->cj4  = cj4_buffer + cj4_offset;
-		    // nbl->excl = excl;
 		    ci_offset  += nbl->nci;
 		    sci_offset += nbl->nsci;
 		    cj_offset  += nbl->ncj;
@@ -409,35 +415,24 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
         }
 
         // End unpacking of data and start actual computing
-		//TODO: if tables are used, the coul_F and coul_V need to be copied
-		//following not needed after. Instead we should call init_simple_exclusion_masks
-		//nbat->simd_4xn_diagonal_j_minus_i  = simd_4xn_diagonal_j_minus_i_p;
-		//                nbat->simd_2xnn_diagonal_j_minus_i = simd_2xnn_diagonal_j_minus_i_p;
-		//                nbat->simd_exclusion_filter1       = simd_exclusion_filter1_p;
-		//                nbat->simd_exclusion_filter2       = simd_exclusion_filter2_p;
         // Unpacking time
         // phi_times[0] = get_elapsed_time(ct_phi);
         reset_timer(ct_phi);
 		nbnxn_atomdata_init_simple_exclusion_masks(nbat); //TODO: much better to just init that on the MIC - but the function is static there. Probably the whole copy code should be moved there anyhow and then we call this functions
 		/*TODO: ic: table (only if tables are used)
-        		        nbl_lists->nbl. It needs to be done as the intel example "Transferring Arrays of Pointers". Because their are several lists and each contain several of the clusters
-        		        nbat: quite a few (maybe not all are needed)
 
         		        verify that those marked as in/out are really only input/output
         		        do outputs need to be zeroed?
-        		        if we test with reduction on CPU side the number of threads has to match
 
         		        the numa issue for nbl_lists might also be important for MIC so we might want to do a manual allocation
-
-        		        it isn't OK to reuse the data and not free it. This is currently the case for the elements within nbl_lists and nbat
 		 */
 		// Mask time
 		// phi_times[1] = get_elapsed_time(ct_phi);
 		reset_timer(ct_phi);
 		other_cycles += (_rdtsc() - start_cycle);
 		start_cycle = _rdtsc();
-		nbnxn_kernel_simd_2xnn(nbl_lists,   //Neighbor list: needs to be send after each update
-				//nbat contains cordinates (need to be send each step), forces (have to be send back), static information (e.g. charges)
+		nbnxn_kernel_simd_2xnn(nbl_lists,
+				// static information (e.g. charges)
 				//ic seems to be all static. is fr->ic
 				nbat, ic_buffer,
 				ewald_excl, //might depend on Neighbor list or is static
