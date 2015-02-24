@@ -232,7 +232,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		for (i=0; i<nbvg->nbl_lists.nnbl; i++)
 		{
 			memcpy(nbl_buffer + i, nbl[i], sizeof(nbnxn_pairlist_t));
-			// TODO: memcpy does nothing if size is 0, right?
 			memcpy(ci_buffer + ci_offset, nbl[i]->ci, nbl[i]->nci * sizeof(nbnxn_ci_t));
 			ci_offset += nbl[i]->nci;
 			memcpy(sci_buffer + sci_offset, nbl[i]->sci, nbl[i]->nsci * sizeof(nbnxn_sci_t));

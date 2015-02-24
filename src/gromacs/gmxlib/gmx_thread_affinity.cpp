@@ -216,9 +216,10 @@ gmx_set_thread_affinity(FILE                *fplog,
     }
 
     /* threads on this MPI process or TMPI thread */
-    // TODO: What is best way to handle count for offload and in general?
+    // TODO: Having offload shouldn't matter, but emntNonbonded cannot be used for offload since
+    // that is the number of threads for the coprocessor.
 #ifdef GMX_OFFLOAD
-    nthread_local = gmx_omp_nthreads_get(emntPME);
+    nthread_local = gmx_omp_nthreads_get(emntDefault);
 #else
     if (cr->duty & DUTY_PP)
     {
