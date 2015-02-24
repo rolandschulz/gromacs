@@ -65,7 +65,7 @@ gmx_offload static size_t phi_buffer_sizes[9];
 #define ALLOC alloc_if(1) free_if(0)
 #define FREE  alloc_if(0) free_if(1)
 
-#define NUM_OFFLOAD_BUFFERS 22
+#define NUM_OFFLOAD_BUFFERS 21
 
 typedef struct offload_unpack_data_struct
 {
@@ -266,12 +266,10 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
     ibuffers[16] = (packet_buffer){nbat->buffer_flags.flag, sizeof(gmx_bitmask_t) * (nbat->buffer_flags.flag_nalloc)};
     ibuffers[17] = (packet_buffer){ic, sizeof(interaction_const_t)};
     ibuffers[18] = (packet_buffer){fr->shift_vec, sizeof(rvec) * SHIFTS};
-    void *fshift = fr->fshift[0];
     void *Vc = enerd->grpp.ener[egCOULSR];
     void *Vvdw = fr->bBHAM ? enerd->grpp.ener[egBHAMSR] : enerd->grpp.ener[egLJSR];
-    ibuffers[19] = (packet_buffer){fshift, sizeof(real) * (DIM*SHIFTS)};
-    ibuffers[20] = (packet_buffer){Vc, sizeof(real) * (enerd->grpp.nener)};
-    ibuffers[21] = (packet_buffer){Vvdw, sizeof(real) * (enerd->grpp.nener)};
+    ibuffers[19] = (packet_buffer){Vc, sizeof(real) * (enerd->grpp.nener)};
+    ibuffers[20] = (packet_buffer){Vvdw, sizeof(real) * (enerd->grpp.nener)};
 
     int ewald_excl = nbvg->ewald_excl;
 
@@ -293,8 +291,8 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 
     packet_buffer obuffers[4];
     obuffers[0] = (packet_buffer){nbat->out[0].fshift, sizeof(real) * SHIFTS * DIM};
-    obuffers[1] = ibuffers[20]; // Vc
-    obuffers[2] = ibuffers[21]; // Vvdw
+    obuffers[1] = ibuffers[19]; // Vc
+    obuffers[2] = ibuffers[20]; // Vvdw
     obuffers[3] = (packet_buffer){nbat->out[0].f, sizeof(real) * nbat->natoms * nbat->fstride}; // Force
     static char *cpu_in_packet = NULL;
     static size_t current_packet_out_size = 0;
@@ -389,7 +387,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
         interaction_const_t *ic_buffer = next(it);
         rvec *shift_vec = next(it);
         // TODO: Remove from package - not used.
-        real *fshift = next(it);
         real *Vc = next(it);
         real *Vvdw = next(it);
         sfree(it);
@@ -447,7 +444,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
                                shift_vec,   //depends on box size (changes usually with neighbor list)
                                flags,
                                clearF,
-                               fshift,   //output
+                               NULL,   // fshift not used when nnbl > 1
                                Vc, //output
                                Vvdw); //output
         // Kernel only time
@@ -467,8 +464,8 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
         reset_timer(ct_phi);
         packet_buffer phi_buffers[4];
         phi_buffers[0] = (packet_buffer){nbat->out[0].fshift, sizeof(real) * SHIFTS * DIM};
-        phi_buffers[1] = get_buffer(phi_in_packet, 20);
-        phi_buffers[2] = get_buffer(phi_in_packet, 21);
+        phi_buffers[1] = get_buffer(phi_in_packet, 19);
+        phi_buffers[2] = get_buffer(phi_in_packet, 20);
         phi_buffers[3] = (packet_buffer){nbat->out[0].f, sizeof(real) * nbat->natoms * nbat->fstride};
         packdata(phi_out_packet, phi_buffers, 4);
         // Pack output buffer time
