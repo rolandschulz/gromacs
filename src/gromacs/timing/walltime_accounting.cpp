@@ -142,7 +142,7 @@ walltime_accounting_start(gmx_walltime_accounting_t walltime_accounting)
     walltime_accounting->start_time_stamp             = now;
     walltime_accounting->start_time_stamp_per_thread  = now_per_thread;
     walltime_accounting->resume_time_stamp            = now;
-	walltime_accounting->resume_time_stamp_per_thread = now_per_thread;
+    walltime_accounting->resume_time_stamp_per_thread = now_per_thread;
     walltime_accounting->elapsed_time                 = 0;
     walltime_accounting->nsteps_done                  = 0;
 }
@@ -171,7 +171,7 @@ walltime_accounting_end(gmx_walltime_accounting_t walltime_accounting)
      * keep one core busy.
      */
     walltime_accounting->elapsed_time_over_all_threads += ((now_per_thread - walltime_accounting->resume_time_stamp_per_thread) *
-    		                                                walltime_accounting->numOpenMPThreads);
+                                                           walltime_accounting->numOpenMPThreads);
 }
 
 double
@@ -220,11 +220,6 @@ walltime_accounting_set_nsteps_done(gmx_walltime_accounting_t   walltime_account
 double
 gmx_gettime()
 {
-#ifdef HAVE_CLOCK_GETTIME
-#endif
-#ifdef _POSIX_TIMERS
-#endif
-
 #if __MIC__ || defined HAVE_CLOCK_GETTIME && _POSIX_TIMERS >= 0
     /* Mac and Windows do not support this. For added fun, Windows
      * defines _POSIX_TIMERS without actually providing the

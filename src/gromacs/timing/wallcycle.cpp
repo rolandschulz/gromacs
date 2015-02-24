@@ -105,7 +105,7 @@ static const char *wcn[ewcNR] =
     "Comm. coord.", "Born radii", "Force", "Wait + Comm. F", "PME mesh",
     "PME redist. X/F", "PME spread/gather", "PME 3D-FFT", "PME 3D-FFT Comm.", "PME solve LJ", "PME solve Elec",
     "PME wait for PP", "Wait + Recv. PME F", "Wait GPU nonlocal", "Wait GPU local", "Wait GPU loc. est.", "Wait MIC",
-	"NB X/F buffer ops.", "Vsite spread", "COM pull force",
+    "NB X/F buffer ops.", "Vsite spread", "COM pull force",
     "Write traj.", "Update", "Constraints", "Comm. energies",
     "Enforced rotation", "Add rot. forces", "Coordinate swapping", "IMD", "Test"
 };
@@ -1021,11 +1021,11 @@ void wallcycle_sub_stop(gmx_wallcycle_t wc, int ewcs)
 
 void wallcycle_sub_add(gmx_wallcycle_t wc, int ewcs, gmx_cycles_t cycles, int steps)
 {
-	if (wc != NULL)
-	{
-		wc->wcsc[ewcs].c += cycles;
-		wc->wcsc[ewcs].n += steps;
-	}
+    if (wc != NULL)
+    {
+        wc->wcsc[ewcs].c += cycles;
+        wc->wcsc[ewcs].n += steps;
+    }
 }
 
 #else
