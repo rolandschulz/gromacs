@@ -195,7 +195,7 @@
 #endif
 #endif /* CALC_LJ */
 
-    gmx_mm_hpr fjx_S, fjy_S, fjz_S;
+    gmx_mm_qpr fjx_S, fjy_S, fjz_S;
 
     /* j-cluster index */
     cj            = l_cj[cjind].cj;
@@ -661,12 +661,12 @@
     fiz_S0      = gmx_simd_add_r(fiz_S0, tz_S0);
 
     /* Decrement j atom force */
-    fjx_S = gmx_simd4_load_r(f+ajx);
-    fjy_S = gmx_simd4_load_r(f+ajy);
-    fjz_S = gmx_simd4_load_r(f+ajz);
-    gmx_simd4_store_r(f+ajx, gmx_simd4_sub_r(fjx_S, gmx_sum4_qpr(tx_S0)));
-    gmx_simd4_store_r(f+ajy, gmx_simd4_sub_r(fjy_S, gmx_sum4_qpr(ty_S0)));
-    gmx_simd4_store_r(f+ajz, gmx_simd4_sub_r(fjz_S, gmx_sum4_qpr(tz_S0)));
+    gmx_load_qpr(&fjx_S, f+ajx);
+    gmx_load_qpr(&fjy_S, f+ajy);
+    gmx_load_qpr(&fjz_S, f+ajz);
+    gmx_store_qpr(f+ajx, gmx_sub_qpr(fjx_S, gmx_sum4_qpr(tx_S0)));
+    gmx_store_qpr(f+ajy, gmx_sub_qpr(fjy_S, gmx_sum4_qpr(ty_S0)));
+    gmx_store_qpr(f+ajz, gmx_sub_qpr(fjz_S, gmx_sum4_qpr(tz_S0)));
 }
 
 #undef  rinv_ex_S0

@@ -119,6 +119,11 @@ typedef struct {
     real r[GMX_SIMD_REAL_WIDTH/2];
 } gmx_mm_hpr;
 
+/* Quarter-width SIMD real type */
+typedef struct {
+    real r[GMX_SIMD_REAL_WIDTH/4];
+} gmx_mm_qpr;
+
 /* Half-width SIMD operations */
 
 /* Load reals at half-width aligned pointer b into half-width SIMD register a */
@@ -133,6 +138,19 @@ gmx_load_hpr(gmx_mm_hpr *a, const real *b)
     }
 }
 
+/* Load reals at quarter-width aligned pointer b into quarter-width SIMD register a */
+static gmx_inline void
+gmx_load_qpr(gmx_mm_qpr *a, const real *b)
+{
+    int i;
+
+    for (i = 0; i < GMX_SIMD_REAL_WIDTH/4; i++)
+    {
+        a->r[i] = b[i];
+    }
+}
+
+
 /* Set all entries in half-width SIMD register *a to b */
 static gmx_inline void
 gmx_set1_hpr(gmx_mm_hpr *a, real b)
@@ -140,6 +158,18 @@ gmx_set1_hpr(gmx_mm_hpr *a, real b)
     int i;
 
     for (i = 0; i < GMX_SIMD_REAL_WIDTH/2; i++)
+    {
+        a->r[i] = b;
+    }
+}
+
+/* Set all entries in quarter-width SIMD register *a to b */
+static gmx_inline void
+gmx_set1_qpr(gmx_mm_qpr *a, real b)
+{
+    int i;
+
+    for (i = 0; i < GMX_SIMD_REAL_WIDTH/4; i++)
     {
         a->r[i] = b;
     }
@@ -158,6 +188,20 @@ gmx_load1p1_pr(gmx_simd_real_t *a, const real *b)
     }
 }
 
+/* Load 4 reals at 4-aligned pointer a into b. Repeat each element quarter-width times. */
+static gmx_inline void
+gmx_bcast4_repeat_pr(gmx_simd_real_t *a, const real *b)
+{
+    int i, j;
+    for (i = 0; i < GMX_SIMD_REAL_WIDTH/4; i++)
+    {
+        for (j = 0; j < 4; j++)
+        {
+            a->r[GMX_SIMD_REAL_WIDTH*j/4 + i] = b[j];
+        }
+    }
+}
+
 /* Load reals at half-width aligned pointer b into two halves of a */
 static gmx_inline void
 gmx_loaddh_pr(gmx_simd_real_t *a, const real *b)
@@ -171,6 +215,20 @@ gmx_loaddh_pr(gmx_simd_real_t *a, const real *b)
     }
 }
 
+/* Load reals at quarter-width aligned pointer b into four quarters of a */
+static gmx_inline void
+gmx_bcastq_pr(gmx_simd_real_t *a, const real *b)
+{
+    int i, j;
+    for (i = 0; i < GMX_SIMD_REAL_WIDTH/4; i++)
+    {
+        for (j = 0; j < 4; j++)
+        {
+            a->r[GMX_SIMD_REAL_WIDTH*j/4 + i] = b[i];
+        }
+    }
+}
+
 /* Store half-width SIMD register b into half width aligned memory a */
 static gmx_inline void
 gmx_store_hpr(real *a, gmx_mm_hpr b)
@@ -178,6 +236,18 @@ gmx_store_hpr(real *a, gmx_mm_hpr b)
     int i;
 
     for (i = 0; i < GMX_SIMD_REAL_WIDTH/2; i++)
+    {
+        a[i] = b.r[i];
+    }
+}
+
+/* Store quarter-width SIMD register b into quarter width aligned memory a */
+static gmx_inline void
+gmx_store_qpr(real *a, gmx_mm_qpr b)
+{
+    int i;
+
+    for (i = 0; i < GMX_SIMD_REAL_WIDTH/4; i++)
     {
         a[i] = b.r[i];
     }
@@ -211,6 +281,34 @@ gmx_sub_hpr(gmx_mm_hpr a, gmx_mm_hpr b)
     return c;
 }
 
+static gmx_inline gmx_mm_qpr
+gmx_add_qpr(gmx_mm_qpr a, gmx_mm_qpr b)
+{
+    gmx_mm_qpr c;
+    int        i;
+
+    for (i = 0; i < GMX_SIMD_REAL_WIDTH/4; i++)
+    {
+        c.r[i] = a.r[i] + b.r[i];
+    }
+
+    return c;
+}
+
+static gmx_inline gmx_mm_qpr
+gmx_sub_qpr(gmx_mm_qpr a, gmx_mm_qpr b)
+{
+    gmx_mm_qpr c;
+    int        i;
+
+    for (i = 0; i < GMX_SIMD_REAL_WIDTH/4; i++)
+    {
+        c.r[i] = a.r[i] - b.r[i];
+    }
+
+    return c;
+}
+
 /* Sum over 4 half SIMD registers */
 static gmx_inline gmx_mm_hpr
 gmx_sum4_hpr(gmx_simd_real_t a, gmx_simd_real_t b)
@@ -227,6 +325,23 @@ gmx_sum4_hpr(gmx_simd_real_t a, gmx_simd_real_t b)
             b.r[GMX_SIMD_REAL_WIDTH/2+i];
     }
 
+    return c;
+}
+
+/* Sum over 4 quarters of SIMD registers*/
+static gmx_inline gmx_mm_qpr
+gmx_sum4_qpr(gmx_simd_real_t a)
+{
+    gmx_mm_qpr c;
+    int        i, j;
+    for (i = 0; i < GMX_SIMD_REAL_WIDTH/4; i++)
+    {
+        c.r[i] = 0;
+        for (j = 0; j < 4; j++)
+        {
+            c.r[i] += a.r[i+j*GMX_SIMD_REAL_WIDTH/4];
+        }
+    }
     return c;
 }
 
@@ -251,6 +366,29 @@ gmx_mm_transpose_sum4h_pr(gmx_simd_real_t a, gmx_simd_real_t b)
         sum.r[3] += b.r[GMX_SIMD_REAL_WIDTH/2+i];
     }
 
+    return sum;
+}
+#endif
+
+#ifdef GMX_NBNXN_SIMD_4X4XN
+/* Sum the elements of quarters of input in store in first 4 elements of output */
+static gmx_inline gmx_simd4_real_t
+gmx_mm_transpose_sum4q_pr(gmx_simd_float_t a)
+{
+    gmx_simd4_real_t sum;
+    int              i, j;
+    sum.r[0] = 0;
+    sum.r[1] = 0;
+    sum.r[2] = 0;
+    sum.r[3] = 0;
+
+    for (i = 0; i < GMX_SIMD_REAL_WIDTH/4; i++)
+    {
+        for (j = 0; j < 4; j++)
+        {
+            sum.r[j] += a.r[j*GMX_SIMD_REAL_WIDTH/2+i];
+        }
+    }
     return sum;
 }
 #endif
