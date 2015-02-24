@@ -51,8 +51,8 @@
 
 gmx_bool bUseOffloadedKernel = FALSE;
 gmx_offload gmx_bool bRefreshNbl = TRUE;
-gmx_offload char *input_buffer;
-gmx_offload char *output_buffer;
+gmx_offload char *phi_in_packet;
+gmx_offload char *phi_out_packet;
 static float off_signal = 0;
 // double phi_times[NUM_TIMES];
 gmx_offload gmx_cycles_t force_cycles = 0;
@@ -276,35 +276,36 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 	int ewald_excl = nbvg->ewald_excl;
 
 	// Data needed for force and shift reductions
-	static char *transfer_in_packet = NULL;
+	// TODO: Compiler complains if this buffer is not offloaded, but it shouldn't be necessary.
+	gmx_offload static char *cpu_out_packet = NULL;
 	static size_t current_packet_in_size = 0;
 	size_t packet_in_size = compute_required_size(ibuffers, NUM_OFFLOAD_BUFFERS);
 	if (packet_in_size > current_packet_in_size)
 	{
-		if (transfer_in_packet != NULL)
+		if (cpu_out_packet != NULL)
 		{
-			mfree(transfer_in_packet, input_buffer);
+			mfree(cpu_out_packet, phi_in_packet);
 		}
-		transfer_in_packet = mmalloc(2*packet_in_size, &input_buffer);
+		cpu_out_packet = mmalloc(2*packet_in_size, &phi_in_packet);
 		current_packet_in_size = 2*packet_in_size;
 	}
-	packdata(transfer_in_packet, ibuffers, NUM_OFFLOAD_BUFFERS);
+	packdata(cpu_out_packet, ibuffers, NUM_OFFLOAD_BUFFERS);
 
 	packet_buffer obuffers[4];
 	obuffers[0] = (packet_buffer){nbat->out[0].fshift, sizeof(real) * SHIFTS * DIM};
 	obuffers[1] = ibuffers[20]; // Vc
 	obuffers[2] = ibuffers[21]; // Vvdw
 	obuffers[3] = (packet_buffer){nbat->out[0].f, sizeof(real) * nbat->natoms * nbat->fstride}; // Force
-	static char *transfer_out_packet = NULL;
+	static char *cpu_in_packet = NULL;
 	static size_t current_packet_out_size = 0;
 	size_t packet_out_size = compute_required_size(obuffers, 4);
 	if (packet_out_size > current_packet_out_size)
 	{
-		if (transfer_out_packet != NULL)
+		if (cpu_in_packet != NULL)
 		{
-			mfree(transfer_out_packet, output_buffer);
+			mfree(cpu_in_packet, phi_out_packet);
 		}
-		transfer_out_packet = mmalloc(2*packet_out_size, &output_buffer);
+		cpu_in_packet = mmalloc(2*packet_out_size, &phi_out_packet);
 		current_packet_out_size = 2*packet_out_size;
 	}
 
@@ -317,10 +318,9 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 
 	// TODO: What about nbl->excl ?
 	// TODO: Figure out why we need this kludge for static variables and how to handle it best.
-	char *tip = transfer_in_packet;
-	char *top = transfer_out_packet;
+
 	// dprintf(2, "Packet sizes in out %lu %lu\n", packet_in_size, packet_out_size);
-	// dprintf(2, "Transfer packet information: %p %d %d\n", transfer_out_packet, packet_out_size, current_packet_out_size);
+	// dprintf(2, "Transfer packet information: %p %d %d\n", cpu_in_packet, packet_out_size, current_packet_out_size);
 	// dprintf(2, "Sizes of stuff %d %d %d %d\n", sizeof(nbnxn_pairlist_set_t), sizeof(nbnxn_pairlist_t), sizeof(nbnxn_ci_t), sizeof(nbnxn_sci_t));
 	int j;
 	// for (j=0; j<NUM_TIMES; j++) phi_times[j] = 0;
@@ -339,8 +339,8 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 							  nocopy(waccount) \
 							  nocopy(phi_buffer_sizes) \
 							  inout(force_cycles) inout(reduce_cycles) inout(other_cycles) \
-							  in (tip[0:packet_in_size] :  into(input_buffer[0:packet_in_size]) REUSE targetptr) \
-							  out(output_buffer[0:packet_out_size] : into(top[0:packet_out_size]) REUSE targetptr) \
+							  in (cpu_out_packet[0:packet_in_size] :  into(phi_in_packet[0:packet_in_size]) REUSE targetptr) \
+							  out(phi_out_packet[0:packet_out_size] : into(cpu_in_packet[0:packet_out_size]) REUSE targetptr) \
     						  signal(&off_signal)
 	{
 		if (waccount == NULL)
@@ -353,8 +353,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 			walltime_accounting_resume(waccount);
 		}
 		gmx_cycles_t start_cycle = _rdtsc();
-	    void *tip = input_buffer;
-	    void *top = output_buffer;
 		code_timer *ct_phi = create_code_timer();
 		code_timer *ct_phi_total = create_code_timer();
 		reset_timer(ct_phi);
@@ -363,7 +361,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		packet_iter *it;
 		smalloc(it, sizeof(packet_iter));
 
-		create_packet_iter(tip, it);
+		create_packet_iter(phi_in_packet, it);
 		refresh_buffer(&nbl_lists, &phi_buffer_sizes[0], it);
 		refresh_buffer(&nbl_buffer, &phi_buffer_sizes[1], it);
 		refresh_buffer(&ci_buffer, &phi_buffer_sizes[2], it);
@@ -461,10 +459,10 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 		reset_timer(ct_phi);
 		packet_buffer phi_buffers[4];
 		phi_buffers[0] = (packet_buffer){nbat->out[0].fshift, sizeof(real) * SHIFTS * DIM};
-		phi_buffers[1] = get_buffer(tip, 20);
-		phi_buffers[2] = get_buffer(tip, 21);
+		phi_buffers[1] = get_buffer(phi_in_packet, 20);
+		phi_buffers[2] = get_buffer(phi_in_packet, 21);
 		phi_buffers[3] = (packet_buffer){nbat->out[0].f, sizeof(real) * nbat->natoms * nbat->fstride};
-		packdata(top, phi_buffers, 4);
+		packdata(phi_out_packet, phi_buffers, 4);
 		// Pack output buffer time
 		// phi_times[4] = get_elapsed_time(ct_phi);
 		// phi_times[NUM_TIMES-1] = get_elapsed_time(ct_phi_total);
@@ -480,7 +478,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 //		dprintf(2, "Total offload time %f\n", get_elapsed_time(ct));
 //	}
 	// reset_timer(ct);
-	unpack_data.out_packet_addr = transfer_out_packet;
+	unpack_data.out_packet_addr = cpu_in_packet;
 	unpack_data.cpu_buffers[0] = nbat->out[0].fshift;
 	unpack_data.cpu_buffers[1] = Vc;
 	unpack_data.cpu_buffers[2] = Vvdw;
