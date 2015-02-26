@@ -386,7 +386,7 @@ gmx_mm_transpose_sum4q_pr(gmx_simd_float_t a)
     {
         for (j = 0; j < 4; j++)
         {
-            sum.r[j] += a.r[j*GMX_SIMD_REAL_WIDTH/2+i];
+            sum.r[j] += a.r[j*GMX_SIMD_REAL_WIDTH/4+i];
         }
     }
     return sum;

@@ -156,6 +156,7 @@ static void nbnxn_atomdata_output_init(nbnxn_atomdata_output_t *out,
     ma((void **)&out->Vc, out->nV*sizeof(*out->Vc  ));
 
     if (nb_kernel_type == nbnxnk4xN_SIMD_4xN ||
+        nb_kernel_type == nbnxnk4xN_SIMD_2xNN ||
         nb_kernel_type == nbnxnk4xN_SIMD_2xNN)
     {
         cj_size  = nbnxn_kernel_to_cj_size(nb_kernel_type);
@@ -713,7 +714,8 @@ void nbnxn_atomdata_init(FILE *fp,
     }
 
     bSIMD = (nb_kernel_type == nbnxnk4xN_SIMD_4xN ||
-             nb_kernel_type == nbnxnk4xN_SIMD_2xNN);
+             nb_kernel_type == nbnxnk4xN_SIMD_2xNN ||
+             nb_kernel_type == nbnxnk4xN_SIMD_4x4xN);
 
     set_lj_parameter_data(nbat, bSIMD);
 
