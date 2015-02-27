@@ -150,6 +150,17 @@ gmx_load_qpr(gmx_mm_qpr *a, const real *b)
     }
 }
 
+/* Load reals at quarter-width aligned pointer b into q-th quarter of full-width SIMD register a */
+static gmx_inline void
+gmx_load_into_qpr(gmx_simd_real_t *a, const real *b, int q)
+{
+    int i;
+
+    for (i = q*GMX_SIMD_REAL_WIDTH; i < GMX_SIMD_REAL_WIDTH*(q+1)/4; i++)
+    {
+        a->r[i] = b[i];
+    }
+}
 
 /* Set all entries in half-width SIMD register *a to b */
 static gmx_inline void
@@ -252,6 +263,19 @@ gmx_store_qpr(real *a, gmx_mm_qpr b)
         a[i] = b.r[i];
     }
 }
+
+/* Store q-th quarter of full-width SIMD register b into quarter width aligned memory a */
+static gmx_inline void
+gmx_store_from_qpr(real *a, gmx_simd_real_t b, int q)
+{
+    int i;
+
+    for (i = q*GMX_SIMD_REAL_WIDTH; i < GMX_SIMD_REAL_WIDTH*(q+1)/4; i++)
+    {
+        a[i] = b.r[i];
+    }
+}
+
 
 static gmx_inline gmx_mm_hpr
 gmx_add_hpr(gmx_mm_hpr a, gmx_mm_hpr b)

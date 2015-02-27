@@ -240,18 +240,7 @@
         wco_S0  = gmx_simd_and_b(wco_S0, diagonal_mask_S0);
     }
 #else
-#if UNROLLJ == 2*UNROLLI
-    if (cj*2 == ci_sh)
-    {
-        wco_S0  = gmx_simd_and_b(wco_S0, diagonal_mask0_S0);
-    }
-    else if (cj*2 + 1 == ci_sh)
-    {
-        wco_S0  = gmx_simd_and_b(wco_S0, diagonal_mask1_S0);
-    }
-#else
-#error "only UNROLLJ == UNROLLI*(1 or 2) currently supported in 2xnn kernels"
-#endif
+#error "only UNROLLJ == UNROLLI currently supported in 2xnn kernels"
 #endif
 #else /* EXCL_FORCES */
       /* No exclusion forces: remove all excluded atom pairs from the list */
@@ -627,7 +616,7 @@
 #ifndef ENERGY_GROUPS
     vctot_S      = gmx_simd_add_r(vctot_S, vcoul_S0);
 #else
-    add_ener_grp_halves(vcoul_S0, vctp[0], vctp[1], egp_jj);
+    add_ener_grp_quarters(vcoul_S0, vctp, egp_jj);
 #endif
 #endif
 
@@ -635,7 +624,7 @@
 #ifndef ENERGY_GROUPS
     Vvdwtot_S    = gmx_simd_add_r(Vvdwtot_S, VLJ_S0);
 #else
-    add_ener_grp_halves(VLJ_S0, vvdwtp[0], vvdwtp[1], egp_jj);
+    add_ener_grp_quarters(VLJ_S0, vvdwtp, egp_jj);
 #endif
 #endif /* CALC_LJ */
 #endif /* CALC_ENERGIES */
@@ -667,6 +656,10 @@
     gmx_store_qpr(f+ajx, gmx_sub_qpr(fjx_S, gmx_sum4_qpr(tx_S0)));
     gmx_store_qpr(f+ajy, gmx_sub_qpr(fjy_S, gmx_sum4_qpr(ty_S0)));
     gmx_store_qpr(f+ajz, gmx_sub_qpr(fjz_S, gmx_sum4_qpr(tz_S0)));
+//    fprintf(debug, "sci %d, ajx: %d, ", scix, ajx);
+//    int i;
+//    for (i=0;i<12;i++) fprintf(debug, "%.2g, ", f[ajx+i]);
+//    fprintf(debug, "\n");
 }
 
 #undef  rinv_ex_S0

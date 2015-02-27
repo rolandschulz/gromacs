@@ -68,6 +68,14 @@ gmx_load_qpr(gmx_mm_qpr *a, const real *b)
     *a = _mm512_extload_ps(b, _MM_UPCONV_PS_NONE, _MM_BROADCAST_4X16, _MM_HINT_NONE);
 }
 
+/* Load reals at quarter-width aligned pointer b into q-th quarter of full-width SIMD register a */
+static gmx_inline void
+gmx_load_into_qpr(gmx_simd_real_t *a, const real *b, int q)
+{
+    __mmask16 m = { _mm512_int2mask(0x000F), _mm512_int2mask(0x00F0), _mm512_int2mask(0x0F00), _mm512_int2mask(0xF000)};
+    *a = _mm512_mask_extload_ps(*a, m[q], b, _MM_UPCONV_PS_NONE, _MM_BROADCAST_4X16, _MM_HINT_NONE);
+}
+
 /* Set all entries in half-width SIMD register *a to b */
 static gmx_inline void
 gmx_set1_hpr(gmx_mm_hpr *a, real b)
@@ -129,6 +137,13 @@ gmx_store_qpr(real *a, gmx_mm_qpr b)
     _mm512_mask_packstorelo_ps(a, gmx_simd4_mask, b);
 }
 
+/* Store q-th quarter of full-width SIMD register b into quarter width aligned memory a */
+static gmx_inline void
+gmx_store_from_qpr(real *a, gmx_simd_real_t b, int q)
+{
+    __mmask16 m = { _mm512_int2mask(0x000F), _mm512_int2mask(0x00F0), _mm512_int2mask(0x0F00), _mm512_int2mask(0xF000)};
+    _mm512_mask_packstorelo_ps(a, m[q], b);
+}
 
 #define gmx_add_hpr _mm512_add_ps
 #define gmx_sub_hpr _mm512_sub_ps

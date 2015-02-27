@@ -198,4 +198,24 @@ add_ener_grp_halves(gmx_simd_real_t e_S, real *v0, real *v1, const int *offset_j
 }
 #endif
 
+#if defined GMX_NBNXN_SIMD_4X4XN && defined UNROLLJ
+static gmx_inline void
+add_ener_grp_quarters(gmx_simd_real_t e_S, real **v, const int *offset_jj)
+{
+    int        jj, i;
+
+    for (jj = 0; jj < (UNROLLJ/2); jj++)
+    {
+        gmx_simd_real_t v_S;
+        for (i=0;i<4;i++) {
+            gmx_load_into_qpr(&v_S, v[i]+offset_jj[jj]+jj*GMX_SIMD_REAL_WIDTH/4, i);
+        }
+        v_S = gmx_simd_add_r(v_S, e_S);
+        for (i=0;i<4;i++) {
+            gmx_store_from_qpr(v[i]+offset_jj[jj]+jj*GMX_SIMD_REAL_WIDTH/4, v_S, i);
+        }
+    }
+}
+#endif
+
 #endif /* _nbnxn_kernel_simd_utils_h_ */
