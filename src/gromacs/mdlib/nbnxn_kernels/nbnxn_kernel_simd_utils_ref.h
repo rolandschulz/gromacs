@@ -653,15 +653,16 @@ load_lj_pair_params4(const real *nbfp0, const real *nbfp1,
     }
 }
 #else
-static gmx_inline void
-gmx_gather_pr(const real *m, gmx_simd_int32_t idx, gmx_simd_real_t *v, int scale)
+static gmx_inline gmx_simd_real_t
+gmx_gather_pr(gmx_simd_int32_t idx, const real *m, int scale)
 {
     int i;
-
+    gmx_simd_real_t v;
     for (i = 0; i < GMX_SIMD_REAL_WIDTH; i++)
     {
-        v->r[i] = m[idx.i[i]*scale];
+        v.r[i] = m[idx.i[i]*scale];
     }
+    return v;
 }
 #endif
 #endif
