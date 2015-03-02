@@ -74,7 +74,7 @@
     real               *nbfp_ptr;
     int                 n, ci, ci_sh;
     int                 ish, ish3;
-    gmx_bool            do_LJ, do_coul, do_self;
+    gmx_bool            do_LJ, half_LJ, do_coul, do_self;
     int                 sci, scix, sciy, sciz, sci2;
     int                 cjind0, cjind1, cjind;
     int                 ip, jp;
@@ -415,6 +415,7 @@
          */
         do_LJ   = (nbln->shift & NBNXN_CI_DO_LJ(0));
         do_coul = (nbln->shift & NBNXN_CI_DO_COUL(0));
+        half_LJ = ((nbln->shift & NBNXN_CI_HALF_LJ(0)) || !do_LJ) && do_coul;
 #ifdef LJ_EWALD_GEOM
         do_self = TRUE;
 #else

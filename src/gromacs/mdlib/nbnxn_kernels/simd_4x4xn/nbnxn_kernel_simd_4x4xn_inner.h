@@ -281,7 +281,7 @@
 #ifdef CALC_LJ
 
 #if !defined LJ_COMB_GEOM && !defined LJ_COMB_LB && !defined FIX_LJ_C
-    load_lj_pair_params2(nbfp0, nbfp1, type, aj, &c6_S0, &c12_S0);
+    load_lj_pair_params4(nbfp0, nbfp1, nbfp2, nbfp3, type, aj, &c6_S0, &c12_S0);
 #endif /* not defined any LJ rule */
 
 #ifdef LJ_COMB_GEOM
@@ -616,7 +616,16 @@
 #ifndef ENERGY_GROUPS
     vctot_S      = gmx_simd_add_r(vctot_S, vcoul_S0);
 #else
-    add_ener_grp_quarters(vcoul_S0, vctp, egp_jj);
+    add_ener_grp_quarters(vcoul_S0, vctp, egp_jj, FALSE);
+//    fprintf(debug, "sci %d, ajx: %d, ", scix, ajx);
+//    {
+//    int i,j,k;
+//    for (i=0;i<4;i++)
+//        for (j=0;j<2;j++)
+//            for (k=0;k<2;k++)
+//                fprintf(debug, "%f ", (vctp[i]+egp_jj[j]+j*6)[k]);
+//    fprintf(debug, "\n");
+//    }
 #endif
 #endif
 
@@ -624,7 +633,16 @@
 #ifndef ENERGY_GROUPS
     Vvdwtot_S    = gmx_simd_add_r(Vvdwtot_S, VLJ_S0);
 #else
-    add_ener_grp_quarters(VLJ_S0, vvdwtp, egp_jj);
+    add_ener_grp_quarters(VLJ_S0, vvdwtp, egp_jj, half_LJ); //this can be done nicely with hardware gather/scatter (becuase often they are the same grp and complicated tempory 1-2 buffer is not needed then). Then no reduce_group_energies is needed. Masking those not needed (e.g. half_lj/beyond cut-off) can reduce load/store further.
+//    {
+//    fprintf(debug, "sci %d, ajx: %d, ", scix, ajx);
+//    int i,j,k;
+//    for (i=0;i<4;i++)
+//        for (j=0;j<2;j++)
+//            for (k=0;k<2;k++)
+//                fprintf(debug, "%f ", (vvdwtp[i]+egp_jj[j]+j*4)[k+j*2]);
+//    fprintf(debug, "\n");
+//    }
 #endif
 #endif /* CALC_LJ */
 #endif /* CALC_ENERGIES */

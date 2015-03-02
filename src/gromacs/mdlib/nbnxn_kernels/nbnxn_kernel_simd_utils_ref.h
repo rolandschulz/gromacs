@@ -156,9 +156,9 @@ gmx_load_into_qpr(gmx_simd_real_t *a, const real *b, int q)
 {
     int i;
 
-    for (i = q*GMX_SIMD_REAL_WIDTH; i < GMX_SIMD_REAL_WIDTH*(q+1)/4; i++)
+    for (i = 0; i < GMX_SIMD_REAL_WIDTH/4; i++)
     {
-        a->r[i] = b[i];
+        a->r[i+GMX_SIMD_REAL_WIDTH/4*q] = b[i];
     }
 }
 
@@ -270,9 +270,9 @@ gmx_store_from_qpr(real *a, gmx_simd_real_t b, int q)
 {
     int i;
 
-    for (i = q*GMX_SIMD_REAL_WIDTH; i < GMX_SIMD_REAL_WIDTH*(q+1)/4; i++)
+    for (i = 0; i < GMX_SIMD_REAL_WIDTH/4; i++)
     {
-        a[i] = b.r[i];
+        a[i] = b.r[i+GMX_SIMD_REAL_WIDTH/4*q];
     }
 }
 
@@ -599,6 +599,29 @@ load_lj_pair_params2(const real *nbfp0, const real *nbfp1,
         c6_S->r[GMX_SIMD_REAL_WIDTH/2 + i]  = nbfp1[type[aj+i]*nbfp_stride];
         c12_S->r[i]                         = nbfp0[type[aj+i]*nbfp_stride+1];
         c12_S->r[GMX_SIMD_REAL_WIDTH/2 + i] = nbfp1[type[aj+i]*nbfp_stride+1];
+    }
+}
+#endif
+
+#ifdef GMX_NBNXN_SIMD_4X4XN
+static gmx_inline void
+load_lj_pair_params4(const real *nbfp0, const real *nbfp1,
+                     const real *nbfp2, const real *nbfp3,
+                     const int *type, int aj,
+                     gmx_simd_real_t *c6_S, gmx_simd_real_t *c12_S)
+{
+    int i;
+
+    for (i = 0; i < GMX_SIMD_REAL_WIDTH/4; i++)
+    {
+        c6_S->r[i]                            = nbfp0[type[aj+i]*nbfp_stride];
+        c6_S->r[GMX_SIMD_REAL_WIDTH/4 + i]    = nbfp1[type[aj+i]*nbfp_stride];
+        c6_S->r[2*GMX_SIMD_REAL_WIDTH/4 + i]  = nbfp2[type[aj+i]*nbfp_stride];
+        c6_S->r[3*GMX_SIMD_REAL_WIDTH/4 + i]  = nbfp3[type[aj+i]*nbfp_stride];
+        c12_S->r[i]                           = nbfp0[type[aj+i]*nbfp_stride+1];
+        c12_S->r[GMX_SIMD_REAL_WIDTH/4 + i]   = nbfp1[type[aj+i]*nbfp_stride+1];
+        c12_S->r[2*GMX_SIMD_REAL_WIDTH/4 + i] = nbfp2[type[aj+i]*nbfp_stride+1];
+        c12_S->r[3*GMX_SIMD_REAL_WIDTH/4 + i] = nbfp3[type[aj+i]*nbfp_stride+1];
     }
 }
 #endif
