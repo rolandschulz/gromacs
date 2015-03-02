@@ -281,7 +281,15 @@
 #ifdef CALC_LJ
 
 #if !defined LJ_COMB_GEOM && !defined LJ_COMB_LB && !defined FIX_LJ_C
+#ifndef LJ_TABLE_GATHER
     load_lj_pair_params4(nbfp0, nbfp1, nbfp2, nbfp3, type, aj, &c6_S0, &c12_S0);
+#else
+    gmx_simd_int32_t nbfp_j;
+    gmx_bcastq_epi(&nbfp_j, type+aj);
+    nbfp_j = gmx_simd_add_i(nbfp_j, nbfp);
+    gmx_gather_pr(nbfp_ptr,   nbfp_j, &c6_S0, nbfp_stride);
+    gmx_gather_pr(nbfp_ptr+1, nbfp_j, &c12_S0, nbfp_stride);
+#endif
 #endif /* not defined any LJ rule */
 
 #ifdef LJ_COMB_GEOM

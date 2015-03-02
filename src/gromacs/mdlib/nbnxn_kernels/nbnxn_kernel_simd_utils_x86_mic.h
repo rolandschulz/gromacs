@@ -300,6 +300,12 @@ load_lj_pair_params2(const real *nbfp0, const real *nbfp1,
     gmx_2hpr_high_to_pr(tmp1, tmp2, c12_S);
 }
 
+#define LJ_TABLE_GATHER
+static gmx_inline void
+gmx_gather_pr(const real *m, gmx_simd_int32_t idx, gmx_simd_real_t *v, int scale)
+{
+    *m = _mm512_i32gather_ps(idx, m, sizeof(float)*scale);
+}
 /* Code for handling loading exclusions and converting them into
    interactions. */
 #define gmx_load1_exclfilter _mm512_set1_epi32

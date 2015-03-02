@@ -213,6 +213,19 @@ gmx_bcast4_repeat_pr(gmx_simd_real_t *a, const real *b)
     }
 }
 
+static gmx_inline void
+gmx_bcast4_repeat_epi(gmx_simd_int32_t *a, const int *b)
+{
+    int i, j;
+    for (i = 0; i < GMX_SIMD_REAL_WIDTH/4; i++)
+    {
+        for (j = 0; j < 4; j++)
+        {
+            a->i[GMX_SIMD_REAL_WIDTH*j/4 + i] = b[j];
+        }
+    }
+}
+
 /* Load reals at half-width aligned pointer b into two halves of a */
 static gmx_inline void
 gmx_loaddh_pr(gmx_simd_real_t *a, const real *b)
@@ -236,6 +249,19 @@ gmx_bcastq_pr(gmx_simd_real_t *a, const real *b)
         for (j = 0; j < 4; j++)
         {
             a->r[GMX_SIMD_REAL_WIDTH*j/4 + i] = b[i];
+        }
+    }
+}
+
+static gmx_inline void
+gmx_bcastq_epi(gmx_simd_int32_t *a, const int *b)
+{
+    int i, j;
+    for (i = 0; i < GMX_SIMD_REAL_WIDTH/4; i++)
+    {
+        for (j = 0; j < 4; j++)
+        {
+            a->i[GMX_SIMD_REAL_WIDTH*j/4 + i] = b[i];
         }
     }
 }
@@ -604,6 +630,8 @@ load_lj_pair_params2(const real *nbfp0, const real *nbfp1,
 #endif
 
 #ifdef GMX_NBNXN_SIMD_4X4XN
+#define LJ_TABLE_GATHER
+#ifndef LJ_TABLE_GATHER
 static gmx_inline void
 load_lj_pair_params4(const real *nbfp0, const real *nbfp1,
                      const real *nbfp2, const real *nbfp3,
@@ -624,6 +652,18 @@ load_lj_pair_params4(const real *nbfp0, const real *nbfp1,
         c12_S->r[3*GMX_SIMD_REAL_WIDTH/4 + i] = nbfp3[type[aj+i]*nbfp_stride+1];
     }
 }
+#else
+static gmx_inline void
+gmx_gather_pr(const real *m, gmx_simd_int32_t idx, gmx_simd_real_t *v, int scale)
+{
+    int i;
+
+    for (i = 0; i < GMX_SIMD_REAL_WIDTH; i++)
+    {
+        v->r[i] = m[idx.i[i]*scale];
+    }
+}
+#endif
 #endif
 
 /* Code for handling loading exclusions and converting them into

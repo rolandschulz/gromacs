@@ -70,6 +70,7 @@
     const real         *shiftvec;
     const real         *x;
     const real         *nbfp0, *nbfp1, *nbfp2 = NULL, *nbfp3 = NULL;
+    gmx_simd_int32_t    nbfp;
     real                facel;
     real               *nbfp_ptr;
     int                 n, ci, ci_sh;
@@ -203,7 +204,7 @@
 #endif
 #if !(defined LJ_COMB_GEOM || defined LJ_COMB_LB)
     /* No combination rule used */
-    nbfp_ptr    = (4 == nbfp_stride) ? nbat->nbfp_s4 : nbat->nbfp;
+    nbfp_ptr    = (4 == nbfp_stride) ? nbat->nbfp_s4 : nbat->nbfp; //TODO: use stride 2 with gather
 #endif
 
     /* Load j-i for the first i */
@@ -527,10 +528,15 @@
         gmx_bcast4_repeat_pr(&c6s_S0, ljc+sci2+0);
         gmx_bcast4_repeat_pr(&c12s_S0, ljc+sci2+STRIDE+0);
 #else
+#ifndef LJ_TABLE_GATHER
         nbfp0 = nbfp_ptr + type[sci  ]*nbat->ntype*nbfp_stride;
         nbfp1 = nbfp_ptr + type[sci+1]*nbat->ntype*nbfp_stride;
         nbfp2 = nbfp_ptr + type[sci+2]*nbat->ntype*nbfp_stride;
         nbfp3 = nbfp_ptr + type[sci+3]*nbat->ntype*nbfp_stride;
+#else
+        gmx_bcast4_repeat_epi(&nbfp, type+sci);
+        nbfp = gmx_simd_mul_i(nbfp, gmx_simd_set1_i(nbat->ntype));
+#endif
 #endif
 #endif
 #ifdef LJ_EWALD_GEOM
