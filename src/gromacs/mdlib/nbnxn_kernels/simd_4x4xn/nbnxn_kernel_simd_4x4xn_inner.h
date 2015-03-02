@@ -287,8 +287,8 @@
     gmx_simd_int32_t nbfp_j;
     gmx_bcastq_epi(&nbfp_j, type+aj);
     nbfp_j = gmx_simd_add_i(nbfp_j, nbfp);
-    gmx_gather_pr(nbfp_ptr,   nbfp_j, &c6_S0, nbfp_stride);
-    gmx_gather_pr(nbfp_ptr+1, nbfp_j, &c12_S0, nbfp_stride);
+    c6_S0  = gmx_gather_pr(nbfp_j, nbfp_ptr  , nbfp_stride);
+    c12_S0 = gmx_gather_pr(nbfp_j, nbfp_ptr+1, nbfp_stride);
 #endif
 #endif /* not defined any LJ rule */
 

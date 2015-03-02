@@ -114,9 +114,9 @@ prepare_table_load_buffer(int gmx_unused *array)
 
 #if GMX_SIMD_REAL_WIDTH > 4
 /* For width>4 we use unaligned loads. And thus we can use the minimal stride */
-static const int nbfp_stride = 2;
+#define nbfp_stride 2
 #else
-static const int nbfp_stride = GMX_SIMD_REAL_WIDTH;
+#define nbfp_stride GMX_SIMD_REAL_WIDTH
 #endif
 
 /* We use the FDV0 table layout when we can use aligned table loads */

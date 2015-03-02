@@ -72,7 +72,7 @@ gmx_load_qpr(gmx_mm_qpr *a, const real *b)
 static gmx_inline void
 gmx_load_into_qpr(gmx_simd_real_t *a, const real *b, int q)
 {
-    __mmask16 m = { _mm512_int2mask(0x000F), _mm512_int2mask(0x00F0), _mm512_int2mask(0x0F00), _mm512_int2mask(0xF000)};
+    __mmask16 m[] = { _mm512_int2mask(0x000F), _mm512_int2mask(0x00F0), _mm512_int2mask(0x0F00), _mm512_int2mask(0xF000)};
     *a = _mm512_mask_extload_ps(*a, m[q], b, _MM_UPCONV_PS_NONE, _MM_BROADCAST_4X16, _MM_HINT_NONE);
 }
 
@@ -108,6 +108,13 @@ gmx_bcast4_repeat_pr(gmx_simd_float_t *a, const real *b)
     //for avx512: *a=_mm512_shuffle_ps(_mm512_mask_expand_ps(_mm512_undefined_ps(), _mm512_int2mask(0x1111), b), _MM_PERM_AAAA);
 }
 
+static gmx_inline void
+gmx_bcast4_repeat_epi(gmx_simd_int32_t *a, const int *b)
+{
+    assert((size_t)a%16 == 0);
+    *a = _mm512_swizzle_epi32(_mm512_mask_loadunpacklo_epi32(_mm512_undefined_epi32(), _mm512_int2mask(0x1111), b), _MM_SWIZ_REG_AAAA);
+}
+
 
 /* Load reals at half-width aligned pointer b into two halves of a */
 static gmx_inline void
@@ -121,6 +128,12 @@ static gmx_inline void
 gmx_bcastq_pr(gmx_simd_float_t *a, const real *b)
 {
     *a = _mm512_extload_ps(b, _MM_UPCONV_PS_NONE, _MM_BROADCAST_4X16, _MM_HINT_NONE);
+}
+
+static gmx_inline void
+gmx_bcastq_epi(gmx_simd_int32_t *a, const int *b)
+{
+    *a = _mm512_extload_epi32(b, _MM_UPCONV_EPI32_NONE, _MM_BROADCAST_4X16, _MM_HINT_NONE);
 }
 
 /* Store half-width SIMD register b into half width aligned memory a */
@@ -141,7 +154,7 @@ gmx_store_qpr(real *a, gmx_mm_qpr b)
 static gmx_inline void
 gmx_store_from_qpr(real *a, gmx_simd_real_t b, int q)
 {
-    __mmask16 m = { _mm512_int2mask(0x000F), _mm512_int2mask(0x00F0), _mm512_int2mask(0x0F00), _mm512_int2mask(0xF000)};
+    __mmask16 m[] = { _mm512_int2mask(0x000F), _mm512_int2mask(0x00F0), _mm512_int2mask(0x0F00), _mm512_int2mask(0xF000)};
     _mm512_mask_packstorelo_ps(a, m[q], b);
 }
 
@@ -301,11 +314,8 @@ load_lj_pair_params2(const real *nbfp0, const real *nbfp1,
 }
 
 #define LJ_TABLE_GATHER
-static gmx_inline void
-gmx_gather_pr(const real *m, gmx_simd_int32_t idx, gmx_simd_real_t *v, int scale)
-{
-    *m = _mm512_i32gather_ps(idx, m, sizeof(float)*scale);
-}
+#define gmx_gather_pr(idx, m, scale) _mm512_i32gather_ps(idx, m, sizeof(float)*scale);
+
 /* Code for handling loading exclusions and converting them into
    interactions. */
 #define gmx_load1_exclfilter _mm512_set1_epi32

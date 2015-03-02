@@ -204,7 +204,7 @@
 #endif
 #if !(defined LJ_COMB_GEOM || defined LJ_COMB_LB)
     /* No combination rule used */
-    nbfp_ptr    = (4 == nbfp_stride) ? nbat->nbfp_s4 : nbat->nbfp; //TODO: use stride 2 with gather
+    nbfp_ptr    = (4 == nbfp_stride) ? nbat->nbfp_s4 : nbat->nbfp;
 #endif
 
     /* Load j-i for the first i */
