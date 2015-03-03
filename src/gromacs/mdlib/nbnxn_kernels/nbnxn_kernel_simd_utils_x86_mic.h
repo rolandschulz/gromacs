@@ -99,11 +99,11 @@ gmx_load1p1_pr(gmx_simd_float_t *a, const real *b)
                                 b+1, _MM_UPCONV_PS_NONE, _MM_BROADCAST_1X16, _MM_HINT_NONE);
 }
 
-/* Load 4 reals at 4-aligned pointer a into b. Repeat each element quarter-width times. */
+/* Load 4 reals at 4-aligned pointer b into a. Repeat each element quarter-width times. */
 static gmx_inline void
 gmx_bcast4_repeat_pr(gmx_simd_float_t *a, const real *b)
 {
-    assert((size_t)a%16 == 0);
+    assert((size_t)b%16 == 0);
     *a = _mm512_swizzle_ps(_mm512_mask_loadunpacklo_ps(_mm512_undefined_ps(), _mm512_int2mask(0x1111), b), _MM_SWIZ_REG_AAAA);
     //for avx512: *a=_mm512_shuffle_ps(_mm512_mask_expand_ps(_mm512_undefined_ps(), _mm512_int2mask(0x1111), b), _MM_PERM_AAAA);
 }
@@ -111,7 +111,7 @@ gmx_bcast4_repeat_pr(gmx_simd_float_t *a, const real *b)
 static gmx_inline void
 gmx_bcast4_repeat_epi(gmx_simd_int32_t *a, const int *b)
 {
-    assert((size_t)a%16 == 0);
+    assert((size_t)b%16 == 0);
     *a = _mm512_swizzle_epi32(_mm512_mask_loadunpacklo_epi32(_mm512_undefined_epi32(), _mm512_int2mask(0x1111), b), _MM_SWIZ_REG_AAAA);
 }
 
@@ -140,6 +140,7 @@ gmx_bcastq_epi(gmx_simd_int32_t *a, const int *b)
 static gmx_inline void
 gmx_store_hpr(real *a, gmx_mm_hpr b)
 {
+    assert((size_t)a%32 == 0);
     _mm512_mask_packstorelo_ps(a, mask_loh, b);
 }
 
@@ -147,6 +148,7 @@ gmx_store_hpr(real *a, gmx_mm_hpr b)
 static gmx_inline void
 gmx_store_qpr(real *a, gmx_mm_qpr b)
 {
+    assert((size_t)a%16 == 0);
     _mm512_mask_packstorelo_ps(a, gmx_simd4_mask, b);
 }
 
@@ -154,6 +156,7 @@ gmx_store_qpr(real *a, gmx_mm_qpr b)
 static gmx_inline void
 gmx_store_from_qpr(real *a, gmx_simd_real_t b, int q)
 {
+    assert((size_t)a%16 == 0);
     __mmask16 m[] = { _mm512_int2mask(0x000F), _mm512_int2mask(0x00F0), _mm512_int2mask(0x0F00), _mm512_int2mask(0xF000)};
     _mm512_mask_packstorelo_ps(a, m[q], b);
 }
@@ -177,10 +180,8 @@ gmx_sum4_hpr(gmx_simd_float_t a, gmx_simd_float_t b)
 static gmx_inline gmx_mm_qpr
 gmx_sum4_qpr(gmx_simd_float_t a)
 {
-    a = _mm512_permute4f128_ps(a, _MM_PERM_CDAB);
-    a = _mm512_add_ps(a, a);
-    a = _mm512_permute4f128_ps(a, _MM_PERM_BADC);
-    return _mm512_add_ps(a, a);
+    a = _mm512_add_ps(a, _mm512_permute4f128_ps(a, _MM_PERM_CDAB));
+    return _mm512_add_ps(a, _mm512_permute4f128_ps(a, _MM_PERM_BADC));
 }
 
 /* Sum the elements of halfs of each input register and store sums in out */
