@@ -84,6 +84,7 @@
 
 {
     int        cj, aj, ajx, ajy, ajz;
+    int        cj_n, aj_n, ajx_n, ajy_n, ajz_n;
 
 #ifdef ENERGY_GROUPS
     /* Energy group indices for two atoms packed into one int */
@@ -174,6 +175,7 @@
 #if defined LJ_COMB_GEOM || defined LJ_COMB_LB || defined LJ_EWALD_GEOM
     /* Index for loading LJ parameters, complicated when interleaving */
     int         aj2;
+    int         aj2_n;
 #endif
 
 #ifndef FIX_LJ_C
@@ -209,15 +211,34 @@
     ajy           = ajx + STRIDE;
     ajz           = ajy + STRIDE;
 
+    /* j-cluster index */
+    cj_n            = l_cj[cjind+1].cj;
+
+    /* Atom indices (of the first atom in the cluster) */
+    aj_n            = cj_n*UNROLLJ;
+#if defined CALC_LJ && (defined LJ_COMB_GEOM || defined LJ_COMB_LB || defined LJ_EWALD_GEOM)
+    aj2_n           = aj_n*2;
+#endif
+    ajx_n           = aj_n*DIM;
+    ajy_n           = ajx_n + STRIDE;
+    ajz_n           = ajy_n + STRIDE;
+
 #ifdef CHECK_EXCLS
     gmx_load_simd_4x4xn_interactions(l_cj[cjind].excl,
                                      filter_S0, &interact_S0);
 #endif /* CHECK_EXCLS */
 
+    /* prefetch forces */
+    _mm_prefetch((const char*)(f+ajx), 0);
+    _mm_prefetch((const char*)(f+ajz), 0);
+
     /* load j atom coordinates */
     gmx_bcastq_pr(&jx_S, x+ajx);
     gmx_bcastq_pr(&jy_S, x+ajy);
     gmx_bcastq_pr(&jz_S, x+ajz);
+
+    _mm_prefetch((const char*)(x+ajx_n), 0);
+    _mm_prefetch((const char*)(x+ajz_n), 0);
 
     /* Calculate distance */
     dx_S0       = gmx_simd_sub_r(ix_S0, jx_S);
@@ -275,6 +296,7 @@
 #ifdef CALC_COULOMB
     /* Load parameters for j atom */
     gmx_bcastq_pr(&jq_S, q+aj);
+    _mm_prefetch((const char*)(q+aj_n),0);
     qq_S0       = gmx_simd_mul_r(iq_S0, jq_S);
 #endif
 
@@ -295,6 +317,8 @@
 #ifdef LJ_COMB_GEOM
     gmx_bcastq_pr(&c6s_j_S,  ljc+aj2+0);
     gmx_bcastq_pr(&c12s_j_S, ljc+aj2+STRIDE);
+    _mm_prefetch((const char*)(ljc+aj2_n+0), 0);
+    _mm_prefetch((const char*)(ljc+aj2_n+STRIDE), 0);
     c6_S0       = gmx_simd_mul_r(c6s_S0, c6s_j_S );
     c12_S0      = gmx_simd_mul_r(c12s_S0, c12s_j_S);
 #endif /* LJ_COMB_GEOM */
