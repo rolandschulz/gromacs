@@ -107,7 +107,7 @@ static const char *wcn[ewcNR] =
     "PME wait for PP", "Wait + Recv. PME F", "Wait GPU nonlocal", "Wait GPU local", "Wait GPU loc. est.", "Wait MIC",
     "NB X/F buffer ops.", "Vsite spread", "COM pull force",
     "Write traj.", "Update", "Constraints", "Comm. energies",
-    "Enforced rotation", "Add rot. forces", "Coordinate swapping", "IMD", "Test"
+    "Enforced rotation", "Add rot. forces", "Coordinate swapping", "IMD", "MIC Offload", "Test"
 };
 
 #ifdef GMX_CYCLE_SUBCOUNTERS
@@ -124,6 +124,10 @@ static const char *wcsn[ewcsNR] =
     "Ewald F correction",
     "NB X buffer ops.",
     "NB F buffer ops.",
+    "MIC Data Packing",
+    "MIC Async Call",
+    "Force pre-offload",
+    "MIC Data Unpacking"
 };
 #endif
 
@@ -187,6 +191,10 @@ gmx_wallcycle_t wallcycle_init(FILE *fplog, int resetstep, t_commrec gmx_unused 
     return wc;
 }
 
+gmx_cycles_t wallcycle_sub_get_last(gmx_wallcycle_t wc, int ewsc)
+{
+	return wc->wcsc[ewsc].last;
+}
 void wallcycle_destroy(gmx_wallcycle_t wc)
 {
     if (wc == NULL)
@@ -1014,7 +1022,8 @@ void wallcycle_sub_stop(gmx_wallcycle_t wc, int ewcs)
 {
     if (wc != NULL)
     {
-        wc->wcsc[ewcs].c += gmx_cycles_read() - wc->wcsc[ewcs].start;
+        wc->wcsc[ewcs].last = gmx_cycles_read() - wc->wcsc[ewcs].start;
+        wc->wcsc[ewcs].c += wc->wcsc[ewcs].last;
         wc->wcsc[ewcs].n++;
     }
 }

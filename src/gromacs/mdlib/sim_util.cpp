@@ -524,7 +524,11 @@ static void do_nb_verlet(t_forcerec *fr,
             {
                 sim_ct = create_code_timer();
                 reset_timer(sim_ct);
-                nbnxn_kernel_simd_2xnn_offload(fr, ic, enerd, flags, ilocality, clearF, nrnb);
+                wallcycle_stop(wcycle, ewcFORCE);
+                wallcycle_start(wcycle, ewcFORCE_OFFLOAD);
+                nbnxn_kernel_simd_2xnn_offload(fr, ic, enerd, flags, ilocality, clearF, nrnb, wcycle);
+                wallcycle_stop(wcycle, ewcFORCE_OFFLOAD);
+                wallcycle_start(wcycle, ewcFORCE);
                 // dprintf(2, "Offload call overhead %f\n", get_elapsed_time(sim_ct));
                 reset_timer(sim_ct);
             }
@@ -1135,6 +1139,7 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
      * since that will interfere with the dynamic load balancing.
      */
     wallcycle_start(wcycle, ewcFORCE);
+    wallcycle_sub_start(wcycle, ewcsFORCE_BEFORE_OFFLOAD);
     if (bDoForces)
     {
         /* Reset forces for which the virial is calculated separately:
@@ -1219,6 +1224,7 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
     if (bUseOffloadedKernel)
     {
         /* Maybe we should move this into do_force_lowlevel */
+        wallcycle_sub_stop(wcycle, ewcsFORCE_BEFORE_OFFLOAD);
         do_nb_verlet(fr, ic, enerd, flags, eintLocal, enbvClearFYes, nrnb, wcycle);
     }
 
@@ -1449,7 +1455,7 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
         reset_timer(ct);
         // dprintf(2, "Other force time %f\n", get_elapsed_time(sim_ct));
         wallcycle_start(wcycle, ewcWAIT_MIC);
-        wait_for_offload();
+        wait_for_offload(wcycle);
         wallcycle_stop(wcycle, ewcWAIT_MIC);
         // dprintf(2, "Offload wait time %f\n", get_elapsed_time(ct));
         int j;
@@ -2701,11 +2707,14 @@ void finish_run(FILE *fplog, t_commrec *cr,
                                                             cr, nthreads, nthreads);
             gmx_cycles_t force_cycles = get_force_cycles_for_offload();
             gmx_cycles_t reduce_cycles = get_reduce_cycles_for_offload();
-            gmx_cycles_t other_cycles = get_other_cycles_for_offload();
+            gmx_cycles_t unpack_cycles = get_unpack_cycles_for_offload();
+            gmx_cycles_t pack_cycles = get_pack_cycles_for_offload();
             wallcycle_add(wcycle_offload, ewcFORCE, force_cycles, inputrec->nsteps);
             wallcycle_add(wcycle_offload, ewcNB_XF_BUF_OPS, reduce_cycles, inputrec->nsteps);
+            wallcycle_sub_add(wcycle_offload, ewcsMIC_UNPACK, unpack_cycles, inputrec->nsteps);
+            wallcycle_sub_add(wcycle_offload, ewcsMIC_PACK, pack_cycles, inputrec->nsteps);
             wallcycle_sub_add(wcycle_offload, ewcsNB_F_BUF_OPS, reduce_cycles, inputrec->nsteps);
-            wallcycle_add(wcycle_offload, ewcRUN, force_cycles + reduce_cycles + other_cycles, inputrec->nsteps);
+            wallcycle_add(wcycle_offload, ewcRUN, force_cycles + reduce_cycles + unpack_cycles + pack_cycles, inputrec->nsteps);
             wallcycle_sum(cr, wcycle_offload);
             wallcycle_print(fplog, 1, 0, get_walltime_for_offload(), wcycle_offload, NULL);
 #endif
