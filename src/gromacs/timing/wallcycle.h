@@ -43,7 +43,6 @@
 #include <stdio.h>
 
 #include "gromacs/legacyheaders/types/commrec_fwd.h"
-#include "gromacs/legacyheaders/types/nbnxn_cuda_types_ext.h"
 #include "gromacs/timing/cyclecounter.h"
 #include "gromacs/utility/basedefinitions.h"
 

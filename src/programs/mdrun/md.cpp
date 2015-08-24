@@ -96,7 +96,6 @@
 #include "gromacs/mdlib/mdrun_signalling.h"
 #include "gromacs/mdlib/nb_verlet.h"
 #include "gromacs/mdlib/nbnxn_gpu_data_mgmt.h"
-#include "gromacs/mdlib/nbnxn_cuda/nbnxn_cuda_data_mgmt.h"
 #include "gromacs/mdlib/nb_verlet_simd_offload.h"
 #include "gromacs/pbcutil/mshift.h"
 #include "gromacs/pbcutil/pbc.h"
