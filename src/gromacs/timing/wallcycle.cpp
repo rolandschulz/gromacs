@@ -191,10 +191,6 @@ gmx_wallcycle_t wallcycle_init(FILE *fplog, int resetstep, t_commrec gmx_unused 
     return wc;
 }
 
-gmx_cycles_t wallcycle_sub_get_last(gmx_wallcycle_t wc, int ewsc)
-{
-	return wc->wcsc[ewsc].last;
-}
 void wallcycle_destroy(gmx_wallcycle_t wc)
 {
     if (wc == NULL)
@@ -1037,6 +1033,11 @@ void wallcycle_sub_add(gmx_wallcycle_t wc, int ewcs, gmx_cycles_t cycles, int st
     }
 }
 
+gmx_cycles_t wallcycle_sub_get_last(gmx_wallcycle_t wc, int ewcs)
+{
+    return wc->wcsc[ewcs].last;
+}
+
 #else
 
 void wallcycle_sub_start(gmx_wallcycle_t gmx_unused wc, int gmx_unused ewcs)
@@ -1050,6 +1051,10 @@ void wallcycle_sub_stop(gmx_wallcycle_t gmx_unused wc, int gmx_unused ewcs)
 }
 void wallcycle_sub_add(gmx_wallcycle_t wc, int ewcs, gmx_cycles_t cycles, int steps)
 {
+}
+gmx_cycles_t wallcycle_sub_get_last(gmx_wallcycle_t wc, int ewcs)
+{
+    return 0;
 }
 
 #endif /* GMX_CYCLE_SUBCOUNTERS */
