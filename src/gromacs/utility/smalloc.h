@@ -226,6 +226,7 @@ void save_free_aligned(const char *name, const char *file, int line, void *ptr);
 /*! \{ */
 /** C++ helper for snew(). */
 template <typename T> static inline
+gmx_offload
 void gmx_snew_impl(const char *name, const char *file, int line,
                    T * &ptr, size_t nelem)
 {
