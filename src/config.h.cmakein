@@ -44,10 +44,11 @@
 #ifndef GMX_CONFIG_H
 #define GMX_CONFIG_H
 
+/* Variables specific to Xeon Phi offload */
 #ifdef __INTEL_OFFLOAD
 /* Coprocessor offload is available (defined for both CPU and coprocessor) */
 #define GMX_OFFLOAD
-#ifdef __MIC__ 
+#ifdef __MIC__
 /* Define to 1 if GMX_OFFLOAD is defined but only on the coprocessor */
 #define GMX_ACCELERATOR
 #endif
@@ -58,12 +59,6 @@
 #else
 #define gmx_offload
 #endif
-
-/* Alternative config file for the accelerator, because created config is for
-   the CPU */
-#ifdef GMX_ACCELERATOR
-#include "config_mic.h"
-#else
 
 /* TODO: For now, disable Doxygen warnings from here */
 /*! \cond */
@@ -296,7 +291,9 @@
 #cmakedefine HAVE_GETTIMEOFDAY
 
 /* Define to 1 if you have the rdtscp instruction. */
+#ifndef GMX_OFFLOAD
 #cmakedefine HAVE_RDTSCP
+#endif
 
 /* Define to 1 if you have the isfinite() function. */
 #cmakedefine HAVE_ISFINITE
@@ -390,10 +387,6 @@
 
 /* Define if we have zlib */
 #cmakedefine01 HAVE_ZLIB
-#endif /* alternate config file */
-
-/* Maximum number of OpenMP threads supported */
-#define GMX_OPENMP_MAX_THREADS @GMX_OPENMP_MAX_THREADS@
 
 /*! \endcond */
 
