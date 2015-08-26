@@ -220,7 +220,7 @@ walltime_accounting_set_nsteps_done(gmx_walltime_accounting_t   walltime_account
 double
 gmx_gettime()
 {
-#if __MIC__ || defined HAVE_CLOCK_GETTIME && _POSIX_TIMERS >= 0
+#if defined __MIC__ || defined HAVE_CLOCK_GETTIME && _POSIX_TIMERS >= 0
     /* Mac and Windows do not support this. For added fun, Windows
      * defines _POSIX_TIMERS without actually providing the
      * implementation. */
