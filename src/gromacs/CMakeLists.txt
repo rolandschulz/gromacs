@@ -175,14 +175,6 @@ else()
     add_library(libgromacs ${LIBGROMACS_SOURCES})
 endif()
 
-#TODO: only add the no-offload attribute for builds with -offload-attribute-target=mic
-file(GLOB OFFLOAD_SOURCES mdlib/nbnxn_kernels/nbnxn_kernel_common.c mdlib/nbnxn_kernels/simd_2xnn/*.c src/gromacs/utility/gmxomp.cpp gmxlib/smalloc.c)
-set_source_files_properties(
-   ${OFFLOAD_SOURCES} 
-   PROPERTIES
-   COMPILE_FLAGS "-offload-attribute-target=mic")
-
-
 # Recent versions of gcc and clang give warnings on scanner.cpp, which
 # is a generated source file. These are awkward to suppress inline, so
 # we do it in the compilation command (after testing that the compiler
