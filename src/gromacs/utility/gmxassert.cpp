@@ -43,8 +43,10 @@
 
 #include "gmxassert.h"
 
+#pragma offload_attribute (push, target (mic))
 #include <cstdio>
 #include <cstdlib>
+#pragma offload_attribute (pop)
 
 #include "errorformat.h"
 

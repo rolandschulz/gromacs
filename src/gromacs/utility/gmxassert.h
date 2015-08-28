@@ -47,6 +47,8 @@
 
 #include "gromacs/utility/basedefinitions.h"
 
+#pragma offload_attribute (push, target (mic))
+
 //! \addtogroup module_utility
 //! \{
 
@@ -109,5 +111,7 @@ void assertHandler(const char *condition, const char *msg,
 //! \endcond
 
 } // namespace gmx
+
+#pragma offload_attribute (pop)
 
 #endif

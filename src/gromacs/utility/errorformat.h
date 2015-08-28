@@ -44,6 +44,7 @@
 
 #include <cstdio>
 
+#pragma offload_attribute (push, target (mic))
 namespace gmx
 {
 
@@ -81,5 +82,7 @@ void printFatalErrorFooter(FILE *fp);
 //! \endcond
 
 } // namespace gmx
+
+#pragma offload_attribute (pop)
 
 #endif

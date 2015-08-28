@@ -47,10 +47,12 @@
 #include <cstdio>
 #include <cstring>
 
+#pragma offload_attribute (push, target (mic))
 #include "buildinfo.h"
 #include "gromacs/utility/baseversion.h"
 #include "gromacs/utility/programcontext.h"
 #include "gromacs/utility/stringutil.h"
+#pragma offload_attribute (pop)
 
 namespace gmx
 {
