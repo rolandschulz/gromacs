@@ -61,7 +61,6 @@
 
 /* nbnxn_internal.h included gromacs/simd/macros.h */
 #include "gromacs/mdlib/nbnxn_internal.h"
-#ifdef GMX_SIMD
 #include "gromacs/simd/vector_operations.h"
 #include "gromacs/utility/smalloc.h"
 
