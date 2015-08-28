@@ -43,16 +43,16 @@
 
 #include "errorformat.h"
 
+#include "config.h"
+
 #include <cctype>
 #include <cstdio>
 #include <cstring>
 
-#pragma offload_attribute (push, target (mic))
 #include "buildinfo.h"
 #include "gromacs/utility/baseversion.h"
 #include "gromacs/utility/programcontext.h"
 #include "gromacs/utility/stringutil.h"
-#pragma offload_attribute (pop)
 
 namespace gmx
 {
@@ -60,6 +60,8 @@ namespace gmx
 /*! \cond internal */
 namespace internal
 {
+
+#ifndef GMX_OFFLOAD
 
 void printFatalErrorHeader(FILE *fp, const char *title,
                            const char *func, const char *file, int line)
@@ -125,6 +127,23 @@ void printFatalErrorFooter(FILE *fp)
                  "website at http://www.gromacs.org/Documentation/Errors");
     std::fprintf(fp, "\n-------------------------------------------------------\n");
 }
+
+#else  /* GMX_OFFLOAD */
+
+void printFatalErrorHeader(FILE *fp, const char *title,
+                           const char *func, const char *file, int line)
+{
+}
+
+void printFatalErrorMessageLine(FILE *fp, const char *text, int indent)
+{
+}
+
+void printFatalErrorFooter(FILE *fp)
+{
+}
+
+#endif /* GMX_OFFLOAD */
 
 }   // namespace internal
 //! \endcond
