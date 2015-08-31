@@ -40,6 +40,10 @@
 #include "gromacs/legacyheaders/typedefs.h"
 #include "gromacs/mdlib/nbnxn_pairlist.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /*! \brief Run-time dispatcher for nbnxn kernel functions. */
 gmx_offload void
 nbnxn_kernel_simd_2xnn(nbnxn_pairlist_set_t       *nbl_list,
@@ -169,3 +173,7 @@ nbk_func_noener       nbnxn_kernel_ElecEwTwinCut_VdwLJ_F_2xnn;
 nbk_func_noener       nbnxn_kernel_ElecEwTwinCut_VdwLJFSw_F_2xnn;
 nbk_func_noener       nbnxn_kernel_ElecEwTwinCut_VdwLJPSw_F_2xnn;
 nbk_func_noener       nbnxn_kernel_ElecEwTwinCut_VdwLJEwCombGeom_F_2xnn;
+
+#ifdef __cplusplus
+}
+#endif
