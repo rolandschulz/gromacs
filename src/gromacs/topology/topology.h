@@ -125,7 +125,6 @@ typedef struct gmx_localtop_t
 /* The old topology struct, completely written out, used in analysis tools */
 typedef struct t_topology
 {
-    char          **name;                        /* Name of the topology                 */
     t_idef          idef;                        /* The interaction function definition  */
     t_atoms         atoms;                       /* The atoms                            */
     t_atomtypes     atomtypes;                   /* Atomtype properties                  */
@@ -134,6 +133,7 @@ typedef struct t_topology
     gmx_bool        bIntermolecularInteractions; /* Inter.mol. int. ?   */
     t_blocka        excls;                       /* The exclusions                       */
     t_symtab        symtab;                      /* The symbol table                     */
+    char          **name;                        /* Name of the topology                 */
 } t_topology;
 
 void init_mtop(gmx_mtop_t *mtop);

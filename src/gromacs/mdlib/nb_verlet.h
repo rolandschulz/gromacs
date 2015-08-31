@@ -97,9 +97,9 @@ typedef struct nonbonded_verlet_group_t {
 
 /* non-bonded data structure with Verlet-type cut-off */
 typedef struct nonbonded_verlet_t {
+    nonbonded_verlet_group_t grp[2];          /* local and non-local interaction group */
     nbnxn_search_t           nbs;             /* n vs n atom pair searching data       */
     int                      ngrp;            /* number of interaction groups          */
-    nonbonded_verlet_group_t grp[2];          /* local and non-local interaction group */
 
     gmx_bool                 bUseGPU;         /* TRUE when GPU acceleration is used */
     gmx_nbnxn_gpu_t         *gpu_nbv;         /* pointer to GPU nb verlet data     */
