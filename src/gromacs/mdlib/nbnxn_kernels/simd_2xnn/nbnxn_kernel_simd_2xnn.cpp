@@ -44,6 +44,7 @@
 #include "gromacs/legacyheaders/typedefs.h"
 #include "gromacs/mdlib/nb_verlet.h"
 #include "gromacs/mdlib/nbnxn_simd.h"
+#include "nbnxn_kernel_simd_2xnn.h"
 
 #ifdef GMX_NBNXN_SIMD_2XNN
 
@@ -55,7 +56,6 @@
 #endif
 
 #define GMX_SIMD_J_UNROLL_SIZE 2
-#include "nbnxn_kernel_simd_2xnn.h"
 
 #include "gromacs/legacyheaders/gmx_omp_nthreads.h"
 #include "gromacs/legacyheaders/types/force_flags.h"
