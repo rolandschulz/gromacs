@@ -110,7 +110,6 @@
 #define X_IND_CI_J8(ci)  (((ci)>>1)*STRIDE_P8 + ((ci) & 1)*(PACK_X8>>1))
 #define X_IND_CJ_J8(cj)  ((cj)*STRIDE_P8)
 
-#define GMX_SIMD_REAL_WIDTH 16
 #undef GMX_NBNXN_SIMD_4XN
 
 /* The j-cluster size is matched to the SIMD width */
