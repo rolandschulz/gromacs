@@ -150,15 +150,13 @@ static gmx_inline void gmx_pause()
      * settings to decide when to use _mm_pause(). This should eventually be
      * changed into proper detection of the intrinsics uses, not SIMD.
      */
-#ifdef GMX_ACCELERATOR
+#if defined GMX_SIMD_X86_MIC || defined GMX_ACCELERATOR
 	_mm_delay_32(32);
 #elif (defined GMX_SIMD_X86_SSE2) || (defined GMX_SIMD_X86_SSE4_1) || \
     (defined GMX_SIMD_X86_AVX_128_FMA) || (defined GMX_SIMD_X86_AVX_256) || \
     (defined GMX_SIMD_X86_AVX2_256) && !defined(__MINGW32__)
     /* Replace with tbb::internal::atomic_backoff when/if we use TBB */
     _mm_pause();
-#elif defined __MIC__
-    _mm_delay_32(32);
 #else
     /* No wait for unknown architecture */
 #endif
