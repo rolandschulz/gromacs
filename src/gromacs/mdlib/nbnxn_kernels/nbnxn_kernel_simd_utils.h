@@ -58,7 +58,7 @@
 #error "Must define an NBNxN kernel flavour before including NBNxN kernel utility functions"
 #endif
 
-#if defined GMX_SIMD_REFERENCE && !defined __MIC__
+#if defined GMX_SIMD_REFERENCE && !defined GMX_SIMD_X86_MIC && !defined GMX_ACCELERATOR
 
 /* Align a stack-based thread-local working array. */
 static gmx_inline int *
