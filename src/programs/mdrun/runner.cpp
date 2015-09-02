@@ -1047,7 +1047,7 @@ int mdrunner(gmx_hw_opt_t *hw_opt,
                           hw_opt->nthreads_omp_pme,
                           (cr->duty & DUTY_PP) == 0,
                           inputrec->cutoff_scheme == ecutsVERLET,
-						  inputrec->bOffloadKernel);
+                          inputrec->bOffloadKernel);
 
 #ifndef NDEBUG
     if (integrator[inputrec->eI].func != do_tpi &&
