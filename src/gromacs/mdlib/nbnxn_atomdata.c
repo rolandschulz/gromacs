@@ -864,7 +864,7 @@ void nbnxn_atomdata_init(FILE *fp,
     {
         nbat->bUseTreeReduce = strtol(ptr, 0, 10);
     }
-#ifdef __MIC__
+#if defined GMX_SIMD_X86_MIC || defined GMX_ACCELERATOR
     else if (nth > 8) //on the CPU we currently don't benefit even at 32
     {
         nbat->bUseTreeReduce = 1;
@@ -874,7 +874,6 @@ void nbnxn_atomdata_init(FILE *fp,
     {
         nbat->bUseTreeReduce = 0;
     }
-    nbat->bUseTreeReduce = 1;
     if (nbat->bUseTreeReduce)
     {
         if (fp)
