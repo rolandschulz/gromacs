@@ -56,11 +56,7 @@
 #include "gromacs/pbcutil/ishift.h"
 #include "gromacs/pbcutil/pbc.h"
 #include "gromacs/simd/simd.h"
-#include "gromacs/utility/smalloc.h"
 #include "gromacs/mdlib/nb_verlet_simd_offload.h"
-
-/* nbnxn_internal.h included gromacs/simd/macros.h */
-#include "gromacs/mdlib/nbnxn_internal.h"
 #include "gromacs/simd/vector_operations.h"
 #include "gromacs/utility/smalloc.h"
 
@@ -109,8 +105,6 @@
 /* cluster index to coordinate array index conversion */
 #define X_IND_CI_J8(ci)  (((ci)>>1)*STRIDE_P8 + ((ci) & 1)*(PACK_X8>>1))
 #define X_IND_CJ_J8(cj)  ((cj)*STRIDE_P8)
-
-#undef GMX_NBNXN_SIMD_4XN
 
 /* The j-cluster size is matched to the SIMD width */
 #if GMX_SIMD_REAL_WIDTH == 2
