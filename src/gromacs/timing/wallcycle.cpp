@@ -104,10 +104,10 @@ static const char *wcn[ewcNR] =
     "DD comm. bounds", "Vsite constr.", "Send X to PME", "Neighbor search", "Launch GPU ops.",
     "Comm. coord.", "Born radii", "Force", "Wait + Comm. F", "PME mesh",
     "PME redist. X/F", "PME spread/gather", "PME 3D-FFT", "PME 3D-FFT Comm.", "PME solve LJ", "PME solve Elec",
-    "PME wait for PP", "Wait + Recv. PME F", "Wait GPU nonlocal", "Wait GPU local", "Wait GPU loc. est.", "Wait MIC",
-    "NB X/F buffer ops.", "Vsite spread", "COM pull force",
+    "PME wait for PP", "Wait + Recv. PME F", "Wait GPU nonlocal", "Wait GPU local", "Wait GPU loc. est.", "NB X/F buffer ops.",
+    "Vsite spread", "COM pull force",
     "Write traj.", "Update", "Constraints", "Comm. energies",
-    "Enforced rotation", "Add rot. forces", "Coordinate swapping", "IMD", "MIC Offload", "Test"
+    "Enforced rotation", "Add rot. forces", "Coordinate swapping", "IMD", "Test"
 };
 
 #ifdef GMX_CYCLE_SUBCOUNTERS
@@ -124,10 +124,6 @@ static const char *wcsn[ewcsNR] =
     "Ewald F correction",
     "NB X buffer ops.",
     "NB F buffer ops.",
-    "MIC Data Packing",
-    "MIC Async Call",
-    "Force pre-offload",
-    "MIC Data Unpacking"
 };
 #endif
 
@@ -351,24 +347,6 @@ void wallcycle_get(gmx_wallcycle_t wc, int ewc, int *n, double *c)
 {
     *n = wc->wcc[ewc].n;
     *c = static_cast<double>(wc->wcc[ewc].c);
-}
-
-void wallcycle_add(gmx_wallcycle_t wc, int ewc, gmx_cycles_t cycles, int steps)
-{
-    if (wc == NULL)
-    {
-        return;
-    }
-
-#ifdef GMX_MPI
-    if (wc->wc_barrier)
-    {
-        MPI_Barrier(wc->mpi_comm_mygroup);
-    }
-#endif
-
-    wc->wcc[ewc].c += cycles;
-    wc->wcc[ewc].n += steps;
 }
 
 void wallcycle_reset_all(gmx_wallcycle_t wc)
@@ -1018,24 +996,9 @@ void wallcycle_sub_stop(gmx_wallcycle_t wc, int ewcs)
 {
     if (wc != NULL)
     {
-        wc->wcsc[ewcs].last = gmx_cycles_read() - wc->wcsc[ewcs].start;
-        wc->wcsc[ewcs].c += wc->wcsc[ewcs].last;
+        wc->wcsc[ewcs].c += gmx_cycles_read() - wc->wcsc[ewcs].start;
         wc->wcsc[ewcs].n++;
     }
-}
-
-void wallcycle_sub_add(gmx_wallcycle_t wc, int ewcs, gmx_cycles_t cycles, int steps)
-{
-    if (wc != NULL)
-    {
-        wc->wcsc[ewcs].c += cycles;
-        wc->wcsc[ewcs].n += steps;
-    }
-}
-
-gmx_cycles_t wallcycle_sub_get_last(gmx_wallcycle_t wc, int ewcs)
-{
-    return wc->wcsc[ewcs].last;
 }
 
 #else
@@ -1048,13 +1011,6 @@ void wallcycle_sub_start_nocount(gmx_wallcycle_t gmx_unused wc, int gmx_unused e
 }
 void wallcycle_sub_stop(gmx_wallcycle_t gmx_unused wc, int gmx_unused ewcs)
 {
-}
-void wallcycle_sub_add(gmx_wallcycle_t wc, int ewcs, gmx_cycles_t cycles, int steps)
-{
-}
-gmx_cycles_t wallcycle_sub_get_last(gmx_wallcycle_t wc, int ewcs)
-{
-    return 0;
 }
 
 #endif /* GMX_CYCLE_SUBCOUNTERS */

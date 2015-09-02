@@ -95,12 +95,9 @@
 #include "gromacs/utility/gmxmpi.h"
 #include "gromacs/utility/smalloc.h"
 #include "gromacs/utility/sysinfo.h"
-#include "gromacs/mdlib/timing.h"
 
 #include "adress.h"
 #include "nbnxn_gpu.h"
-
-static code_timer *sim_ct;
 
 void print_time(FILE                     *out,
                 gmx_walltime_accounting_t walltime_accounting,
@@ -520,15 +517,7 @@ static void do_nb_verlet(t_forcerec *fr,
         case nbnxnk4xN_SIMD_2xNN:
             if (bUseOffloadedKernel)
             {
-                sim_ct = create_code_timer();
-                reset_timer(sim_ct);
-                wallcycle_stop(wcycle, ewcFORCE);
-                wallcycle_start(wcycle, ewcFORCE_OFFLOAD);
-                nbnxn_kernel_simd_2xnn_offload(fr, ic, enerd, flags, ilocality, clearF, nrnb, wcycle);
-                wallcycle_stop(wcycle, ewcFORCE_OFFLOAD);
-                wallcycle_start(wcycle, ewcFORCE);
-                // dprintf(2, "Offload call overhead %f\n", get_elapsed_time(sim_ct));
-                reset_timer(sim_ct);
+                nbnxn_kernel_simd_2xnn_offload(fr, ic, enerd, flags, ilocality, clearF, nrnb);
             }
             else
             {
@@ -1137,7 +1126,6 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
      * since that will interfere with the dynamic load balancing.
      */
     wallcycle_start(wcycle, ewcFORCE);
-    wallcycle_sub_start(wcycle, ewcsFORCE_BEFORE_OFFLOAD);
     if (bDoForces)
     {
         /* Reset forces for which the virial is calculated separately:
@@ -1222,7 +1210,6 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
     if (bUseOffloadedKernel)
     {
         /* Maybe we should move this into do_force_lowlevel */
-        wallcycle_sub_stop(wcycle, ewcsFORCE_BEFORE_OFFLOAD);
         do_nb_verlet(fr, ic, enerd, flags, eintLocal, enbvClearFYes, nrnb, wcycle);
     }
 
@@ -1277,7 +1264,6 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
         update_QMMMrec(cr, fr, x, mdatoms, box, top);
     }
 
-    // dprintf(2, "Doing lowlevel stuff on the CPU\n");
     /* Compute the bonded and non-bonded energies and optionally forces */
     do_force_lowlevel(fr, inputrec, &(top->idef),
                       cr, nrnb, wcycle, mdatoms,
@@ -1285,7 +1271,6 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
                       bBornRadii, box,
                       inputrec->fepvals, lambda, graph, &(top->excls), fr->mu_tot,
                       flags, &cycles_pme);
-    // dprintf(2, "Finished lowlevel stuff on the CPU\n");
 
     if (bSepLRF)
     {
@@ -1449,20 +1434,7 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
 
     if (bUseOffloadedKernel)
     {
-        code_timer *ct = create_code_timer();
-        reset_timer(ct);
-        // dprintf(2, "Other force time %f\n", get_elapsed_time(sim_ct));
-        wallcycle_start(wcycle, ewcWAIT_MIC);
-        wait_for_offload(wcycle);
-        wallcycle_stop(wcycle, ewcWAIT_MIC);
-        // dprintf(2, "Offload wait time %f\n", get_elapsed_time(ct));
-        int j;
-        // dprintf(2, "Offload timings:");
-        for (j=0; j<NUM_TIMES; j++)
-        {
-            // dprintf(2, " %f", phi_times[j]);
-        }
-        // dprintf(2, "\n");
+        wait_for_offload();
         wallcycle_start(wcycle, ewcNB_XF_BUF_OPS);
         wallcycle_sub_start(wcycle, ewcsNB_F_BUF_OPS);
         nbnxn_atomdata_add_nbat_f_to_f_final(fr->nbv->nbs, eatAll,
@@ -2695,28 +2667,6 @@ void finish_run(FILE *fplog, t_commrec *cr,
     if (SIMMASTER(cr))
     {
         struct gmx_wallclock_gpu_t* gputimes = use_GPU(nbv) ? nbnxn_gpu_get_timings(nbv->gpu_nbv) : NULL;
-        // TODO: Should use bOffUseOffloadedKernel, but it isn't in scope...
-        /* Prepare and print a separate, small report for coprocessor times */
-        if (inputrec->bOffloadKernel)
-        {
-#ifdef GMX_OFFLOAD
-            int nthreads = gmx_omp_nthreads_get(emntNonbonded);
-            gmx_wallcycle_t wcycle_offload = wallcycle_init(fplog, wcycle_get_reset_counters(wcycle),
-                                                            cr, nthreads, nthreads);
-            gmx_cycles_t force_cycles = get_force_cycles_for_offload();
-            gmx_cycles_t reduce_cycles = get_reduce_cycles_for_offload();
-            gmx_cycles_t unpack_cycles = get_unpack_cycles_for_offload();
-            gmx_cycles_t pack_cycles = get_pack_cycles_for_offload();
-            wallcycle_add(wcycle_offload, ewcFORCE, force_cycles, inputrec->nsteps);
-            wallcycle_add(wcycle_offload, ewcNB_XF_BUF_OPS, reduce_cycles, inputrec->nsteps);
-            wallcycle_sub_add(wcycle_offload, ewcsMIC_UNPACK, unpack_cycles, inputrec->nsteps);
-            wallcycle_sub_add(wcycle_offload, ewcsMIC_PACK, pack_cycles, inputrec->nsteps);
-            wallcycle_sub_add(wcycle_offload, ewcsNB_F_BUF_OPS, reduce_cycles, inputrec->nsteps);
-            wallcycle_add(wcycle_offload, ewcRUN, force_cycles + reduce_cycles + unpack_cycles + pack_cycles, inputrec->nsteps);
-            wallcycle_sum(cr, wcycle_offload);
-            wallcycle_print(fplog, 1, 0, get_walltime_for_offload(), wcycle_offload, NULL);
-#endif
-        }
         wallcycle_print(fplog, cr->nnodes, cr->npmenodes,
                         elapsed_time_over_all_ranks,
                         wcycle, gputimes);

@@ -42,12 +42,9 @@
 #include "nbnxn_kernels/simd_2xnn/nbnxn_kernel_simd_2xnn.h"
 #include "gromacs/legacyheaders/gmx_omp_nthreads.h"
 #include "gromacs/pbcutil/pbc.h"
-#include "gromacs/timing/wallcycle.h"
-#include "gromacs/timing/walltime_accounting.h"
 #include "gromacs/utility/smalloc.h"
 #include "gromacs/math/vec.h"
 #include "nb_verlet_simd_offload.h"
-#include "timing.h"
 #include "packdata.h"
 
 gmx_bool bUseOffloadedKernel = FALSE;
@@ -55,12 +52,6 @@ gmx_offload gmx_bool bRefreshNbl = TRUE;
 gmx_offload char *phi_in_packet;
 gmx_offload char *phi_out_packet;
 static float off_signal = 0;
-// double phi_times[NUM_TIMES];
-gmx_offload gmx_cycles_t force_cycles = 0;
-gmx_offload gmx_cycles_t reduce_cycles = 0;
-gmx_offload gmx_cycles_t unpack_cycles = 0;
-gmx_offload gmx_cycles_t pack_cycles = 0;
-gmx_offload gmx_walltime_accounting_t waccount = NULL;
 gmx_offload static size_t phi_buffer_sizes[9];
 
 #define REUSE alloc_if(0) free_if(0)
@@ -139,14 +130,8 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
                                     gmx_enerdata_t *enerd,
                                     int flags, int ilocality,
                                     int clearF,
-                                    t_nrnb *nrnb,
-                                    gmx_wallcycle_t wcycle)
+                                    t_nrnb *nrnb)
 {
-    wallcycle_sub_start(wcycle, ewcsMIC_PACK);
-    code_timer *ct = create_code_timer();
-    reset_timer(ct);
-
-    int i;
     nonbonded_verlet_group_t  *nbvg = &fr->nbv->grp[ilocality];
     gmx_offload static nbnxn_pairlist_set_t *nbl_lists = NULL;
     nbl_lists = &nbvg->nbl_lists;
@@ -167,13 +152,13 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 
     if (bRefreshNbl)
     {
-        // dprintf(2, "Refresh nbl\n");
         int nbl_buffer_size_req = nbvg->nbl_lists.nnbl;
         int ci_buffer_size_req = 0;
         int sci_buffer_size_req = 0;
         int cj_buffer_size_req = 0;
         int cj4_buffer_size_req = 0;
         nbnxn_pairlist_t **nbl = nbl_lists->nbl;
+        int i;
         for (i=0; i<nbl_buffer_size_req; i++)
         {
             ci_buffer_size_req   += nbl[i]->nci;
@@ -181,7 +166,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
             cj_buffer_size_req   += nbl[i]->ncj;
             cj4_buffer_size_req  += nbl[i]->ncj4;
         }
-        // dprintf(2, "Buffer sizes %d %d %d %d\n", ci_buffer_size_req, sci_buffer_size_req, cj_buffer_size_req, cj4_buffer_size_req);
         if (nbl_buffer_size_req > nbl_buffer_size)
         {
             if (nbl_buffer_size > 0)
@@ -228,7 +212,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
             cj4_buffer_size = cj4_buffer_size_req;
         }
 
-        // dprintf(2, "Malloced buffers are %p %p %p %p\n", ci_buffer, sci_buffer, cj_buffer, cj4_buffer);
         int ci_offset  = 0;
         int sci_offset = 0;
         int cj_offset  = 0;
@@ -246,8 +229,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
             cj4_offset += nbl[i]->ncj4;
         }
     }
-    // dprintf(2, "CPU refresh repacking time %f\n", get_elapsed_time(ct));
-    reset_timer(ct);
 
     packet_buffer ibuffers[NUM_OFFLOAD_BUFFERS];
     ibuffers[0] =  (packet_buffer){nbl_lists, sizeof(nbnxn_pairlist_set_t) * (bRefreshNbl ? 1:0)};
@@ -320,16 +301,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 
     // TODO: What about nbl->excl ?
 
-    // dprintf(2, "Packet sizes in out %lu %lu\n", packet_in_size, packet_out_size);
-    // dprintf(2, "Transfer packet information: %p %d %d\n", cpu_in_packet, packet_out_size, current_packet_out_size);
-    // dprintf(2, "Sizes of stuff %d %d %d %d\n", sizeof(nbnxn_pairlist_set_t), sizeof(nbnxn_pairlist_t), sizeof(nbnxn_ci_t), sizeof(nbnxn_sci_t));
-    int j;
-    // for (j=0; j<NUM_TIMES; j++) phi_times[j] = 0;
-    // dprintf(2, "Remainder of time before offload %f\n", get_elapsed_time(ct));
-    reset_timer(ct);
-    wallcycle_sub_stop(wcycle, ewcsMIC_PACK);
-    // dprintf(2, "PACK time is %f\n", wallcycle_sub_get_last(wcycle, ewcsMIC_PACK) / 2600000.0);
-    wallcycle_sub_start(wcycle, ewcsMIC_ASYNC);
 #pragma offload target(mic:0) nocopy(out_for_phi) \
                               nocopy(nbl_lists) \
                               nocopy(nbl_buffer) \
@@ -340,27 +311,11 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
                               nocopy(type_buffer) \
                               nocopy(lj_comb_buffer) \
                               nocopy(q_buffer) \
-                              nocopy(waccount) \
                               nocopy(phi_buffer_sizes) \
-                              inout(force_cycles) inout(reduce_cycles) inout(unpack_cycles) inout(pack_cycles) \
                               in (cpu_out_packet[0:packet_in_size] :  into(phi_in_packet[0:packet_in_size]) REUSE targetptr) \
                               out(phi_out_packet[0:packet_out_size] : into(cpu_in_packet[0:packet_out_size]) REUSE targetptr) \
                               signal(&off_signal)
     {
-        if (waccount == NULL)
-        {
-            waccount = walltime_accounting_init(1);
-            walltime_accounting_start(waccount);
-        }
-        else
-        {
-            walltime_accounting_resume(waccount);
-        }
-        gmx_cycles_t start_cycle = _rdtsc();
-        code_timer *ct_phi = create_code_timer();
-        code_timer *ct_phi_total = create_code_timer();
-        reset_timer(ct_phi);
-        reset_timer(ct_phi_total);
         // Unpack data
         packet_iter *it;
         smalloc(it, sizeof(packet_iter));
@@ -427,9 +382,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
         }
 
         // End unpacking of data and start actual computing
-        // Unpacking time
-        // phi_times[0] = get_elapsed_time(ct_phi);
-        reset_timer(ct_phi);
         nbnxn_atomdata_init_simple_exclusion_masks(nbat); //TODO: much better to just init that on the MIC - but the function is static there. Probably the whole copy code should be moved there anyhow and then we call this functions
         /*TODO: ic: table (only if tables are used)
 
@@ -438,11 +390,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 
                         the numa issue for nbl_lists might also be important for MIC so we might want to do a manual allocation
          */
-        // Mask time
-        // phi_times[1] = get_elapsed_time(ct_phi);
-        reset_timer(ct_phi);
-        unpack_cycles += (_rdtsc() - start_cycle);
-        start_cycle = _rdtsc();
         nbnxn_kernel_simd_2xnn(nbl_lists,
                                // static information (e.g. charges)
                                //ic seems to be all static. is fr->ic
@@ -454,112 +401,27 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
                                NULL,   // fshift not used when nnbl > 1
                                Vc, //output
                                Vvdw); //output
-        // Kernel only time
-        force_cycles += (_rdtsc() - start_cycle);
-        // phi_times[2] = get_elapsed_time(ct_phi);
-        reset_timer(ct_phi);
         bRefreshNbl = FALSE;
 
         // Force and shift reductions
-        start_cycle = _rdtsc();
         nbnxn_atomdata_add_nbat_f_to_f_treereduce(nbat, gmx_omp_nthreads_get(emntNonbonded));
-        reduce_cycles += (_rdtsc() - start_cycle);
-        start_cycle = _rdtsc();
 
-        // Force reduction time
-        // phi_times[3] = get_elapsed_time(ct_phi);
-        reset_timer(ct_phi);
         packet_buffer phi_buffers[4];
         phi_buffers[0] = (packet_buffer){nbat->out[0].fshift, sizeof(real) * SHIFTS * DIM};
         phi_buffers[1] = get_buffer(phi_in_packet, 19);
         phi_buffers[2] = get_buffer(phi_in_packet, 20);
         phi_buffers[3] = (packet_buffer){nbat->out[0].f, sizeof(real) * nbat->natoms * nbat->fstride};
         packdata(phi_out_packet, phi_buffers, 4);
-        // Pack output buffer time
-        // phi_times[4] = get_elapsed_time(ct_phi);
-        // phi_times[NUM_TIMES-1] = get_elapsed_time(ct_phi_total);
-        free_code_timer(ct_phi);
-        free_code_timer(ct_phi_total);
-        pack_cycles += (_rdtsc() - start_cycle);
-        walltime_accounting_end(waccount);
     }
-    wallcycle_sub_stop(wcycle, ewcsMIC_ASYNC);
-    // dprintf(2, "Async time is %f\n", wallcycle_sub_get_last(wcycle, ewcsMIC_ASYNC) / 2600000.0);
-
-//    static int counter = -1;
-//    counter++;
-//    if (counter > -1)
-//    {
-//        dprintf(2, "Total offload time %f\n", get_elapsed_time(ct));
-//    }
-    // reset_timer(ct);
     unpack_data.out_packet_addr = cpu_in_packet;
     unpack_data.cpu_buffers[0] = nbat->out[0].fshift;
     unpack_data.cpu_buffers[1] = Vc;
     unpack_data.cpu_buffers[2] = Vvdw;
     unpack_data.cpu_buffers[3] = nbat->out[0].f;
-//    if (counter > -1)
-//    {
-//        dprintf(2, "Unpack output buffer time %f\n", get_elapsed_time(ct));
-//        dprintf(2, "Phi times:");
-//        // for (int i=0; i<NUM_TIMES; i++) dprintf(2, " %f", phi_times[i]);
-//        dprintf(2, "\n");
-//    }
-    // TODO: Memory leak because we can no longer free this for async. This is debugging,
-    // though, and should eventually be removed.
-    // sfree(phi_times);
-    free_code_timer(ct);
 }
 
-void wait_for_offload(gmx_wallcycle_t wcycle)
+void wait_for_offload()
 {
 #pragma offload_wait target(mic:0) wait(&off_signal)
-    // dprintf(2, "Unpacking stuff from offload\n");
-    wallcycle_sub_start(wcycle, ewcsMIC_UNPACK);
     unpackdata(unpack_data.out_packet_addr, unpack_data.cpu_buffers, 4);
-    wallcycle_sub_stop(wcycle, ewcsMIC_UNPACK);
-}
-
-void reset_counters_for_offload()
-{
-    double walltime;
-#pragma offload target(mic:0) nocopy(waccount) out(walltime)
-    {
-        walltime_accounting_start(waccount);
-    }
-}
-
-gmx_cycles_t get_force_cycles_for_offload()
-{
-    return force_cycles;
-}
-
-gmx_cycles_t get_unpack_cycles_for_offload()
-{
-    return unpack_cycles;
-}
-
-gmx_cycles_t get_pack_cycles_for_offload()
-{
-    return pack_cycles;
-}
-
-gmx_cycles_t get_reduce_cycles_for_offload()
-{
-    return reduce_cycles;
-}
-
-double get_walltime_for_offload()
-{
-    double walltime;
-#pragma offload target(mic:0) nocopy(waccount) out(walltime) \
-                              inout(force_cycles) inout(reduce_cycles) inout(unpack_cycles) inout(pack_cycles)
-    {
-        walltime = walltime_accounting_get_elapsed_time(waccount);
-        force_cycles  = 0;
-        reduce_cycles = 0;
-        unpack_cycles  = 0;
-        pack_cycles = 0;
-    }
-    return walltime;
 }

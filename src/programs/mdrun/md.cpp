@@ -96,7 +96,6 @@
 #include "gromacs/mdlib/mdrun_signalling.h"
 #include "gromacs/mdlib/nb_verlet.h"
 #include "gromacs/mdlib/nbnxn_gpu_data_mgmt.h"
-#include "gromacs/mdlib/nb_verlet_simd_offload.h"
 #include "gromacs/pbcutil/mshift.h"
 #include "gromacs/pbcutil/pbc.h"
 #include "gromacs/pulling/pull.h"
@@ -151,10 +150,6 @@ static void reset_all_counters(FILE *fplog, t_commrec *cr,
     *step_rel      = 0;
     wallcycle_start(wcycle, ewcRUN);
     walltime_accounting_start(walltime_accounting);
-    if (bUseOffloadedKernel)
-    {
-    	reset_counters_for_offload();
-    }
     print_date_and_time(fplog, cr->nodeid, "Restarted time", gmx_gettime());
 }
 

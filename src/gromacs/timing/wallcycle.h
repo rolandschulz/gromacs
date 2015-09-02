@@ -43,7 +43,6 @@
 #include <stdio.h>
 
 #include "gromacs/legacyheaders/types/commrec_fwd.h"
-#include "gromacs/timing/cyclecounter.h"
 #include "gromacs/utility/basedefinitions.h"
 
 #ifdef __cplusplus
@@ -58,9 +57,9 @@ enum {
     ewcDDCOMMBOUND, ewcVSITECONSTR, ewcPP_PMESENDX, ewcNS, ewcLAUNCH_GPU_NB,
     ewcMOVEX, ewcGB, ewcFORCE, ewcMOVEF, ewcPMEMESH,
     ewcPME_REDISTXF, ewcPME_SPREADGATHER, ewcPME_FFT, ewcPME_FFTCOMM, ewcLJPME, ewcPME_SOLVE,
-    ewcPMEWAITCOMM, ewcPP_PMEWAITRECVF, ewcWAIT_GPU_NB_NL, ewcWAIT_GPU_NB_L, ewcWAIT_GPU_NB_L_EST, ewcWAIT_MIC,
-    ewcNB_XF_BUF_OPS, ewcVSITESPREAD, ewcPULLPOT,
-    ewcTRAJ, ewcUPDATE, ewcCONSTR, ewcMoveE, ewcROT, ewcROTadd, ewcSWAP, ewcIMD, ewcFORCE_OFFLOAD,
+    ewcPMEWAITCOMM, ewcPP_PMEWAITRECVF, ewcWAIT_GPU_NB_NL, ewcWAIT_GPU_NB_L, ewcWAIT_GPU_NB_L_EST, ewcNB_XF_BUF_OPS,
+    ewcVSITESPREAD, ewcPULLPOT,
+    ewcTRAJ, ewcUPDATE, ewcCONSTR, ewcMoveE, ewcROT, ewcROTadd, ewcSWAP, ewcIMD,
     ewcTEST, ewcNR
 };
 
@@ -78,10 +77,6 @@ enum {
     ewcsEWALD_CORRECTION,
     ewcsNB_X_BUF_OPS,
     ewcsNB_F_BUF_OPS,
-    ewcsMIC_PACK,
-    ewcsMIC_ASYNC,
-    ewcsFORCE_BEFORE_OFFLOAD,
-    ewcsMIC_UNPACK,
     ewcsNR
 };
 
@@ -105,9 +100,6 @@ double wallcycle_stop(gmx_wallcycle_t wc, int ewc);
 
 void wallcycle_get(gmx_wallcycle_t wc, int ewc, int *n, double *c);
 /* Returns the cumulative count and cycle count for ewc */
-
-void wallcycle_add(gmx_wallcycle_t wc, int ewc, gmx_cycles_t cycles, int steps);
-/* Increment cycle count and steps for ewc without having to use start and stop */
 
 void wallcycle_reset_all(gmx_wallcycle_t wc);
 /* Resets all cycle counters to zero */
@@ -133,11 +125,6 @@ void wallcycle_sub_start_nocount(gmx_wallcycle_t wc, int ewcs);
 
 void wallcycle_sub_stop(gmx_wallcycle_t wc, int ewcs);
 /* Stop the sub cycle count for ewcs */
-
-void wallcycle_sub_add(gmx_wallcycle_t wc, int ewcs, gmx_cycles_t cycles, int steps);
-/* Increment cycle count and steps for ewcs without having to use start and stop */
-
-gmx_cycles_t wallcycle_sub_get_last(gmx_wallcycle_t wc, int ewsc);
 
 #ifdef __cplusplus
 }

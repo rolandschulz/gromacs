@@ -38,8 +38,6 @@
 #define GMX_OFFLOAD_HEADER
 
 #include "../utility/basedefinitions.h"
-#include "gromacs/timing/cyclecounter.h"
-#include "gromacs/timing/wallcycle.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -63,21 +61,8 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
                                     gmx_enerdata_t *enerd,
                                     int flags, int ilocality,
                                     int clearF,
-                                    t_nrnb *nrnb,
-                                    gmx_wallcycle_t wcycle);
-void wait_for_offload(gmx_wallcycle_t wcycle);
-
-void reset_counters_for_offload();
-
-gmx_cycles_t get_force_cycles_for_offload();
-
-gmx_cycles_t get_unpack_cycles_for_offload();
-
-gmx_cycles_t get_pack_cycles_for_offload();
-
-gmx_cycles_t get_reduce_cycles_for_offload();
-
-double get_walltime_for_offload();
+                                    t_nrnb *nrnb);
+void wait_for_offload();
 
 #ifdef __cplusplus
 }

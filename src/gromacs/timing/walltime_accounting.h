@@ -39,7 +39,6 @@
 #define GMX_TIMING_WALLTIME_ACCOUNTING_H
 
 #include "gromacs/utility/basedefinitions.h"
-#include "config.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -55,53 +54,42 @@ extern "C" {
 typedef struct gmx_walltime_accounting *gmx_walltime_accounting_t;
 
 //! Constructor
-gmx_offload gmx_walltime_accounting_t
+gmx_walltime_accounting_t
 walltime_accounting_init(int numOpenMPThreads);
 
 //! Destructor
-gmx_offload void
+void
 walltime_accounting_destroy(gmx_walltime_accounting_t walltime_accounting);
 
 /*! \brief
  * Record initial time stamps, e.g. at run end or counter re-initalization time
  */
-gmx_offload void
+void
 walltime_accounting_start(gmx_walltime_accounting_t walltime_accounting);
-
-/*! \brief
- * Record resume time stamps, assumes previous call to "end" and used to halt
- * accounting for certain parts of code.
- */
-gmx_offload void
-walltime_accounting_resume(gmx_walltime_accounting_t walltime_accounting);
 
 /*! \brief
  * Measure and cache the elapsed wall-clock time since
  * walltime_accounting_start() */
-gmx_offload void
+void
 walltime_accounting_end(gmx_walltime_accounting_t walltime_accounting);
 
 /*! \brief
  * Measure and return the elapsed wall-clock time since
  * walltime_accounting_start() */
-gmx_offload double
+double
 walltime_accounting_get_current_elapsed_time(gmx_walltime_accounting_t walltime_accounting);
 
 //! Get the cached wall-clock time for this node
-gmx_offload double
+double
 walltime_accounting_get_elapsed_time(gmx_walltime_accounting_t walltime_accounting);
 
 //! Get the cached wall-clock time, multiplied by the number of OpenMP threads
-gmx_offload double
+double
 walltime_accounting_get_elapsed_time_over_all_threads(gmx_walltime_accounting_t walltime_accounting);
 
 //! Get the cached initial time stamp for this node
-gmx_offload double
+double
 walltime_accounting_get_start_time_stamp(gmx_walltime_accounting_t walltime_accounting);
-
-//! Get the cached last resume time stamp for this node
-gmx_offload double
-walltime_accounting_get_resume_time_stamp(gmx_walltime_accounting_t walltime_accounting);
 
 //! Get the number of integration steps done
 gmx_int64_t
@@ -120,7 +108,7 @@ walltime_accounting_set_nsteps_done(gmx_walltime_accounting_t   walltime_account
  *
  * Resolution is implementation-dependent, but typically nanoseconds
  * or microseconds. */
-gmx_offload double gmx_gettime();
+double gmx_gettime();
 
 #ifdef __cplusplus
 }
