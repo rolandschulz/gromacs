@@ -89,3 +89,6 @@ math(EXPR MAX_THREAD_MOD "${GMX_OPENMP_MAX_THREADS} % 64")
 if (NOT GMX_OPENMP_MAX_THREADS EQUAL 32 AND NOT ${MAX_THREAD_MOD} EQUAL 0)
     message(FATAL_ERROR "Only 32 or multiples of 64 supported for GMX_OPENMP_MAX_THREADS.")
 endif()
+gmx_dependent_cache_variable(GMX_OPENMP_OFFLOAD_THREADS
+    "Number of OpenMP Threads on the Xeon Phi coprocessor"
+    STRING 118 GMX_OFFLOAD)

@@ -45,17 +45,14 @@
 #define GMX_CONFIG_H
 
 /* Variables specific to Xeon Phi offload */
-#ifdef __INTEL_OFFLOAD
-/* Coprocessor offload is available (defined for both CPU and coprocessor) */
-#define GMX_OFFLOAD
+#cmakedefine GMX_OFFLOAD
+
+#ifdef GMX_OFFLOAD
+#define gmx_offload __declspec(target(mic))
 #ifdef __MIC__
 /* Define to 1 if GMX_OFFLOAD is defined but only on the coprocessor */
 #define GMX_ACCELERATOR
 #endif
-#endif
-
-#ifdef GMX_OFFLOAD
-#define gmx_offload __declspec(target(mic))
 #else
 #define gmx_offload
 #endif
@@ -187,6 +184,9 @@
 
 /* Maximum number of OpenMP threads supported */
 #define GMX_OPENMP_MAX_THREADS @GMX_OPENMP_MAX_THREADS@
+
+/* Number of OpenMP threads on Xeon Phi coprocessor */
+#define GMX_OPENMP_OFFLOAD_THREADS @GMX_OPENMP_OFFLOAD_THREADS@
 
 /* Use if we cannot rename checkpoints */
 #cmakedefine01 GMX_NO_RENAME

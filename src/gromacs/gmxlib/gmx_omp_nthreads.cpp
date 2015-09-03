@@ -190,8 +190,7 @@ static void pick_module_nthreads(FILE *fplog, int m,
          */
         if (bUseOffloadedKernel && m == emntNonbonded)
         {
-        	/* TODO: Make this a changeable variable */
-        	nth = 118;
+            nth = GMX_OPENMP_OFFLOAD_THREADS;
         }
     }
 

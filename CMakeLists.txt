@@ -157,6 +157,8 @@ gmx_dependent_option(
     ON
     GMX_MPI)
 mark_as_advanced(GMX_MPI_IN_PLACE)
+option(GMX_OFFLOAD "Enable offloading to a Xeon Phi coprocessor" OFF)
+mark_as_advanced(GMX_OFFLOAD)
 option(GMX_SOFTWARE_INVSQRT "Use GROMACS software 1/sqrt" ON)
 mark_as_advanced(GMX_SOFTWARE_INVSQRT)
 option(GMX_FAHCORE "Build a library with mdrun functionality" OFF)
