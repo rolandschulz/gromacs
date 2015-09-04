@@ -47,12 +47,12 @@
 #include "nb_verlet_simd_offload.h"
 #include "packdata.h"
 
-gmx_bool                  bUseOffloadedKernel = FALSE;
-gmx_offload gmx_bool      bRefreshNbl         = TRUE;
-gmx_offload char         *phi_in_packet;
-gmx_offload char         *phi_out_packet;
-static float              off_signal = 0;
-gmx_offload static size_t phi_buffer_sizes[9];
+static gmx_bool             bUseOffloadedKernel = FALSE;
+gmx_offload static gmx_bool bRefreshNbl         = TRUE;
+gmx_offload char           *phi_in_packet;
+gmx_offload char           *phi_out_packet;
+static float                off_signal = 0;
+gmx_offload static size_t   phi_buffer_sizes[9];
 
 #define REUSE alloc_if(0) free_if(0)
 #define ALLOC alloc_if(1) free_if(0)
@@ -347,6 +347,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 
     // TODO: What about nbl->excl ?
 
+    nbnxn_atomdata_output_t *out_for_phi = get_output_buffer_for_offload();
 #pragma offload target(mic:0) nocopy(out_for_phi) \
     nocopy(nbl_lists) \
     nocopy(nbl_buffer) \
@@ -474,4 +475,19 @@ void wait_for_offload()
 {
 #pragma offload_wait target(mic:0) wait(&off_signal)
     unpackdata(unpack_data.out_packet_addr, unpack_data.cpu_buffers, 4);
+}
+
+void setRefreshNblForOffload()
+{
+    bRefreshNbl = TRUE;
+}
+
+gmx_bool offloadedKernelEnabled()
+{
+    return bUseOffloadedKernel;
+}
+
+void enableOffloadedKernel()
+{
+    bUseOffloadedKernel = TRUE;
 }

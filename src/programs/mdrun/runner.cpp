@@ -695,9 +695,7 @@ int mdrunner(gmx_hw_opt_t *hw_opt,
              * update the message text and the content of nbnxn_acceleration_supported.
              */
 #ifdef GMX_OFFLOAD
-            /* TODO: Ideally this information should be stored in only one location */
-            bUseOffloadedKernel      = (inputrec->vdwtype != evdwPME || inputrec->ljpme_combination_rule != eljpmeLB);
-            inputrec->bOffloadKernel = bUseOffloadedKernel;
+            enableOffloadedKernel();
 #endif
             if (bUseGPU &&
                 !nbnxn_acceleration_supported(fplog, cr, inputrec, bUseGPU))
@@ -1047,7 +1045,7 @@ int mdrunner(gmx_hw_opt_t *hw_opt,
                           hw_opt->nthreads_omp_pme,
                           (cr->duty & DUTY_PP) == 0,
                           inputrec->cutoff_scheme == ecutsVERLET,
-                          inputrec->bOffloadKernel);
+                          offloadedKernelEnabled());
 
 #ifndef NDEBUG
     if (integrator[inputrec->eI].func != do_tpi &&
@@ -1090,7 +1088,7 @@ int mdrunner(gmx_hw_opt_t *hw_opt,
     /* TODO nthreads_pp is only used for pinning threads.
      * This is a temporary solution until we have a hw topology library.
      */
-    if (!inputrec->bOffloadKernel)
+    if (!offloadedKernelEnabled())
     {
         nthreads_pp  = gmx_omp_nthreads_get(emntNonbonded);
     }

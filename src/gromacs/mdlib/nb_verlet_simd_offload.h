@@ -43,9 +43,6 @@
 extern "C" {
 #endif
 
-extern gmx_bool           bUseOffloadedKernel;
-extern gmx_bool           bRefreshNbl;
-
 void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
                                     interaction_const_t *ic,
                                     gmx_enerdata_t *enerd,
@@ -53,6 +50,12 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
                                     int clearF,
                                     t_nrnb *nrnb);
 void wait_for_offload();
+
+void setRefreshNblForOffload();
+
+gmx_bool offloadedKernelEnabled();
+
+void enableOffloadedKernel();
 
 #ifdef __cplusplus
 }

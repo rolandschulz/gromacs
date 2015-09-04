@@ -60,7 +60,10 @@
 #include "gromacs/utility/smalloc.h"
 #include "gromacs/mdlib/nb_verlet_simd_offload.h"
 
-nbnxn_atomdata_output_t *out_for_phi = NULL;
+nbnxn_atomdata_output_t *get_output_buffer_for_offload()
+{
+    return out_for_phi;
+}
 
 /* Default nbnxn allocation routine, allocates NBNXN_MEM_ALIGN byte aligned */
 gmx_offload
@@ -139,7 +142,7 @@ void nbnxn_atomdata_realloc(nbnxn_atomdata_t *nbat, int n)
                        n*nbat->xstride*sizeof(*nbat->x),
                        nbat->alloc, nbat->free);
 
-    if (!bUseOffloadedKernel)
+    if (!offloadedKernelEnabled())
     {
         for (t = 0; t < nbat->nout; t++)
         {
@@ -820,7 +823,7 @@ void nbnxn_atomdata_init(FILE *fp,
     /* Initialize the output data structures */
     nbat->nout    = nout;
     nbat->nalloc  = 0;
-    if (!bUseOffloadedKernel)
+    if (!offloadedKernelEnabled())
     {
         snew(nbat->out, nbat->nout);
         for (i = 0; i < nbat->nout; i++)

@@ -482,7 +482,7 @@ static void do_nb_verlet(t_forcerec *fr,
 
     bUsingGpuKernels = (nbvg->kernel_type == nbnxnk8x8x8_GPU);
 
-    if (!bUsingGpuKernels && !bUseOffloadedKernel)
+    if (!bUsingGpuKernels && !offloadedKernelEnabled())
     {
         wallcycle_sub_start(wcycle, ewcsNONBONDED);
     }
@@ -515,7 +515,7 @@ static void do_nb_verlet(t_forcerec *fr,
                                   enerd->grpp.ener[egLJSR]);
             break;
         case nbnxnk4xN_SIMD_2xNN:
-            if (bUseOffloadedKernel)
+            if (offloadedKernelEnabled())
             {
                 nbnxn_kernel_simd_2xnn_offload(fr, ic, enerd, flags, ilocality, clearF, nrnb);
             }
@@ -557,7 +557,7 @@ static void do_nb_verlet(t_forcerec *fr,
             gmx_incons("Invalid nonbonded kernel type passed!");
 
     }
-    if (!bUsingGpuKernels && !bUseOffloadedKernel)
+    if (!bUsingGpuKernels && !offloadedKernelEnabled())
     {
         wallcycle_sub_stop(wcycle, ewcsNONBONDED);
     }
@@ -934,7 +934,7 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
     /* do local pair search */
     if (bNS)
     {
-        bRefreshNbl = TRUE;
+        setRefreshNblForOffload();
         wallcycle_start_nocount(wcycle, ewcNS);
         wallcycle_sub_start(wcycle, ewcsNBS_SEARCH_LOCAL);
         nbnxn_make_pairlist(nbv->nbs, nbv->grp[eintLocal].nbat,
@@ -1177,7 +1177,7 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
      * decomposition load balancing.
      */
 
-    if (!bUseOffloadedKernel && !bUseOrEmulGPU)
+    if (!offloadedKernelEnabled() && !bUseOrEmulGPU)
     {
         /* Maybe we should move this into do_force_lowlevel */
         do_nb_verlet(fr, ic, enerd, flags, eintLocal, enbvClearFYes,
@@ -1207,13 +1207,13 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
         }
     }
 
-    if (bUseOffloadedKernel)
+    if (offloadedKernelEnabled())
     {
         /* Maybe we should move this into do_force_lowlevel */
         do_nb_verlet(fr, ic, enerd, flags, eintLocal, enbvClearFYes, nrnb, wcycle);
     }
 
-    if ((!bUseOrEmulGPU || bDiffKernels) && !bUseOffloadedKernel)
+    if ((!bUseOrEmulGPU || bDiffKernels) && !offloadedKernelEnabled())
     {
         int aloc;
 
@@ -1251,7 +1251,7 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
         {
             /* This is not in a subcounter because it takes a
                negligible and constant-sized amount of time */
-            if (!bUseOffloadedKernel)
+            if (!offloadedKernelEnabled())
             {
                 nbnxn_atomdata_add_nbat_fshift_to_fshift(nbv->grp[aloc].nbat, fr->fshift);
             }
@@ -1432,7 +1432,7 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
         wallcycle_stop(wcycle, ewcNB_XF_BUF_OPS);
     }
 
-    if (bUseOffloadedKernel)
+    if (offloadedKernelEnabled())
     {
         wait_for_offload();
         wallcycle_start(wcycle, ewcNB_XF_BUF_OPS);

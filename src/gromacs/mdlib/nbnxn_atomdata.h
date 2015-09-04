@@ -43,7 +43,10 @@
 extern "C" {
 #endif
 
-gmx_offload extern nbnxn_atomdata_output_t *out_for_phi;
+gmx_offload static nbnxn_atomdata_output_t *out_for_phi = NULL;
+
+gmx_offload
+nbnxn_atomdata_output_t *get_output_buffer_for_offload();
 
 /* Default nbnxn allocation routine, allocates 32 byte aligned,
  * which works for plain C and aligned SSE and AVX loads/stores.

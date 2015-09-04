@@ -72,6 +72,7 @@
 #include "gromacs/math/vec.h"
 #include "gromacs/mdlib/forcerec-threading.h"
 #include "gromacs/mdlib/nb_verlet.h"
+#include "gromacs/mdlib/nb_verlet_simd_offload.h"
 #include "gromacs/mdlib/nbnxn_atomdata.h"
 #include "gromacs/mdlib/nbnxn_gpu_data_mgmt.h"
 #include "gromacs/mdlib/nbnxn_search.h"
@@ -1594,7 +1595,7 @@ static void pick_nbnxn_kernel_cpu(const t_inputrec gmx_unused *ir,
 
         /* Only 2xNN is currently supported for offload, but it is okay to have
          * 4xN only (offloading is just not used) */
-        if (ir->bOffloadKernel)
+        if (offloadedKernelEnabled())
         {
             *kernel_type = nbnxnk4xN_SIMD_2xNN;
         }
