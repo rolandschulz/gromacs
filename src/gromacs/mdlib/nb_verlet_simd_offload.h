@@ -45,16 +45,6 @@ extern "C" {
 
 extern gmx_bool           bUseOffloadedKernel;
 extern gmx_bool           bRefreshNbl;
-extern rvec              *force_buffer;
-extern size_t             fb_size;
-#define NUM_TIMES 10
-gmx_offload extern double phi_times[NUM_TIMES];
-
-#define REUSED 0
-#define TEMP   1
-
-#define CLEANUP 0
-#define COMPUTE 1
 
 void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
                                     interaction_const_t *ic,
