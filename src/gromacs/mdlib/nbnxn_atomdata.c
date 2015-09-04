@@ -141,35 +141,35 @@ void nbnxn_atomdata_realloc(nbnxn_atomdata_t *nbat, int n)
 
     if (!bUseOffloadedKernel)
     {
-    	for (t = 0; t < nbat->nout; t++)
-    	{
-    		/* Allocate one element extra for possible signaling with CUDA */
-    		nbnxn_realloc_void((void **)&nbat->out[t].f,
-    				nbat->natoms*nbat->fstride*sizeof(*nbat->out[t].f),
-    				n*nbat->fstride*sizeof(*nbat->out[t].f),
-    				nbat->alloc, nbat->free);
-    	}
+        for (t = 0; t < nbat->nout; t++)
+        {
+            /* Allocate one element extra for possible signaling with CUDA */
+            nbnxn_realloc_void((void **)&nbat->out[t].f,
+                               nbat->natoms*nbat->fstride*sizeof(*nbat->out[t].f),
+                               n*nbat->fstride*sizeof(*nbat->out[t].f),
+                               nbat->alloc, nbat->free);
+        }
     }
     else
     {
-		// Only nbat->out[0] needed on the CPU to store the forces after they
-    	// are reduced on the coprocessor.
-		nbnxn_realloc_void((void **)&nbat->out[0].f,
-		    				nbat->natoms*nbat->fstride*sizeof(*nbat->out[0].f),
-		    				n*nbat->fstride*sizeof(*nbat->out[0].f),
-		    				nbat->alloc, nbat->free);
+        // Only nbat->out[0] needed on the CPU to store the forces after they
+        // are reduced on the coprocessor.
+        nbnxn_realloc_void((void **)&nbat->out[0].f,
+                           nbat->natoms*nbat->fstride*sizeof(*nbat->out[0].f),
+                           n*nbat->fstride*sizeof(*nbat->out[0].f),
+                           nbat->alloc, nbat->free);
 #pragma offload target(mic:0) in(nbat:length(1)) nocopy(out_for_phi)
-    	{
-    		for (t = 0; t < nbat->nout; t++)
-    		{
-    			nbat->alloc = nbnxn_alloc_aligned;
-    			nbat->free = nbnxn_free_aligned;
-    			nbnxn_realloc_void((void **)&out_for_phi[t].f,
-    					nbat->natoms*nbat->fstride*sizeof(*out_for_phi[t].f),
-    					n*nbat->fstride*sizeof(*out_for_phi[t].f),
-    					nbat->alloc, nbat->free);
-    		}
-    	}
+        {
+            for (t = 0; t < nbat->nout; t++)
+            {
+                nbat->alloc = nbnxn_alloc_aligned;
+                nbat->free  = nbnxn_free_aligned;
+                nbnxn_realloc_void((void **)&out_for_phi[t].f,
+                                   nbat->natoms*nbat->fstride*sizeof(*out_for_phi[t].f),
+                                   n*nbat->fstride*sizeof(*out_for_phi[t].f),
+                                   nbat->alloc, nbat->free);
+            }
+        }
     }
     nbat->nalloc = n;
 }
@@ -822,37 +822,37 @@ void nbnxn_atomdata_init(FILE *fp,
     nbat->nalloc  = 0;
     if (!bUseOffloadedKernel)
     {
-    	snew(nbat->out, nbat->nout);
-    	for (i = 0; i < nbat->nout; i++)
-    	{
-    		nbnxn_atomdata_output_init(&nbat->out[i],
-    				nb_kernel_type,
-    				nbat->nenergrp, 1<<nbat->neg_2log,
-    				nbat->alloc);
-    	}
+        snew(nbat->out, nbat->nout);
+        for (i = 0; i < nbat->nout; i++)
+        {
+            nbnxn_atomdata_output_init(&nbat->out[i],
+                                       nb_kernel_type,
+                                       nbat->nenergrp, 1<<nbat->neg_2log,
+                                       nbat->alloc);
+        }
     }
     else
     {
-		// Only nbat->out[0] needed on the CPU to store the forces after they
-    	// are reduced on the coprocessor.
-    	snew(nbat->out, 1);
-		nbnxn_atomdata_output_init(&nbat->out[0],
-				nb_kernel_type,
-				nbat->nenergrp, 1<<nbat->neg_2log,
-				nbat->alloc);
+        // Only nbat->out[0] needed on the CPU to store the forces after they
+        // are reduced on the coprocessor.
+        snew(nbat->out, 1);
+        nbnxn_atomdata_output_init(&nbat->out[0],
+                                   nb_kernel_type,
+                                   nbat->nenergrp, 1<<nbat->neg_2log,
+                                   nbat->alloc);
 #pragma offload target(mic:0) in(nbat:length(1)) nocopy(out_for_phi)
-    	{
-    		int i;
-    		snew(out_for_phi, nbat->nout);
-    		nbat->alloc = nbnxn_alloc_aligned;
-    		for (i = 0; i < nbat->nout; i++)
-    		{
-    			nbnxn_atomdata_output_init(&out_for_phi[i],
-    					nb_kernel_type,
-    					nbat->nenergrp, 1<<nbat->neg_2log,
-    					nbat->alloc);
-    		}
-    	}
+        {
+            int i;
+            snew(out_for_phi, nbat->nout);
+            nbat->alloc = nbnxn_alloc_aligned;
+            for (i = 0; i < nbat->nout; i++)
+            {
+                nbnxn_atomdata_output_init(&out_for_phi[i],
+                                           nb_kernel_type,
+                                           nbat->nenergrp, 1<<nbat->neg_2log,
+                                           nbat->alloc);
+            }
+        }
     }
     nbat->buffer_flags.flag        = NULL;
     nbat->buffer_flags.flag_nalloc = 0;
@@ -1524,7 +1524,7 @@ void nbnxn_atomdata_add_nbat_f_to_f_treereduce(const nbnxn_atomdata_t *nbat,
                 /* wait on partner thread - replaces full barrier */
                 int sync_th, sync_group_size;
 
-                tMPI_Atomic_memory_barrier();                         /* gurantee data is saved before marking work as done */
+                tMPI_Atomic_memory_barrier();                   /* gurantee data is saved before marking work as done */
                 tMPI_Atomic_set(&(syncStep[th]), group_size/2); /* mark previous step as completed */
 
                 /* find thread to sync with. Equal to partner_th unless nth is not a power of two. */
@@ -1619,9 +1619,9 @@ void nbnxn_atomdata_add_nbat_f_to_f_treereduce(const nbnxn_atomdata_t *nbat,
                 b0 = (SHIFTS * DIM * group_pos   )/group_size;
                 b1 = (SHIFTS * DIM *(group_pos+1))/group_size;
                 nbnxn_atomdata_reduce_reals
-				        (nbat->out[index[0]].fshift,
-						TRUE,
-						&(nbat->out[index[1]].fshift), 1, b0, b1);
+                    (nbat->out[index[0]].fshift,
+                    TRUE,
+                    &(nbat->out[index[1]].fshift), 1, b0, b1);
 #endif
             }
         }
@@ -1731,7 +1731,7 @@ void nbnxn_atomdata_add_nbat_f_to_f_final(const nbnxn_search_t    nbs,
                                           int                     locality,
                                           const nbnxn_atomdata_t *nbat,
                                           rvec                   *f,
-										  int                    nth)
+                                          int                     nth)
 {
     int a0 = 0, na = 0;
     int th;

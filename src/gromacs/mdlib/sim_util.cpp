@@ -522,16 +522,16 @@ static void do_nb_verlet(t_forcerec *fr,
             else
             {
                 nbnxn_kernel_simd_2xnn(&nbvg->nbl_lists,
-                        nbvg->nbat, ic,
-                        nbvg->ewald_excl,
-                        fr->shift_vec,
-                        flags,
-                        clearF,
-                        fr->fshift[0],
-                        enerd->grpp.ener[egCOULSR],
-                        fr->bBHAM ?
-                                enerd->grpp.ener[egBHAMSR] :
-                                enerd->grpp.ener[egLJSR]);
+                                       nbvg->nbat, ic,
+                                       nbvg->ewald_excl,
+                                       fr->shift_vec,
+                                       flags,
+                                       clearF,
+                                       fr->fshift[0],
+                                       enerd->grpp.ener[egCOULSR],
+                                       fr->bBHAM ?
+                                       enerd->grpp.ener[egBHAMSR] :
+                                       enerd->grpp.ener[egLJSR]);
             }
             break;
 
@@ -1247,13 +1247,13 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
 
         /* if there are multiple fshift output buffers reduce them */
         if ((flags & GMX_FORCE_VIRIAL) &&
-                nbv->grp[aloc].nbl_lists.nnbl > 1)
+            nbv->grp[aloc].nbl_lists.nnbl > 1)
         {
             /* This is not in a subcounter because it takes a
                negligible and constant-sized amount of time */
             if (!bUseOffloadedKernel)
             {
-       		nbnxn_atomdata_add_nbat_fshift_to_fshift(nbv->grp[aloc].nbat, fr->fshift);
+                nbnxn_atomdata_add_nbat_fshift_to_fshift(nbv->grp[aloc].nbat, fr->fshift);
             }
         }
     }
@@ -1440,7 +1440,7 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
         nbnxn_atomdata_add_nbat_f_to_f_final(fr->nbv->nbs, eatAll,
                                              fr->nbv->grp[eintLocal].nbat, f,
                                              gmx_omp_nthreads_get(emntDefault));
-        for (j=0; j<DIM * SHIFTS; j++)
+        for (j = 0; j < DIM * SHIFTS; j++)
         {
             ((real *)fr->fshift)[j] += fr->nbv->grp[eintLocal].nbat->out[0].fshift[j];
         }

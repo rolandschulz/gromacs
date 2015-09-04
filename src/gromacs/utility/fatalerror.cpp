@@ -3,7 +3,7 @@
  *
  * Copyright (c) 1991-2000, University of Groningen, The Netherlands.
  * Copyright (c) 2001-2004, The GROMACS development team.
- * Copyright (c) 2013,2014, by the GROMACS development team, led by
+ * Copyright (c) 2013,2014,2015, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -58,14 +58,14 @@
 #include "gromacs/utility/gmxmpi.h"
 #endif
 
-static bool                bDebug         = false;
-static tMPI_Thread_mutex_t where_mutex    = TMPI_THREAD_MUTEX_INITIALIZER;
+static bool                            bDebug         = false;
+static tMPI_Thread_mutex_t             where_mutex    = TMPI_THREAD_MUTEX_INITIALIZER;
 
-FILE                      *debug          = NULL;
-gmx_bool                   gmx_debug_at   = FALSE;
+FILE                                  *debug          = NULL;
+gmx_bool                               gmx_debug_at   = FALSE;
 
-static FILE               *log_file       = NULL;
-static tMPI_Thread_mutex_t error_mutex    = TMPI_THREAD_MUTEX_INITIALIZER;
+static FILE                           *log_file       = NULL;
+static tMPI_Thread_mutex_t             error_mutex    = TMPI_THREAD_MUTEX_INITIALIZER;
 gmx_offload static const char *const   gmxuser
     = "Please report this to the mailing list (gmx-users@gromacs.org)";
 

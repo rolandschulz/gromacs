@@ -1596,21 +1596,21 @@ static void pick_nbnxn_kernel_cpu(const t_inputrec gmx_unused *ir,
          * 4xN only (offloading is just not used) */
         if (ir->bOffloadKernel)
         {
-        	*kernel_type = nbnxnk4xN_SIMD_2xNN;
+            *kernel_type = nbnxnk4xN_SIMD_2xNN;
         }
         else
         {
-        	*kernel_type = nbnxnk4xN_SIMD_4xN;
+            *kernel_type = nbnxnk4xN_SIMD_4xN;
 
 #ifndef GMX_SIMD_HAVE_FMA
-        	if (EEL_PME_EWALD(ir->coulombtype) ||
-        			EVDW_PME(ir->vdwtype))
-        	{
-        		/* We have Ewald kernels without FMA (Intel Sandy/Ivy Bridge).
-        		 * There are enough instructions to make 2x(4+4) efficient.
-        		 */
-        		*kernel_type = nbnxnk4xN_SIMD_2xNN;
-        	}
+            if (EEL_PME_EWALD(ir->coulombtype) ||
+                EVDW_PME(ir->vdwtype))
+            {
+                /* We have Ewald kernels without FMA (Intel Sandy/Ivy Bridge).
+                 * There are enough instructions to make 2x(4+4) efficient.
+                 */
+                *kernel_type = nbnxnk4xN_SIMD_2xNN;
+            }
         }
 #endif
 #endif  /* GMX_NBNXN_SIMD_2XNN && GMX_NBNXN_SIMD_4XN */

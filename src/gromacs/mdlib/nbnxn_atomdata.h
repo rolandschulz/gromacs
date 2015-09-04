@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2012,2013,2014, by the GROMACS development team, led by
+ * Copyright (c) 2012,2013,2014,2015, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -128,7 +128,7 @@ void nbnxn_atomdata_add_nbat_f_to_f_final(const nbnxn_search_t    nbs,
                                           int                     locality,
                                           const nbnxn_atomdata_t *nbat,
                                           rvec                   *f,
-										  int                    nth);
+                                          int                     nth);
 
 /* Add the fshift force stored in nbat to fshift */
 gmx_offload

@@ -436,17 +436,17 @@ typedef struct {
     real            userreal2;
     real            userreal3;
     real            userreal4;
-    t_grpopts       opts;          /* Group options				*/
-    t_cosines       ex[DIM];       /* Electric field stuff	(spatial part)		*/
-    t_cosines       et[DIM];       /* Electric field stuff	(time part)		*/
-    gmx_bool        bQMMM;         /* QM/MM calculation                            */
-    int             QMconstraints; /* constraints on QM bonds                      */
-    int             QMMMscheme;    /* Scheme: ONIOM or normal                      */
-    real            scalefactor;   /* factor for scaling the MM charges in QM calc.*/
-                                   /* parameter needed for AdResS simulation       */
-    gmx_bool        bAdress;       /* Is AdResS enabled ? */
-    t_adress       *adress;        /* The data for adress simulations */
-    gmx_bool        bOffloadKernel;/* Nonbonded kernel is offloaded to coprocessor (not GPU) */
+    t_grpopts       opts;           /* Group options				*/
+    t_cosines       ex[DIM];        /* Electric field stuff	(spatial part)		*/
+    t_cosines       et[DIM];        /* Electric field stuff	(time part)		*/
+    gmx_bool        bQMMM;          /* QM/MM calculation                            */
+    int             QMconstraints;  /* constraints on QM bonds                      */
+    int             QMMMscheme;     /* Scheme: ONIOM or normal                      */
+    real            scalefactor;    /* factor for scaling the MM charges in QM calc.*/
+                                    /* parameter needed for AdResS simulation       */
+    gmx_bool        bAdress;        /* Is AdResS enabled ? */
+    t_adress       *adress;         /* The data for adress simulations */
+    gmx_bool        bOffloadKernel; /* Nonbonded kernel is offloaded to coprocessor (not GPU) */
 } t_inputrec;
 
 #define DEFORM(ir) ((ir).deform[XX][XX] != 0 || (ir).deform[YY][YY] != 0 || (ir).deform[ZZ][ZZ] != 0 || (ir).deform[YY][XX] != 0 || (ir).deform[ZZ][XX] != 0 || (ir).deform[ZZ][YY] != 0)

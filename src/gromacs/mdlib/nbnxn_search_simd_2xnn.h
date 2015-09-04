@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2012,2013,2014, by the GROMACS development team, led by
+ * Copyright (c) 2012,2013,2014,2015, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -156,34 +156,34 @@ make_cluster_list_simd_2xnn(const nbnxn_grid_t *gridj,
         }
         else if (d2 < rl2)
         {
-        	int part;
-        	for (part = 0; part < 2; part++)
-        	{
-            xind_f  = X_IND_CJ_SIMD_2XNN(CI_TO_CJ_SIMD_2XNN(gridj->cell0) + cjf) + 4*part;
+            int part;
+            for (part = 0; part < 2; part++)
+            {
+                xind_f  = X_IND_CJ_SIMD_2XNN(CI_TO_CJ_SIMD_2XNN(gridj->cell0) + cjf) + 4*part;
 
-            jx_S  = gmx_load_hpr_hilo_pr(x_j+xind_f+0*STRIDE_S);
-            jy_S  = gmx_load_hpr_hilo_pr(x_j+xind_f+1*STRIDE_S);
-            jz_S  = gmx_load_hpr_hilo_pr(x_j+xind_f+2*STRIDE_S);
+                jx_S  = gmx_load_hpr_hilo_pr(x_j+xind_f+0*STRIDE_S);
+                jy_S  = gmx_load_hpr_hilo_pr(x_j+xind_f+1*STRIDE_S);
+                jz_S  = gmx_load_hpr_hilo_pr(x_j+xind_f+2*STRIDE_S);
 
-            /* Calculate distance */
-            dx_S0            = gmx_simd_sub_r(work->ix_S0, jx_S);
-            dy_S0            = gmx_simd_sub_r(work->iy_S0, jy_S);
-            dz_S0            = gmx_simd_sub_r(work->iz_S0, jz_S);
-            dx_S2            = gmx_simd_sub_r(work->ix_S2, jx_S);
-            dy_S2            = gmx_simd_sub_r(work->iy_S2, jy_S);
-            dz_S2            = gmx_simd_sub_r(work->iz_S2, jz_S);
+                /* Calculate distance */
+                dx_S0            = gmx_simd_sub_r(work->ix_S0, jx_S);
+                dy_S0            = gmx_simd_sub_r(work->iy_S0, jy_S);
+                dz_S0            = gmx_simd_sub_r(work->iz_S0, jz_S);
+                dx_S2            = gmx_simd_sub_r(work->ix_S2, jx_S);
+                dy_S2            = gmx_simd_sub_r(work->iy_S2, jy_S);
+                dz_S2            = gmx_simd_sub_r(work->iz_S2, jz_S);
 
-            /* rsq = dx*dx+dy*dy+dz*dz */
-            rsq_S0           = gmx_simd_calc_rsq_r(dx_S0, dy_S0, dz_S0);
-            rsq_S2           = gmx_simd_calc_rsq_r(dx_S2, dy_S2, dz_S2);
+                /* rsq = dx*dx+dy*dy+dz*dz */
+                rsq_S0           = gmx_simd_calc_rsq_r(dx_S0, dy_S0, dz_S0);
+                rsq_S2           = gmx_simd_calc_rsq_r(dx_S2, dy_S2, dz_S2);
 
-            wco_S0           = gmx_simd_cmplt_r(rsq_S0, rc2_S);
-            wco_S2           = gmx_simd_cmplt_r(rsq_S2, rc2_S);
+                wco_S0           = gmx_simd_cmplt_r(rsq_S0, rc2_S);
+                wco_S2           = gmx_simd_cmplt_r(rsq_S2, rc2_S);
 
-            wco_any_S        = gmx_simd_or_b(wco_S0, wco_S2);
+                wco_any_S        = gmx_simd_or_b(wco_S0, wco_S2);
 
-            InRange          = gmx_simd_anytrue_b(wco_any_S) | InRange;
-        	}
+                InRange          = gmx_simd_anytrue_b(wco_any_S) | InRange;
+            }
             *ndistc += 2*GMX_SIMD_REAL_WIDTH;
         }
         if (!InRange)
@@ -217,34 +217,34 @@ make_cluster_list_simd_2xnn(const nbnxn_grid_t *gridj,
         }
         else if (d2 < rl2)
         {
-        	int part;
-        	for (part = 0; part < 2; part++)
-        	{
-            xind_l  = X_IND_CJ_SIMD_2XNN(CI_TO_CJ_SIMD_2XNN(gridj->cell0) + cjl) + 4*part;
+            int part;
+            for (part = 0; part < 2; part++)
+            {
+                xind_l  = X_IND_CJ_SIMD_2XNN(CI_TO_CJ_SIMD_2XNN(gridj->cell0) + cjl) + 4*part;
 
-            jx_S  = gmx_load_hpr_hilo_pr(x_j+xind_l+0*STRIDE_S);
-            jy_S  = gmx_load_hpr_hilo_pr(x_j+xind_l+1*STRIDE_S);
-            jz_S  = gmx_load_hpr_hilo_pr(x_j+xind_l+2*STRIDE_S);
+                jx_S  = gmx_load_hpr_hilo_pr(x_j+xind_l+0*STRIDE_S);
+                jy_S  = gmx_load_hpr_hilo_pr(x_j+xind_l+1*STRIDE_S);
+                jz_S  = gmx_load_hpr_hilo_pr(x_j+xind_l+2*STRIDE_S);
 
-            /* Calculate distance */
-            dx_S0            = gmx_simd_sub_r(work->ix_S0, jx_S);
-            dy_S0            = gmx_simd_sub_r(work->iy_S0, jy_S);
-            dz_S0            = gmx_simd_sub_r(work->iz_S0, jz_S);
-            dx_S2            = gmx_simd_sub_r(work->ix_S2, jx_S);
-            dy_S2            = gmx_simd_sub_r(work->iy_S2, jy_S);
-            dz_S2            = gmx_simd_sub_r(work->iz_S2, jz_S);
+                /* Calculate distance */
+                dx_S0            = gmx_simd_sub_r(work->ix_S0, jx_S);
+                dy_S0            = gmx_simd_sub_r(work->iy_S0, jy_S);
+                dz_S0            = gmx_simd_sub_r(work->iz_S0, jz_S);
+                dx_S2            = gmx_simd_sub_r(work->ix_S2, jx_S);
+                dy_S2            = gmx_simd_sub_r(work->iy_S2, jy_S);
+                dz_S2            = gmx_simd_sub_r(work->iz_S2, jz_S);
 
-            /* rsq = dx*dx+dy*dy+dz*dz */
-            rsq_S0           = gmx_simd_calc_rsq_r(dx_S0, dy_S0, dz_S0);
-            rsq_S2           = gmx_simd_calc_rsq_r(dx_S2, dy_S2, dz_S2);
+                /* rsq = dx*dx+dy*dy+dz*dz */
+                rsq_S0           = gmx_simd_calc_rsq_r(dx_S0, dy_S0, dz_S0);
+                rsq_S2           = gmx_simd_calc_rsq_r(dx_S2, dy_S2, dz_S2);
 
-            wco_S0           = gmx_simd_cmplt_r(rsq_S0, rc2_S);
-            wco_S2           = gmx_simd_cmplt_r(rsq_S2, rc2_S);
+                wco_S0           = gmx_simd_cmplt_r(rsq_S0, rc2_S);
+                wco_S2           = gmx_simd_cmplt_r(rsq_S2, rc2_S);
 
-            wco_any_S        = gmx_simd_or_b(wco_S0, wco_S2);
+                wco_any_S        = gmx_simd_or_b(wco_S0, wco_S2);
 
-            InRange          = gmx_simd_anytrue_b(wco_any_S) | InRange;
-        	}
+                InRange          = gmx_simd_anytrue_b(wco_any_S) | InRange;
+            }
 
             *ndistc += 2*GMX_SIMD_REAL_WIDTH;
         }

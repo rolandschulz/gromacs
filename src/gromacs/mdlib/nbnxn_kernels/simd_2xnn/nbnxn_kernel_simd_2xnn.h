@@ -63,21 +63,21 @@ nbnxn_kernel_simd_2xnn(nbnxn_pairlist_set_t       *nbl_list,
 #define _nbnxn_kernel_simd_include_h
 /*! \brief Typedefs for declaring kernel functions. */
 typedef gmx_offload void (nbk_func_ener)(const nbnxn_pairlist_t     *nbl,
-                             const nbnxn_atomdata_t     *nbat,
-                             const interaction_const_t  *ic,
-                             rvec                       *shift_vec,
-                             real                       *f,
-                             real                       *fshift,
-                             real                       *Vvdw,
-                             real                       *Vc);
+                                         const nbnxn_atomdata_t     *nbat,
+                                         const interaction_const_t  *ic,
+                                         rvec                       *shift_vec,
+                                         real                       *f,
+                                         real                       *fshift,
+                                         real                       *Vvdw,
+                                         real                       *Vc);
 typedef nbk_func_ener *p_nbk_func_ener;
 
 typedef gmx_offload void (nbk_func_noener)(const nbnxn_pairlist_t     *nbl,
-                               const nbnxn_atomdata_t     *nbat,
-                               const interaction_const_t  *ic,
-                               rvec                       *shift_vec,
-                               real                       *f,
-                               real                       *fshift);
+                                           const nbnxn_atomdata_t     *nbat,
+                                           const interaction_const_t  *ic,
+                                           rvec                       *shift_vec,
+                                           real                       *f,
+                                           real                       *fshift);
 typedef nbk_func_noener *p_nbk_func_noener;
 #endif
 

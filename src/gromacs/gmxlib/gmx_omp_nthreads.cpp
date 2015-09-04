@@ -199,9 +199,9 @@ static void pick_module_nthreads(FILE *fplog, int m,
     if (bUseOffloadedKernel && m == emntNonbonded)
     {
 #pragma offload target(mic:0)
-    	{
-    		gmx_omp_nthreads_set(m, nth);
-    	}
+        {
+            gmx_omp_nthreads_set(m, nth);
+        }
     }
 }
 
@@ -576,7 +576,7 @@ void gmx_omp_nthreads_init(FILE *fplog, t_commrec *cr,
     issueOversubscriptionWarning(fplog, cr, nthreads_hw_avail, nppn, bSepPME);
 }
 
-gmx_offload 
+gmx_offload
 int gmx_omp_nthreads_get(int mod)
 {
     if (mod < 0 || mod >= emntNR)

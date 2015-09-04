@@ -128,7 +128,7 @@ void printFatalErrorFooter(FILE *fp)
     std::fprintf(fp, "\n-------------------------------------------------------\n");
 }
 
-#else  /* GMX_OFFLOAD */
+#else   /* GMX_OFFLOAD */
 
 void printFatalErrorHeader(FILE *fp, const char *title,
                            const char *func, const char *file, int line)
@@ -145,7 +145,7 @@ void printFatalErrorFooter(FILE *fp)
 
 #endif /* GMX_OFFLOAD */
 
-}   // namespace internal
+}      // namespace internal
 //! \endcond
 
 } // namespace gmx

@@ -696,7 +696,7 @@ int mdrunner(gmx_hw_opt_t *hw_opt,
              */
 #ifdef GMX_OFFLOAD
             /* TODO: Ideally this information should be stored in only one location */
-            bUseOffloadedKernel = (inputrec->vdwtype != evdwPME || inputrec->ljpme_combination_rule != eljpmeLB);
+            bUseOffloadedKernel      = (inputrec->vdwtype != evdwPME || inputrec->ljpme_combination_rule != eljpmeLB);
             inputrec->bOffloadKernel = bUseOffloadedKernel;
 #endif
             if (bUseGPU &&
@@ -1092,11 +1092,11 @@ int mdrunner(gmx_hw_opt_t *hw_opt,
      */
     if (!inputrec->bOffloadKernel)
     {
-    	nthreads_pp  = gmx_omp_nthreads_get(emntNonbonded);
+        nthreads_pp  = gmx_omp_nthreads_get(emntNonbonded);
     }
     else
     {
-    	nthreads_pp = gmx_omp_nthreads_get(emntDefault);
+        nthreads_pp = gmx_omp_nthreads_get(emntDefault);
     }
     nthreads_pme = gmx_omp_nthreads_get(emntPME);
 

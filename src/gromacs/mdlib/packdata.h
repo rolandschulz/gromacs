@@ -3,7 +3,7 @@
  *
  * Copyright (c) 1991-2000, University of Groningen, The Netherlands.
  * Copyright (c) 2001-2004, The GROMACS development team.
- * Copyright (c) 2013,2014, by the GROMACS development team, led by
+ * Copyright (c) 2013,2014,2015, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -39,8 +39,8 @@
 
 typedef struct packet_buffer_struct
 {
-	void   *p;
-	size_t s;
+    void   *p;
+    size_t  s;
 } packet_buffer;
 
 // Packet-level operations
@@ -56,18 +56,18 @@ __declspec(target(mic)) packet_buffer get_buffer(void *packet, int buffer_num);
 __declspec(target(mic))
 typedef struct packet_iter_struct
 {
-	char *packet;
-	char *ptr;
+    char *packet;
+    char *ptr;
 } packet_iter;
 
 __declspec(target(mic)) void create_packet_iter(void *packet, packet_iter *iter);
 
 __declspec(target(mic)) void *value(packet_iter *iter);
 
-__declspec(target(mic))	size_t size(packet_iter *iter);
+__declspec(target(mic)) size_t size(packet_iter *iter);
 
 // Return pointer to current buffer and advance to next buffer
-__declspec(target(mic))	void *next(packet_iter *iter);
+__declspec(target(mic)) void *next(packet_iter *iter);
 
 // Same as "next" except allocates a new buffer and copies the current buffer's contents to it
 // instead of returning a pointer to the buffer inside the packet. Allocated buffer size is

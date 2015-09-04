@@ -1,7 +1,7 @@
 /*
  * This file is part of the GROMACS molecular simulation package.
  *
- * Copyright (c) 2012,2013,2014, by the GROMACS development team, led by
+ * Copyright (c) 2012,2013,2014,2015, by the GROMACS development team, led by
  * Mark Abraham, David van der Spoel, Berk Hess, and Erik Lindahl,
  * and including many others, as listed in the AUTHORS file in the
  * top-level source directory and at http://www.gromacs.org.
@@ -151,7 +151,7 @@ static gmx_inline void gmx_pause()
      * changed into proper detection of the intrinsics uses, not SIMD.
      */
 #if defined GMX_SIMD_X86_MIC || defined GMX_ACCELERATOR
-	_mm_delay_32(32);
+    _mm_delay_32(32);
 #elif (defined GMX_SIMD_X86_SSE2) || (defined GMX_SIMD_X86_SSE4_1) || \
     (defined GMX_SIMD_X86_AVX_128_FMA) || (defined GMX_SIMD_X86_AVX_256) || \
     (defined GMX_SIMD_X86_AVX2_256) && !defined(__MINGW32__)
