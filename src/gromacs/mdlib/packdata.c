@@ -39,20 +39,20 @@
 #include "packdata.h"
 #include "gromacs/utility/smalloc.h"
 
-__declspec(target(mic))
-void *roundup_ptr(void *addr)
+gmx_offload
+static void *roundup_ptr(void *addr)
 {
     return (void *)(((size_t)((char *)addr + PACK_BUFFER_ALIGN - 1)) & (~(PACK_BUFFER_ALIGN - 1)));
 }
 
-__declspec(target(mic))
-size_t roundup_size(size_t size)
+gmx_offload
+static size_t roundup_size(size_t size)
 {
     return (size + PACK_BUFFER_ALIGN - 1) & (~(PACK_BUFFER_ALIGN - 1));
 }
 
-__declspec(target(mic))
-size_t compute_header_size(int num_buffers)
+gmx_offload
+static size_t compute_header_size(int num_buffers)
 {
     return num_buffers * 2 * sizeof(size_t);
 }

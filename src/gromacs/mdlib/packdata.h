@@ -34,8 +34,10 @@
  * To help us fund GROMACS development, we humbly ask that you cite
  * the research papers on the package. Check out http://www.gromacs.org.
  */
+
+#include "config.h"
+
 #define PACK_BUFFER_ALIGN 64
-#define size_t unsigned long
 
 typedef struct packet_buffer_struct
 {
@@ -44,36 +46,36 @@ typedef struct packet_buffer_struct
 } packet_buffer;
 
 // Packet-level operations
-__declspec(target(mic)) void packdata  (void *packet, packet_buffer *buffers, int num_buffers);
+gmx_offload void packdata  (void *packet, packet_buffer *buffers, int num_buffers);
 
-__declspec(target(mic)) void unpackdata(void *packet, void **buffers,         int num_buffers);
+gmx_offload void unpackdata(void *packet, void **buffers,         int num_buffers);
 
-__declspec(target(mic)) size_t compute_required_size(packet_buffer *buffers, int num_buffers);
+gmx_offload size_t compute_required_size(packet_buffer *buffers,  int num_buffers);
 
-__declspec(target(mic)) packet_buffer get_buffer(void *packet, int buffer_num);
+gmx_offload packet_buffer get_buffer(void *packet, int buffer_num);
 
 // Buffer-level operations
-__declspec(target(mic))
+gmx_offload
 typedef struct packet_iter_struct
 {
     char *packet;
     char *ptr;
 } packet_iter;
 
-__declspec(target(mic)) void create_packet_iter(void *packet, packet_iter *iter);
+gmx_offload void create_packet_iter(void *packet, packet_iter *iter);
 
-__declspec(target(mic)) void *value(packet_iter *iter);
+gmx_offload void *value(packet_iter *iter);
 
-__declspec(target(mic)) size_t size(packet_iter *iter);
+gmx_offload size_t size(packet_iter *iter);
 
 // Return pointer to current buffer and advance to next buffer
-__declspec(target(mic)) void *next(packet_iter *iter);
+gmx_offload void *next(packet_iter *iter);
 
 // Same as "next" except allocates a new buffer and copies the current buffer's contents to it
 // instead of returning a pointer to the buffer inside the packet. Allocated buffer size is
 // (size * multiplier).
-__declspec(target(mic)) void *anext(packet_iter *iter, int multiplier);
+gmx_offload void *anext(packet_iter *iter, int multiplier);
 
 // Copy contents of current buffer to an existing buffer and advance to next buffer.
 // Client must make sure destination buffer is large enough.
-__declspec(target(mic)) void cnext(packet_iter *iter, void *buffer);
+gmx_offload void cnext(packet_iter *iter, void *buffer);
