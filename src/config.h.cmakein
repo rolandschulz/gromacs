@@ -89,6 +89,12 @@
 /** Define if we have sufficient C++11 support */
 #cmakedefine01 GMX_CXX11
 
+#ifdef GMX_ACCELERATOR
+
+#define GMX_SIMD_X86_MIC
+
+#else
+
 /* GCC bug in AVX maskload/maskstore arguments - worked around internally */
 #cmakedefine GMX_SIMD_X86_AVX_GCC_MASKLOAD_BUG
 
@@ -136,6 +142,8 @@
 
 /* Reference SIMD implementation for testing */
 #cmakedefine GMX_SIMD_REFERENCE
+
+#endif /* GMX_ACCELERATOR */
 
 /* String for SIMD instruction choice (for writing to log files and stdout) */
 #define GMX_SIMD_STRING "@GMX_SIMD@"

@@ -150,7 +150,7 @@ static gmx_inline void gmx_pause()
      * settings to decide when to use _mm_pause(). This should eventually be
      * changed into proper detection of the intrinsics uses, not SIMD.
      */
-#if defined GMX_SIMD_X86_MIC || defined GMX_ACCELERATOR
+#ifdef GMX_SIMD_X86_MIC
     _mm_delay_32(32);
 #elif (defined GMX_SIMD_X86_SSE2) || (defined GMX_SIMD_X86_SSE4_1) || \
     (defined GMX_SIMD_X86_AVX_128_FMA) || (defined GMX_SIMD_X86_AVX_256) || \

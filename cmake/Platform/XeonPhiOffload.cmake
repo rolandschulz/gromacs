@@ -33,8 +33,6 @@
 # the research papers on the package. Check out http://www.gromacs.org.
 
 set(GMX_OFFLOAD ON CACHE BOOL "")
-set(CMAKE_SYSTEM_NAME Linux)
-set(CMAKE_SYSTEM_PROCESSOR XeonPhiOffload)
 if(NOT GMX_MPI)
     set(CMAKE_C_COMPILER "icc")
     set(CMAKE_CXX_COMPILER "icpc")
@@ -42,3 +40,5 @@ else()
     set(CMAKE_C_COMPILER "mpiicc") #FindMPI doesn't work (#14991)
     set(CMAKE_CXX_COMPILER "mpiicpc")
 endif()
+set(CMAKE_C_FLAGS_INIT "-wd2568 -wd2570 -wd2571  -offload-option,mic,compiler,\"-par-affinity=granularity=core,compact -wd2568 -we2570 -we2571 -zdefs\"" CACHE STRING "C flags for Xeon Phi offload compile")
+set(CMAKE_CXX_FLAGS_INIT "-wd2568 -wd2570 -wd2571  -offload-option,mic,compiler,\"-par-affinity=granularity=core,compact -wd2568 -we2570 -we2571 -zdefs\"" CACHE STRING "C++ flags for Xeon Phi offload compile")
