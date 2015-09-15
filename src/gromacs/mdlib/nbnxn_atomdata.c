@@ -60,9 +60,9 @@
 #include "gromacs/utility/smalloc.h"
 #include "gromacs/mdlib/nb_verlet_simd_offload.h"
 
-nbnxn_atomdata_output_t *get_output_buffer_for_offload()
+nbnxn_atomdata_t *get_nbat_for_offload()
 {
-    return out_for_phi;
+    return &nbat_for_phi;
 }
 
 /* Default nbnxn allocation routine, allocates NBNXN_MEM_ALIGN byte aligned */
@@ -161,15 +161,15 @@ void nbnxn_atomdata_realloc(nbnxn_atomdata_t *nbat, int n)
                            nbat->natoms*nbat->fstride*sizeof(*nbat->out[0].f),
                            n*nbat->fstride*sizeof(*nbat->out[0].f),
                            nbat->alloc, nbat->free);
-#pragma offload target(mic:0) in(nbat:length(1)) nocopy(out_for_phi)
+#pragma offload target(mic:0) in(nbat:length(1)) nocopy(nbat_for_phi)
         {
             for (t = 0; t < nbat->nout; t++)
             {
                 nbat->alloc = nbnxn_alloc_aligned;
                 nbat->free  = nbnxn_free_aligned;
-                nbnxn_realloc_void((void **)&out_for_phi[t].f,
-                                   nbat->natoms*nbat->fstride*sizeof(*out_for_phi[t].f),
-                                   n*nbat->fstride*sizeof(*out_for_phi[t].f),
+                nbnxn_realloc_void((void **)&nbat_for_phi.out[t].f,
+                                   nbat->natoms*nbat->fstride*sizeof(*nbat_for_phi.out[t].f),
+                                   n*nbat->fstride*sizeof(*nbat_for_phi.out[t].f),
                                    nbat->alloc, nbat->free);
             }
         }
@@ -843,14 +843,14 @@ void nbnxn_atomdata_init(FILE *fp,
                                    nb_kernel_type,
                                    nbat->nenergrp, 1<<nbat->neg_2log,
                                    nbat->alloc);
-#pragma offload target(mic:0) in(nbat:length(1)) nocopy(out_for_phi)
+#pragma offload target(mic:0) in(nbat:length(1)) nocopy(nbat_for_phi)
         {
             int i;
-            snew(out_for_phi, nbat->nout);
+            snew(nbat_for_phi.out, nbat->nout);
             nbat->alloc = nbnxn_alloc_aligned;
             for (i = 0; i < nbat->nout; i++)
             {
-                nbnxn_atomdata_output_init(&out_for_phi[i],
+                nbnxn_atomdata_output_init(&nbat_for_phi.out[i],
                                            nb_kernel_type,
                                            nbat->nenergrp, 1<<nbat->neg_2log,
                                            nbat->alloc);
