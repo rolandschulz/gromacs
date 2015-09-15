@@ -347,8 +347,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
 
     // TODO: What about nbl->excl ?
 
-    nbnxn_atomdata_output_t *out_for_phi = get_output_buffer_for_offload();
-#pragma offload target(mic:0) nocopy(out_for_phi) \
+#pragma offload target(mic:0) \
     nocopy(nbl_lists) \
     nocopy(nbl_buffer) \
     nocopy(ci_buffer) \
@@ -391,7 +390,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
         nbat->energrp           = next(it);
         nbat->shift_vec         = next(it);
         nbat->x                 = next(it);
-        nbat->out               = out_for_phi;
+        nbat->out               = get_output_buffer_for_offload();
         nbat->buffer_flags.flag = next(it);
         interaction_const_t *ic_buffer = next(it);
         rvec                *shift_vec = next(it);
