@@ -1595,24 +1595,20 @@ static void pick_nbnxn_kernel_cpu(const t_inputrec gmx_unused *ir,
 
         /* Only 2xNN is currently supported for offload, but it is okay to have
          * 4xN only (offloading is just not used) */
-        if (offloadedKernelEnabled())
+#ifdef GMX_OFFLOAD
+        *kernel_type = nbnxnk4xN_SIMD_2xNN;
+#else
+        *kernel_type = nbnxnk4xN_SIMD_4xN;
+#ifndef GMX_SIMD_HAVE_FMA
+        if (EEL_PME_EWALD(ir->coulombtype) ||
+            EVDW_PME(ir->vdwtype))
         {
+            /* We have Ewald kernels without FMA (Intel Sandy/Ivy Bridge).
+             * There are enough instructions to make 2x(4+4) efficient.
+             */
             *kernel_type = nbnxnk4xN_SIMD_2xNN;
         }
-        else
-        {
-            *kernel_type = nbnxnk4xN_SIMD_4xN;
-
-#ifndef GMX_SIMD_HAVE_FMA
-            if (EEL_PME_EWALD(ir->coulombtype) ||
-                EVDW_PME(ir->vdwtype))
-            {
-                /* We have Ewald kernels without FMA (Intel Sandy/Ivy Bridge).
-                 * There are enough instructions to make 2x(4+4) efficient.
-                 */
-                *kernel_type = nbnxnk4xN_SIMD_2xNN;
-            }
-        }
+#endif
 #endif
 #endif  /* GMX_NBNXN_SIMD_2XNN && GMX_NBNXN_SIMD_4XN */
 
@@ -2167,7 +2163,7 @@ static void init_nb_verlet(FILE                *fp,
                                 nbnxn_kernel_pairlist_simple(nbv->grp[i].kernel_type),
                                 /* 8x8x8 "non-simple" lists are ATM always combined */
                                 !nbnxn_kernel_pairlist_simple(nbv->grp[i].kernel_type),
-                                nb_alloc, nb_free);
+                                nb_alloc, nb_free, nbv->grp[i].kernel_type);
 
         if (i == 0 ||
             nbv->grp[0].kernel_type != nbv->grp[i].kernel_type)

@@ -64,7 +64,7 @@ void nbnxn_realloc_void(void **ptr,
                         nbnxn_free_t  *mf);
 
 /* Reallocate the nbnxn_atomdata_t for a size of n atoms */
-void nbnxn_atomdata_realloc(nbnxn_atomdata_t *nbat, int n);
+void nbnxn_atomdata_realloc(nbnxn_atomdata_t *nbat, int n, int nb_kernel_type);
 
 /* Copy na rvec elements from x to xnb using nbatFormat, start dest a0,
  * and fills up to na_round using cx,cy,cz.

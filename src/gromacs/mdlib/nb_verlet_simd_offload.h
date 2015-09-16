@@ -53,9 +53,7 @@ void wait_for_offload();
 
 void setRefreshNblForOffload();
 
-gmx_bool offloadedKernelEnabled();
-
-void enableOffloadedKernel();
+gmx_bool offloadedKernelEnabled(int kernel_type);
 
 #ifdef __cplusplus
 }

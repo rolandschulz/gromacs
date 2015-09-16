@@ -694,9 +694,6 @@ int mdrunner(gmx_hw_opt_t *hw_opt,
              *               ir->ljpme_combination_rule == eljpmeLB))
              * update the message text and the content of nbnxn_acceleration_supported.
              */
-#ifdef GMX_OFFLOAD
-            enableOffloadedKernel();
-#endif
             if (bUseGPU &&
                 !nbnxn_acceleration_supported(fplog, cr, inputrec, bUseGPU))
             {
@@ -1045,7 +1042,16 @@ int mdrunner(gmx_hw_opt_t *hw_opt,
                           hw_opt->nthreads_omp_pme,
                           (cr->duty & DUTY_PP) == 0,
                           inputrec->cutoff_scheme == ecutsVERLET,
-                          offloadedKernelEnabled());
+						  /* TODO: This should depend on the runtime kernel type, but
+						   * that isn't computed until later. This hack means that running
+						   * a non-offloaded kernel when offloading support is available
+						   * will cause an excessive number of OpenMP threads for nonbonded.
+						   */
+#ifdef GMX_OFFLOAD
+                          TRUE);
+#else
+                          FALSE);
+#endif
 
 #ifndef NDEBUG
     if (integrator[inputrec->eI].func != do_tpi &&
@@ -1088,14 +1094,14 @@ int mdrunner(gmx_hw_opt_t *hw_opt,
     /* TODO nthreads_pp is only used for pinning threads.
      * This is a temporary solution until we have a hw topology library.
      */
-    if (!offloadedKernelEnabled())
-    {
-        nthreads_pp  = gmx_omp_nthreads_get(emntNonbonded);
-    }
-    else
-    {
+    /* TODO: Again, this is not correct when offloading is enabled but a
+     * non-offloaded kernel is being used.
+     */
+#ifndef GMX_OFFLOAD
+        nthreads_pp = gmx_omp_nthreads_get(emntNonbonded);
+#else
         nthreads_pp = gmx_omp_nthreads_get(emntDefault);
-    }
+#endif
     nthreads_pme = gmx_omp_nthreads_get(emntPME);
 
     wcycle = wallcycle_init(fplog, resetstep, cr, nthreads_pp, nthreads_pme);

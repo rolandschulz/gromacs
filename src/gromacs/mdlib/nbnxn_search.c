@@ -1883,7 +1883,7 @@ void nbnxn_put_on_grid(nbnxn_search_t nbs,
     /* We need padding up to a multiple of the buffer flag size: simply add */
     if (nc_max*grid->na_sc + NBNXN_BUFFERFLAG_SIZE > nbat->nalloc)
     {
-        nbnxn_atomdata_realloc(nbat, nc_max*grid->na_sc+NBNXN_BUFFERFLAG_SIZE);
+        nbnxn_atomdata_realloc(nbat, nc_max*grid->na_sc+NBNXN_BUFFERFLAG_SIZE, nb_kernel_type);
     }
 
     calc_cell_indices(nbs, dd_zone, grid, a0, a1, atinfo, x, move, nbat);
@@ -2569,7 +2569,8 @@ static void nbnxn_init_pairlist(nbnxn_pairlist_t *nbl,
 void nbnxn_init_pairlist_set(nbnxn_pairlist_set_t *nbl_list,
                              gmx_bool bSimple, gmx_bool bCombined,
                              nbnxn_alloc_t *alloc,
-                             nbnxn_free_t  *free)
+                             nbnxn_free_t  *free,
+							 int nb_kernel_type)
 {
     int i;
 
@@ -2578,7 +2579,7 @@ void nbnxn_init_pairlist_set(nbnxn_pairlist_set_t *nbl_list,
 
     nbl_list->nnbl = gmx_omp_nthreads_get(emntNonbonded);
 
-    if (!nbl_list->bCombined && !offloadedKernelEnabled() &&
+    if (!nbl_list->bCombined && !offloadedKernelEnabled(nb_kernel_type) &&
         nbl_list->nnbl > NBNXN_BUFFERFLAG_MAX_THREADS)
     {
         gmx_fatal(FARGS, "%d OpenMP threads were requested. Since the non-bonded force buffer reduction is prohibitively slow with more than %d threads, we do not allow this. Use %d or less OpenMP threads.",

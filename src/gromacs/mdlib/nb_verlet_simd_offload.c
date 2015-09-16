@@ -47,7 +47,6 @@
 #include "nb_verlet_simd_offload.h"
 #include "packdata.h"
 
-static gmx_bool             bUseOffloadedKernel = FALSE;
 gmx_offload static gmx_bool bRefreshNbl         = TRUE;
 gmx_offload char           *phi_in_packet;
 gmx_offload char           *phi_out_packet;
@@ -481,12 +480,11 @@ void setRefreshNblForOffload()
     bRefreshNbl = TRUE;
 }
 
-gmx_bool offloadedKernelEnabled()
+gmx_bool offloadedKernelEnabled(int kernel_type)
 {
-    return bUseOffloadedKernel;
-}
-
-void enableOffloadedKernel()
-{
-    bUseOffloadedKernel = TRUE;
+#if defined GMX_OFFLOAD && defined GMX_NBNXN_SIMD_2XNN
+    return (kernel_type == nbnxnk4xN_SIMD_2xNN);
+#else
+    return FALSE;
+#endif
 }
