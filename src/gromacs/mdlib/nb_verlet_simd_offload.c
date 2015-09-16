@@ -122,9 +122,6 @@ void *refresh_buffer(void *buffer, size_t *bsize, packet_iter *iter)
     return *buf;
 }
 
-// TODO: move so that forward declaration isn't needed
-gmx_offload void nbnxn_atomdata_init_simple_exclusion_masks(nbnxn_atomdata_t *nbat);
-
 void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
                                     interaction_const_t *ic,
                                     gmx_enerdata_t *enerd,
@@ -392,6 +389,9 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
         nbat->shift_vec         = next(it);
         nbat->x                 = next(it);
         nbat->out               = phi_nbat->out;
+        nbat->simd_2xnn_diagonal_j_minus_i = phi_nbat->simd_2xnn_diagonal_j_minus_i;
+        nbat->simd_exclusion_filter1 = phi_nbat->simd_exclusion_filter1;
+        nbat->simd_exclusion_filter2 = phi_nbat->simd_exclusion_filter2;
         nbat->buffer_flags.flag = next(it);
         interaction_const_t *ic_buffer = next(it);
         rvec                *shift_vec = next(it);
@@ -429,7 +429,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
         }
 
         // End unpacking of data and start actual computing
-        nbnxn_atomdata_init_simple_exclusion_masks(nbat); //TODO: much better to just init that on the MIC - but the function is static there. Probably the whole copy code should be moved there anyhow and then we call this functions
         /*TODO: ic: table (only if tables are used)
 
                         verify that those marked as in/out are really only input/output

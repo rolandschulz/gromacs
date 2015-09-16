@@ -491,7 +491,11 @@ gmx_offload void
 nbnxn_atomdata_init_simple_exclusion_masks(nbnxn_atomdata_t *nbat)
 {
     int       i, j;
+#ifndef GMX_OFFLOAD
     const int simd_width = GMX_SIMD_REAL_WIDTH;
+#else
+    const int simd_width = 16;
+#endif
     int       simd_excl_size;
     /* Set the diagonal cluster pair exclusion mask setup data.
      * In the kernel we check 0 < j - i to generate the masks.
@@ -510,6 +514,7 @@ nbnxn_atomdata_init_simple_exclusion_masks(nbnxn_atomdata_t *nbat)
         nbat->simd_4xn_diagonal_j_minus_i[j] = j - 0.5;
     }
 
+#ifndef GMX_OFFLOAD
     snew_aligned(nbat->simd_2xnn_diagonal_j_minus_i, simd_width, NBNXN_MEM_ALIGN);
     for (j = 0; j < simd_width/2; j++)
     {
@@ -518,6 +523,19 @@ nbnxn_atomdata_init_simple_exclusion_masks(nbnxn_atomdata_t *nbat)
         /* The next half of the SIMD width is for i + 1 */
         nbat->simd_2xnn_diagonal_j_minus_i[simd_width/2+j] = j - 1 - 0.5;
     }
+#else
+#pragma offload target(mic:0) in(nbat:length(1)) nocopy(nbat_for_phi)
+    {
+        snew_aligned(nbat_for_phi.simd_2xnn_diagonal_j_minus_i, simd_width, NBNXN_MEM_ALIGN);
+        for (j = 0; j < simd_width/2; j++)
+        {
+            /* The j-cluster size is half the SIMD width */
+            nbat_for_phi.simd_2xnn_diagonal_j_minus_i[j]              = j - 0.5;
+            /* The next half of the SIMD width is for i + 1 */
+            nbat_for_phi.simd_2xnn_diagonal_j_minus_i[simd_width/2+j] = j - 1 - 0.5;
+        }
+    }
+#endif
 
     /* We use up to 32 bits for exclusion masking.
      * The same masks are used for the 4xN and 2x(N+N) kernels.
@@ -530,6 +548,7 @@ nbnxn_atomdata_init_simple_exclusion_masks(nbnxn_atomdata_t *nbat)
      * need to use two, identical, 32-bit masks per real.
      */
     simd_excl_size = NBNXN_CPU_CLUSTER_I_SIZE*simd_width;
+#ifndef GMX_OFFLOAD
     snew_aligned(nbat->simd_exclusion_filter1, simd_excl_size,   NBNXN_MEM_ALIGN);
     snew_aligned(nbat->simd_exclusion_filter2, simd_excl_size*2, NBNXN_MEM_ALIGN);
 
@@ -540,6 +559,21 @@ nbnxn_atomdata_init_simple_exclusion_masks(nbnxn_atomdata_t *nbat)
         nbat->simd_exclusion_filter2[j*2 + 0] = (1U << j);
         nbat->simd_exclusion_filter2[j*2 + 1] = (1U << j);
     }
+#else
+#pragma offload target(mic:0) in(nbat:length(1)) nocopy(nbat_for_phi)
+    {
+        snew_aligned(nbat_for_phi.simd_exclusion_filter1, simd_excl_size,   NBNXN_MEM_ALIGN);
+        snew_aligned(nbat_for_phi.simd_exclusion_filter2, simd_excl_size*2, NBNXN_MEM_ALIGN);
+
+        for (j = 0; j < simd_excl_size; j++)
+        {
+            /* Set the consecutive bits for masking pair exclusions */
+            nbat_for_phi.simd_exclusion_filter1[j]       = (1U << j);
+            nbat_for_phi.simd_exclusion_filter2[j*2 + 0] = (1U << j);
+            nbat_for_phi.simd_exclusion_filter2[j*2 + 1] = (1U << j);
+        }
+    }
+#endif
 
 #if (defined GMX_SIMD_IBM_QPX)
     /* The QPX kernels shouldn't do the bit masking that is done on
