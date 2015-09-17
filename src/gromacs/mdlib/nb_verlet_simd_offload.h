@@ -43,16 +43,33 @@
 extern "C" {
 #endif
 
+/* Run 2xnn kernel on Intel Xeon Phi coprocessor. Note that this also does
+ * force and fshift reductions, unlike the normal, non-offloaded kernel.
+ */
 void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
                                     interaction_const_t *ic,
                                     gmx_enerdata_t *enerd,
                                     int flags, int ilocality,
                                     int clearF,
                                     t_nrnb *nrnb);
+/*
+ * Wait for offloaded kernel computation to complete
+ */
 void wait_for_offload();
 
+/*
+ * Signal to the offloaded kernel that the neighbour list has been refreshed.
+ * This causes additional data to be offloaded on the next offload computation.
+ */
 void setRefreshNblForOffload();
 
+/*
+ * Query whether the offloaded kernel is being used for the current run. Note
+ * that this is different from the GMX_OFFLOAD macro, which only indicates that
+ * the build supports offloading. The kernel type is needed because it is
+ * possible to use multiple kernels, and so offloading could be used for only
+ * certain atom groups.
+ */
 gmx_bool offloadedKernelEnabled(int kernel_type);
 
 #ifdef __cplusplus

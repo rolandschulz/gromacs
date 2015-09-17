@@ -35,6 +35,10 @@
  * the research papers on the package. Check out http://www.gromacs.org.
  */
 
+/* A simple serialization library that supports the offload kernel, where
+ * the Intel Xeon Phi is used as a coprocessor.
+ */
+
 #include "config.h"
 
 #define PACK_BUFFER_ALIGN 64
@@ -68,14 +72,16 @@ gmx_offload void *value(packet_iter *iter);
 
 gmx_offload size_t size(packet_iter *iter);
 
-// Return pointer to current buffer and advance to next buffer
+/* Return pointer to current buffer and advance to next buffer */
 gmx_offload void *next(packet_iter *iter);
 
-// Same as "next" except allocates a new buffer and copies the current buffer's contents to it
-// instead of returning a pointer to the buffer inside the packet. Allocated buffer size is
-// (size * multiplier).
+/* Same as "next" except allocates a new buffer and copies the current buffer's contents to it
+ * instead of returning a pointer to the buffer inside the packet. Allocated buffer size is
+ * (size * multiplier).
+ */
 gmx_offload void *anext(packet_iter *iter, int multiplier);
 
-// Copy contents of current buffer to an existing buffer and advance to next buffer.
-// Client must make sure destination buffer is large enough.
+/* Copy contents of current buffer to an existing buffer and advance to next buffer.
+ * Client must make sure destination buffer is large enough.
+ */
 gmx_offload void cnext(packet_iter *iter, void *buffer);
