@@ -224,6 +224,7 @@ enum {
 };
 
 typedef struct nbnxn_atomdata_t {
+    int                      id;              /* Unique id */
     nbnxn_alloc_t           *alloc;
     nbnxn_free_t            *free;
     int                      ntype;           /* The number of different atom types                 */

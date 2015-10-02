@@ -43,10 +43,14 @@
 extern "C" {
 #endif
 
-gmx_offload static nbnxn_atomdata_t nbat_for_phi;
+/* The maximum number of nbats that will be created. Currently 2 because 1 is
+ * for local forces and 1 for nonlocal forces if domain decomposition is used.
+ */
+#define MAX_NUM_NBATS 2
+gmx_offload static nbnxn_atomdata_t nbats_for_phi[MAX_NUM_NBATS];
 
 gmx_offload
-nbnxn_atomdata_t *get_nbat_for_offload();
+nbnxn_atomdata_t *get_nbat_for_offload(int id);
 
 /* Default nbnxn allocation routine, allocates 32 byte aligned,
  * which works for plain C and aligned SSE and AVX loads/stores.

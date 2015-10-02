@@ -60,9 +60,23 @@
 #include "gromacs/utility/smalloc.h"
 #include "gromacs/mdlib/nb_verlet_simd_offload.h"
 
-nbnxn_atomdata_t *get_nbat_for_offload()
+nbnxn_atomdata_t *get_nbat_for_offload(int id)
 {
-    return &nbat_for_phi;
+    if (id >= MAX_NUM_NBATS)
+    {
+        gmx_fatal(FARGS, "Request for atom data on coprocessor failed: index is out-of-range");
+    }
+    return &nbats_for_phi[id];
+}
+
+/* Assign unique ids to each atomdata. This benefits lower-level code that cannot access
+ * the higher-level data structures that contain the atomdata structures.
+ */
+static int next_nbnxn_atomdata_id()
+{
+    static int atomdata_id = -1;
+    atomdata_id++;
+    return atomdata_id;
 }
 
 /* Default nbnxn allocation routine, allocates NBNXN_MEM_ALIGN byte aligned */
@@ -161,15 +175,16 @@ void nbnxn_atomdata_realloc(nbnxn_atomdata_t *nbat, int n, int nb_kernel_type)
                            nbat->natoms*nbat->fstride*sizeof(*nbat->out[0].f),
                            n*nbat->fstride*sizeof(*nbat->out[0].f),
                            nbat->alloc, nbat->free);
-#pragma offload target(mic:0) in(nbat:length(1)) nocopy(nbat_for_phi)
+#pragma offload target(mic:0) in(nbat:length(1))
         {
             for (t = 0; t < nbat->nout; t++)
             {
                 nbat->alloc = nbnxn_alloc_aligned;
                 nbat->free  = nbnxn_free_aligned;
-                nbnxn_realloc_void((void **)&nbat_for_phi.out[t].f,
-                                   nbat->natoms*nbat->fstride*sizeof(*nbat_for_phi.out[t].f),
-                                   n*nbat->fstride*sizeof(*nbat_for_phi.out[t].f),
+                nbnxn_atomdata_t *nbat_for_phi = get_nbat_for_offload(nbat->id);
+                nbnxn_realloc_void((void **)&nbat_for_phi->out[t].f,
+                                   nbat->natoms*nbat->fstride*sizeof(*nbat_for_phi->out[t].f),
+                                   n*nbat->fstride*sizeof(*nbat_for_phi->out[t].f),
                                    nbat->alloc, nbat->free);
             }
         }
@@ -524,15 +539,16 @@ nbnxn_atomdata_init_simple_exclusion_masks(nbnxn_atomdata_t *nbat, int nb_kernel
     }
     else
     {
-#pragma offload target(mic:0) in(nbat:length(1)) nocopy(nbat_for_phi)
+#pragma offload target(mic:0) in(nbat:length(1))
     	{
-    		snew_aligned(nbat_for_phi.simd_2xnn_diagonal_j_minus_i, simd_width, NBNXN_MEM_ALIGN);
+            nbnxn_atomdata_t *nbat_for_phi = get_nbat_for_offload(nbat->id);
+    		snew_aligned(nbat_for_phi->simd_2xnn_diagonal_j_minus_i, simd_width, NBNXN_MEM_ALIGN);
     		for (j = 0; j < simd_width/2; j++)
     		{
     			/* The j-cluster size is half the SIMD width */
-    			nbat_for_phi.simd_2xnn_diagonal_j_minus_i[j]              = j - 0.5;
+    			nbat_for_phi->simd_2xnn_diagonal_j_minus_i[j]              = j - 0.5;
     			/* The next half of the SIMD width is for i + 1 */
-    			nbat_for_phi.simd_2xnn_diagonal_j_minus_i[simd_width/2+j] = j - 1 - 0.5;
+    			nbat_for_phi->simd_2xnn_diagonal_j_minus_i[simd_width/2+j] = j - 1 - 0.5;
     		}
     	}
     }
@@ -563,17 +579,18 @@ nbnxn_atomdata_init_simple_exclusion_masks(nbnxn_atomdata_t *nbat, int nb_kernel
     }
     else
     {
-#pragma offload target(mic:0) in(nbat:length(1)) nocopy(nbat_for_phi)
+#pragma offload target(mic:0) in(nbat:length(1))
     	{
-    		snew_aligned(nbat_for_phi.simd_exclusion_filter1, simd_excl_size,   NBNXN_MEM_ALIGN);
-    		snew_aligned(nbat_for_phi.simd_exclusion_filter2, simd_excl_size*2, NBNXN_MEM_ALIGN);
+            nbnxn_atomdata_t *nbat_for_phi = get_nbat_for_offload(nbat->id);
+    		snew_aligned(nbat_for_phi->simd_exclusion_filter1, simd_excl_size,   NBNXN_MEM_ALIGN);
+    		snew_aligned(nbat_for_phi->simd_exclusion_filter2, simd_excl_size*2, NBNXN_MEM_ALIGN);
 
     		for (j = 0; j < simd_excl_size; j++)
     		{
     			/* Set the consecutive bits for masking pair exclusions */
-    			nbat_for_phi.simd_exclusion_filter1[j]       = (1U << j);
-    			nbat_for_phi.simd_exclusion_filter2[j*2 + 0] = (1U << j);
-    			nbat_for_phi.simd_exclusion_filter2[j*2 + 1] = (1U << j);
+    			nbat_for_phi->simd_exclusion_filter1[j]       = (1U << j);
+    			nbat_for_phi->simd_exclusion_filter2[j*2 + 0] = (1U << j);
+    			nbat_for_phi->simd_exclusion_filter2[j*2 + 1] = (1U << j);
     		}
     	}
     }
@@ -624,6 +641,7 @@ void nbnxn_atomdata_init(FILE *fp,
     char    *ptr;
     gmx_bool simple, bCombGeom, bCombLB, bSIMD;
 
+    nbat->id = next_nbnxn_atomdata_id();
     if (alloc == NULL)
     {
         nbat->alloc = nbnxn_alloc_aligned;
@@ -880,14 +898,15 @@ void nbnxn_atomdata_init(FILE *fp,
                                    nb_kernel_type,
                                    nbat->nenergrp, 1<<nbat->neg_2log,
                                    nbat->alloc);
-#pragma offload target(mic:0) in(nbat:length(1)) nocopy(nbat_for_phi)
+#pragma offload target(mic:0) in(nbat:length(1))
         {
-            int i;
-            snew(nbat_for_phi.out, nbat->nout);
+            nbnxn_atomdata_t *nbat_for_phi = get_nbat_for_offload(nbat->id);
+            snew(nbat_for_phi->out, nbat->nout);
             nbat->alloc = nbnxn_alloc_aligned;
+            int i;
             for (i = 0; i < nbat->nout; i++)
             {
-                nbnxn_atomdata_output_init(&nbat_for_phi.out[i],
+                nbnxn_atomdata_output_init(&nbat_for_phi->out[i],
                                            nb_kernel_type,
                                            nbat->nenergrp, 1<<nbat->neg_2log,
                                            nbat->alloc);

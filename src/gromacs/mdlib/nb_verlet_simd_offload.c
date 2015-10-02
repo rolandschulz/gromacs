@@ -358,7 +358,6 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
     out(phi_out_packet[0:packet_out_size] : into(cpu_in_packet[0:packet_out_size]) REUSE targetptr) \
     signal(&off_signal)
     {
-        nbnxn_atomdata_t *phi_nbat = get_nbat_for_offload();
         // Unpack data
         packet_iter *it;
         smalloc(it, sizeof(packet_iter));
@@ -387,6 +386,7 @@ void nbnxn_kernel_simd_2xnn_offload(t_forcerec *fr,
         nbat->energrp           = next(it);
         nbat->shift_vec         = next(it);
         nbat->x                 = next(it);
+        nbnxn_atomdata_t *phi_nbat = get_nbat_for_offload(nbat->id);
         nbat->out               = phi_nbat->out;
         nbat->simd_2xnn_diagonal_j_minus_i = phi_nbat->simd_2xnn_diagonal_j_minus_i;
         nbat->simd_exclusion_filter1 = phi_nbat->simd_exclusion_filter1;
