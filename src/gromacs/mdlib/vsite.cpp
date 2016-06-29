@@ -1622,7 +1622,7 @@ void spread_vsite_f(const gmx_vsite_t *vsite,
 
 #pragma omp parallel num_threads(vsite->nthreads)
         {
-            try
+	  //try
             {
                 int          thread = gmx_omp_get_thread_num();
                 VsiteThread *tData  = vsite->tData[thread];
@@ -1714,7 +1714,7 @@ void spread_vsite_f(const gmx_vsite_t *vsite,
                                       tData->ilist,
                                       g, pbc_null);
             }
-            GMX_CATCH_ALL_AND_EXIT_WITH_FATAL_ERROR;
+            //GMX_CATCH_ALL_AND_EXIT_WITH_FATAL_ERROR;
         }
 
         if (fshift != NULL)
@@ -2379,7 +2379,7 @@ void split_vsites_over_threads(const t_ilist   *ilist,
 
 #pragma omp parallel num_threads(vsite->nthreads)
     {
-        try
+      //try
         {
             int          thread = gmx_omp_get_thread_num();
             VsiteThread *tData  = vsite->tData[thread];
@@ -2479,7 +2479,7 @@ void split_vsites_over_threads(const t_ilist   *ilist,
                 }
             }
         }
-        GMX_CATCH_ALL_AND_EXIT_WITH_FATAL_ERROR;
+        //GMX_CATCH_ALL_AND_EXIT_WITH_FATAL_ERROR;
     }
     /* Assign all remaining vsites, that will have taskIndex[]=2*vsite->nthreads,
      * to a single task that will not run in parallel with other tasks.
