@@ -202,56 +202,59 @@ static void make_thread_local_ind(pme_atomcomm_t *atc,
     spline->n = n;
 }
 
-/* Macro to force loop unrolling by fixing order.
- * This gives a significant performance gain.
- */
-#define CALC_SPLINE(order)                     \
-    {                                              \
-        for (int j = 0; (j < DIM); j++)            \
-        {                                          \
-            real dr, div;                          \
-            real data[PME_ORDER_MAX];              \
-                                                   \
-            dr  = xptr[j];                         \
-                                               \
-            /* dr is relative offset from lower cell limit */ \
-            data[order-1] = 0;                     \
-            data[1]       = dr;                          \
-            data[0]       = 1 - dr;                      \
-                                               \
-            for (int k = 3; (k < order); k++)      \
-            {                                      \
-                div       = 1.0/(k - 1.0);               \
-                data[k-1] = div*dr*data[k-2];      \
-                for (int l = 1; (l < (k-1)); l++)  \
-                {                                  \
-                    data[k-l-1] = div*((dr+l)*data[k-l-2]+(k-l-dr)* \
-                                       data[k-l-1]);                \
-                }                                  \
-                data[0] = div*(1-dr)*data[0];      \
-            }                                      \
-            /* differentiate */                    \
-            dtheta[j][i*order+0] = -data[0];       \
-            for (int k = 1; (k < order); k++)      \
-            {                                      \
-                dtheta[j][i*order+k] = data[k-1] - data[k]; \
-            }                                      \
-                                               \
-            div           = 1.0/(order - 1);                 \
-            data[order-1] = div*dr*data[order-2];  \
-            for (int l = 1; (l < (order-1)); l++)  \
-            {                                      \
-                data[order-l-1] = div*((dr+l)*data[order-l-2]+    \
-                                       (order-l-dr)*data[order-l-1]); \
-            }                                      \
-            data[0] = div*(1 - dr)*data[0];        \
-                                               \
-            for (int k = 0; k < order; k++)        \
-            {                                      \
-                theta[j][i*order+k]  = data[k];    \
-            }                                      \
-        }                                          \
+void CALC_SPLINE(int order, real *xptr, int i, splinevec theta, splinevec dtheta)
+{
+    for (int j = 0; (j < DIM); j++)
+    {
+        real dr, div;
+        real data[PME_ORDER_MAX];
+
+        dr  = xptr[j];
+
+        /* dr is relative offset from lower cell limit */
+        data[order-1] = 0;
+        data[1]       = dr;
+        data[0]       = 1 - dr;
+
+        for (int k = 3; (k < order); k++)
+        {
+            div       = 1.0/(k - 1.0);
+            data[k-1] = div*dr*data[k-2];
+            for (int l = 1; (l < (k-1)); l++)
+            {
+                data[k-l-1] = div*((dr+l)*data[k-l-2]+(k-l-dr)*
+                                   data[k-l-1]);
+            }
+            data[0] = div*(1-dr)*data[0];
+        }
+        /* differentiate */
+        dtheta[j][i*order+0] = -data[0];
+        for (int k = 1; (k < order); k++)
+        {
+            dtheta[j][i*order+k] = data[k-1] - data[k];
+        }
+
+        div           = 1.0/(order - 1);
+        data[order-1] = div*dr*data[order-2];
+        for (int l = 1; (l < (order-1)); l++)
+        {
+            data[order-l-1] = div*((dr+l)*data[order-l-2]+
+                                   (order-l-dr)*data[order-l-1]);
+        }
+        data[0] = div*(1 - dr)*data[0];
+
+        for (int k = 0; k < order; k++)
+        {
+            theta[j][i*order+k]  = data[k];
+        }
     }
+}
+
+template <int order>
+void CALC_SPLINE(real *xptr, int i, splinevec theta, splinevec dtheta)
+{
+    CALC_SPLINE(order, xptr, i, theta, dtheta);
+}
 
 static void make_bsplines(splinevec theta, splinevec dtheta, int order,
                           rvec fractx[], int nr, int ind[], real coefficient[],
@@ -274,9 +277,9 @@ static void make_bsplines(splinevec theta, splinevec dtheta, int order,
             assert(order >= 4 && order <= PME_ORDER_MAX);
             switch (order)
             {
-                case 4:  CALC_SPLINE(4);     break;
-                case 5:  CALC_SPLINE(5);     break;
-                default: CALC_SPLINE(order); break;
+                case 4:  CALC_SPLINE<4>(xptr, i, theta, dtheta);     break;
+                case 5:  CALC_SPLINE<5>(xptr, i, theta, dtheta);     break;
+                default: CALC_SPLINE(order, xptr, i, theta, dtheta); break;
             }
         }
     }
