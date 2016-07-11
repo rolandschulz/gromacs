@@ -733,6 +733,7 @@ static void splitaxes(t_complex* lout, const t_complex* lin,
             {
                 out_y  = out_i  + y*maxN;
                 in_y   = in_i + y*NG;
+#pragma simd
                 for (x = 0; x < N[i]; x++)       /*1. x j*/
                 {
                     lout[out_y+x] = lin[in_y+x]; /*in=z*NG*pM+oN[i]+y*NG+x*/
@@ -784,6 +785,7 @@ static void joinAxesTrans13(t_complex* lout, const t_complex* lin,
         {
             out_i  = out_x  + oK[i];
             in_i   = in_x + i*maxM*maxN*maxK;
+#pragma simd
             for (z = 0; z < K[i]; z++) /*3.l*/
             {
                 out_z  = out_i  + z;
@@ -839,6 +841,7 @@ static void joinAxesTrans12(t_complex* lout, const t_complex* lin, int maxN, int
             {
                 out_x  = out_i  + x*MG;
                 in_x   = in_i + x;
+#pragma simd
                 for (y = 0; y < M[i]; y++)
                 {
                     lout[out_x+y] = lin[in_x+y*maxN]; /*out=z*MG*pN+oM[i]+x*MG+y*/
