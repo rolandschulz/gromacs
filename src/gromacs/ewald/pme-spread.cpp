@@ -216,7 +216,7 @@ void CALC_SPLINE(int order, real *xptr, int i, splinevec theta, splinevec dtheta
         data[1]       = dr;
         data[0]       = 1 - dr;
 
-        for (int k = 3; (k < order); k++)
+        for (int k = 3; (k < order); k++) //1
         {
             div       = 1.0/(k - 1.0);
             data[k-1] = div*dr*data[k-2];
@@ -229,21 +229,21 @@ void CALC_SPLINE(int order, real *xptr, int i, splinevec theta, splinevec dtheta
         }
         /* differentiate */
         dtheta[j][i*order+0] = -data[0];
-        for (int k = 1; (k < order); k++)
+        for (int k = 1; (k < order); k++) //3
         {
             dtheta[j][i*order+k] = data[k-1] - data[k];
         }
 
         div           = 1.0/(order - 1);
         data[order-1] = div*dr*data[order-2];
-        for (int l = 1; (l < (order-1)); l++)
+        for (int l = 1; (l < (order-1)); l++) //2
         {
             data[order-l-1] = div*((dr+l)*data[order-l-2]+
                                    (order-l-dr)*data[order-l-1]);
         }
         data[0] = div*(1 - dr)*data[0];
 
-        for (int k = 0; k < order; k++)
+        for (int k = 0; k < order; k++) //4
         {
             theta[j][i*order+k]  = data[k];
         }
@@ -264,6 +264,7 @@ static void make_bsplines(splinevec theta, splinevec dtheta, int order,
     int   i, ii;
     real *xptr;
 
+#pragma simd
     for (i = 0; i < nr; i++)
     {
         /* With free energy we do not use the coefficient check.
