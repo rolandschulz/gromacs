@@ -476,6 +476,12 @@ anyTrue(SimdFBool a)
     return ( avx512Mask2Int(a.simdInternal_) != 0);
 }
 
+static inline int gmx_simdcall
+countTrailingTrue(SimdFBool a)
+{
+    return ( _tzcnt_u32(~((uint32_t)avx512Mask2Int(a.simdInternal_))));
+}
+
 static inline SimdFloat gmx_simdcall
 selectByMask(SimdFloat a, SimdFBool m)
 {

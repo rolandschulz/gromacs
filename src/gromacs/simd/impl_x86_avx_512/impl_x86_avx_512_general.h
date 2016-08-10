@@ -53,10 +53,10 @@ simdPrefetch(const void * m)
  *
  *  \return Short integer representation of mask
  */
-static inline short
+static inline unsigned short
 avx512Mask2Int(__mmask16 m)
 {
-    return static_cast<short>(m);
+    return static_cast<unsigned short>(m);
 }
 
 /*! \brief Return AVX-512 mask from integer
