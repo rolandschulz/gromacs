@@ -3568,14 +3568,16 @@ static void nbnxn_make_pairlist_part(const nbnxn_search_t nbs,
                                 cTT = GMX_SIMD_REAL_WIDTH;
                                 while (cf > c0 && cTT == GMX_SIMD_REAL_WIDTH)
                                 {
-                                    SimdFloat bbcz_S = simdLoadU(bbcz_j+cf*NNBSBB_D-GMX_SIMD_REAL_WIDTH+2);
+                                    SimdFloat bbcz_S;
+                                    bbcz_S.simdInternal_ = _mm512_shuffle_f32x4(_mm512_maskz_compress_ps(0xAAAA, _mm512_loadu_ps(bbcz_j+cf*NNBSBB_D - 2*GMX_SIMD_REAL_WIDTH + 2)),
+                                                                                _mm512_maskz_compress_ps(0xAAAA, _mm512_loadu_ps(bbcz_j+cf*NNBSBB_D - 1*GMX_SIMD_REAL_WIDTH + 2)), 0x44);
                                     SimdFloat bbcz_bz0_S = bbcz_S-bz0;
                                     //Instead of having both a countLeading/Trailing function we could have a function which returns
                                     //a mask integer. For those where that isn't easy arm(non-neon)/ibm a count probably can't
                                     //be done efficiently either. Or a algorithm like this which requires a count. So this would anyhow
                                     //be behind a GMX_SIMD_HAVE_COUNT.
-                                    cTT = countLeadingTrue(bz0 <= bbcz_S  || d2xy + bbcz_bz0_S * bbcz_bz0_S < rl2 || SimdFBool(0x5555));
-                                    cf = std::max(cf-cTT/2, c0);
+                                    cTT = countLeadingTrue(bz0 <= bbcz_S  || d2xy + bbcz_bz0_S * bbcz_bz0_S < rl2);
+                                    cf = std::max(cf-cTT, c0);
                                 }
 
                                 /* Find the highest cell that can possibly
@@ -3593,10 +3595,12 @@ static void nbnxn_make_pairlist_part(const nbnxn_search_t nbs,
                                 cTT = GMX_SIMD_REAL_WIDTH;
                                 while (cl < c1-1 && cTT == GMX_SIMD_REAL_WIDTH)
                                 {
-                                    SimdFloat bbcz_S = simdLoadU(bbcz_j+cl*NNBSBB_D);
+                                    SimdFloat bbcz_S;
+                                    bbcz_S.simdInternal_ = _mm512_shuffle_f32x4(_mm512_maskz_compress_ps(0x5555, _mm512_loadu_ps(bbcz_j+cl*NNBSBB_D)),
+                                                                                _mm512_maskz_compress_ps(0x5555, _mm512_loadu_ps(bbcz_j+cl*NNBSBB_D + GMX_SIMD_REAL_WIDTH)), 0x44);
                                     SimdFloat bbcz_bz1_S = bbcz_S-bz1;
-                                    cTT = countTrailingTrue(bbcz_S <= bz1 || d2xy + bbcz_bz1_S * bbcz_bz1_S < rl2 || SimdFBool(0xAAAA));
-                                    cl = std::min(cl+cTT/2, c1-1);
+                                    cTT = countTrailingTrue(bbcz_S <= bz1 || d2xy + bbcz_bz1_S * bbcz_bz1_S < rl2);
+                                    cl = std::min(cl+cTT, c1-1);
                                 }
                                 //fprintf(debug, "cl: %d\n",cl);
 
