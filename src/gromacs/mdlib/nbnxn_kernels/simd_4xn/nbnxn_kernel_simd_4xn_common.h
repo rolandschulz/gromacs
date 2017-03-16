@@ -38,6 +38,7 @@
 #include "gromacs/simd/simd_math.h"
 #include "gromacs/simd/vector_operations.h"
 #include "gromacs/utility/basedefinitions.h"
+#include "gromacs/utility/fatalerror.h"
 #ifdef CALC_COUL_EWALD
 #include "gromacs/math/utilities.h"
 #endif
@@ -143,6 +144,15 @@ gmx_load_simd_4xn_interactions(int                               excl,
     *interact_S2  = ( zero < load( simd_interaction_array + GMX_SIMD_REAL_WIDTH*((excl >> (2 * UNROLLJ)) & 0xF) ) );
     *interact_S3  = ( zero < load( simd_interaction_array + GMX_SIMD_REAL_WIDTH*((excl >> (3 * UNROLLJ)) & 0xF) ) );
 #endif
+}
+
+static void printSimd(SimdReal x) {
+    GMX_ALIGNED(real, GMX_SIMD_REAL_WIDTH) buf[GMX_SIMD_REAL_WIDTH];
+    store(buf, x);
+    for (int i=0; i<GMX_SIMD_REAL_WIDTH; i++) {
+        fprintf(debug, "%f ", buf[i]);
+    }
+    fprintf(debug, "\n");
 }
 
 /* All functionality defines are set here, except for:

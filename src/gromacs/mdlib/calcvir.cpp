@@ -110,7 +110,7 @@ void calc_vir(int nxf, rvec x[], rvec f[], tensor vir,
 
     GMX_ASSERT(nthreads >= 1, "Avoids uninitialized x_times_f (warning)");
 
-    if (nthreads == 1)
+    if (1 || nthreads == 1)
     {
         calc_x_times_f(nxf, x, f, bScrewPBC, box, x_times_f);
     }

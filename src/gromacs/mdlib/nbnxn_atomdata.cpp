@@ -1216,6 +1216,7 @@ static void
 nbnxn_atomdata_clear_reals(real * gmx_restrict dest,
                            int i0, int i1)
 {
+#pragma novector
     for (int i = i0; i < i1; i++)
     {
         dest[i] = 0;
@@ -1539,10 +1540,21 @@ static void nbnxn_atomdata_add_nbat_f_to_f_treereduce(const nbnxn_atomdata_t *nb
 }
 
 
+#pragma optimize("", off)
 static void nbnxn_atomdata_add_nbat_f_to_f_stdreduce(const nbnxn_atomdata_t *nbat,
                                                      int                     nth)
 {
-#pragma omp parallel for num_threads(nth) schedule(static)
+    fprintf(debug, "flag: %x\n", nbat->buffer_flags.flag[0]);
+    for (int th = 0; th < nbat->nout; th++)
+    {
+        for (int n=0; n < nbat->natoms; n++ )
+        {
+            if (n%12==0) fprintf(debug, "\n%d %d: ", th, n);
+            fprintf(debug, "%.2g ", nbat->out[th].f[n]);
+        }
+    }
+
+//#pragma omp parallel for num_threads(nth) schedule(static)
     for (int th = 0; th < nth; th++)
     {
         try
@@ -1563,6 +1575,7 @@ static void nbnxn_atomdata_add_nbat_f_to_f_stdreduce(const nbnxn_atomdata_t *nba
                 int i1 = (b+1)*NBNXN_BUFFERFLAG_SIZE*nbat->fstride;
 
                 nfptr = 0;
+                #pragma nounroll
                 for (int out = 1; out < nbat->nout; out++)
                 {
                     if (bitmask_is_set(flags->flag[b], out))
@@ -1591,7 +1604,17 @@ static void nbnxn_atomdata_add_nbat_f_to_f_stdreduce(const nbnxn_atomdata_t *nba
         }
         GMX_CATCH_ALL_AND_EXIT_WITH_FATAL_ERROR;
     }
+
+    for (int th = 0; th < nbat->nout; th++)
+    {
+        for (int n=0; n < nbat->natoms; n++ )
+        {
+            if (n%12==0) fprintf(debug, "\n%d %d: ", th, n);
+            fprintf(debug, "%.2g ", nbat->out[th].f[n]);
+        }
+    }
 }
+#pragma optimize("", on)
 
 /* Add the force array(s) from nbnxn_atomdata_t to f */
 void nbnxn_atomdata_add_nbat_f_to_f(const nbnxn_search_t    nbs,

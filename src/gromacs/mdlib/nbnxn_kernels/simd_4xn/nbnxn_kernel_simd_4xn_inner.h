@@ -1169,6 +1169,20 @@
     fiz_S2      = fiz_S2 + tz_S2;
     fiz_S3      = fiz_S3 + tz_S3;
 
+    /*
+    printSimd(tx_S0);
+    printSimd(tx_S1);
+    printSimd(tx_S2);
+    printSimd(tx_S3);
+    printSimd(ty_S0);
+    printSimd(ty_S1);
+    printSimd(ty_S2);
+    printSimd(ty_S3);
+    printSimd(tz_S0);
+    printSimd(tz_S1);
+    printSimd(tz_S2);
+    printSimd(tz_S3);*/
+
     /* Decrement j atom force */
     store(f+ajx, load(f+ajx) - (tx_S0 + tx_S1 + tx_S2 + tx_S3));
     store(f+ajy, load(f+ajy) - (ty_S0 + ty_S1 + ty_S2 + ty_S3));

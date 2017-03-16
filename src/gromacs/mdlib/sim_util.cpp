@@ -299,6 +299,10 @@ static void calc_virial(int start, int homenr, rvec x[], rvec f[],
     /* The short-range virial from surrounding boxes */
     clear_mat(vir_part);
     calc_vir(SHIFTS, fr->shift_vec, fr->fshift, vir_part, ePBC == epbcSCREW, box);
+    if (debug)
+    {
+        pr_rvecs(debug, 0, "vir_part0", vir_part, DIM);
+    }
     inc_nrnb(nrnb, eNR_VIRIAL, SHIFTS);
 
     /* Calculate partial virial, for local atoms only, based on short range.
@@ -306,6 +310,10 @@ static void calc_virial(int start, int homenr, rvec x[], rvec f[],
      */
     f_calc_vir(start, start+homenr, x, f, vir_part, graph, box);
     inc_nrnb(nrnb, eNR_VIRIAL, homenr);
+    if (debug)
+    {
+        pr_rvecs(debug, 0, "vir_part1", vir_part, DIM);
+    }
 
     /* Add position restraint contribution */
     for (i = 0; i < DIM; i++)
@@ -1288,7 +1296,9 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
         cycles_force += wallcycle_stop(wcycle, ewcFORCE);
         wallcycle_start(wcycle, ewcNB_XF_BUF_OPS);
         wallcycle_sub_start(wcycle, ewcsNB_F_BUF_OPS);
+        pr_rvecs(debug, 0, "f_before_nb", f, mdatoms->homenr);
         nbnxn_atomdata_add_nbat_f_to_f(nbv->nbs, eatAll, nbv->grp[aloc].nbat, f);
+        pr_rvecs(debug, 0, "f_after_nb", f, mdatoms->homenr);
         wallcycle_sub_stop(wcycle, ewcsNB_F_BUF_OPS);
         cycles_force += wallcycle_stop(wcycle, ewcNB_XF_BUF_OPS);
         wallcycle_start_nocount(wcycle, ewcFORCE);
@@ -1444,8 +1454,10 @@ void do_force_cutsVERLET(FILE *fplog, t_commrec *cr,
         }
         wallcycle_start(wcycle, ewcNB_XF_BUF_OPS);
         wallcycle_sub_start(wcycle, ewcsNB_F_BUF_OPS);
+        pr_rvecs(debug, 0, "f_before_nb", f, mdatoms->homenr);
         nbnxn_atomdata_add_nbat_f_to_f(nbv->nbs, eatLocal,
                                        nbv->grp[eintLocal].nbat, f);
+        pr_rvecs(debug, 0, "f_after_nb", f, mdatoms->homenr);
         wallcycle_sub_stop(wcycle, ewcsNB_F_BUF_OPS);
         wallcycle_stop(wcycle, ewcNB_XF_BUF_OPS);
     }
