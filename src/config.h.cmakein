@@ -49,7 +49,7 @@
 
 #ifdef GMX_OFFLOAD
 #define gmx_offload __declspec(target(mic))
-#ifdef __MIC__
+#ifdef __TARGET_ARCH_MIC
 /* Define to 1 if GMX_OFFLOAD is defined but only on the coprocessor */
 #define GMX_ACCELERATOR
 #endif
@@ -91,7 +91,7 @@
 
 #ifdef GMX_ACCELERATOR
 
-#define GMX_SIMD_X86_MIC
+#define GMX_SIMD_X86_AVX_512ER
 
 #else
 
