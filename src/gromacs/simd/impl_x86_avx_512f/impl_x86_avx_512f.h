@@ -163,7 +163,7 @@
 #define gmx_simd_andnot_fb(a, b)   _mm512_kandn(a, b)
 #define gmx_simd_or_fb             _mm512_kor
 #define gmx_simd_anytrue_fb        _mm512_mask2int
-#define gmx_simd_blendzero_f(a, sel)    _mm512_mask_mov_ps(_mm512_setzero_ps(), sel, a)
+#define gmx_simd_blendzero_f(a, sel)    _mm512_maskz_mov_ps(sel, a)
 #define gmx_simd_blendnotzero_f(a, sel) _mm512_mask_mov_ps(a, sel, _mm512_setzero_ps())
 #define gmx_simd_blendv_f(a, b, sel)    _mm512_mask_blend_ps(sel, a, b)
 #define gmx_simd_reduce_f(a)       gmx_simd_reduce_f_x86_avx_512f(a)
@@ -395,13 +395,20 @@ gmx_simd_set_exponent_f_x86_avx_512f(__m512 a)
 static gmx_inline float
 gmx_simd_reduce_f_x86_avx_512f(__m512 a)
 {
+
+  a = _mm512_add_ps(a, _mm512_shuffle_f32x4(a, a, 0xEE));
+  a = _mm512_add_ps(a, _mm512_shuffle_f32x4(a, a, 0x11));
+  a = _mm512_add_ps(a, _mm512_permute_ps(a, 0xEE));
+  a = _mm512_add_ps(a, _mm512_permute_ps(a, 0x11));
+  return *(float *)(&a);
+  /*
     __m128 b;
     a = _mm512_add_ps(a, _mm512_shuffle_f32x4(a, a, _MM_PERM_DCDC));
     a = _mm512_add_ps(a, _mm512_shuffle_f32x4(a, a, _MM_PERM_ABAB));
     b = _mm512_castps512_ps128(a);
     b = _mm_hadd_ps(b, b);
     b = _mm_hadd_ps(b, b);
-    return _mm_cvtss_f32(b);
+    return _mm_cvtss_f32(b);*/
 }
 
 static gmx_inline __m512d

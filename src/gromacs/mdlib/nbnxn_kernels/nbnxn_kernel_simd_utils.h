@@ -71,7 +71,7 @@ prepare_table_load_buffer(const int gmx_unused *array)
 
 #else /* GMX_SIMD_REFERENCE */
 
-#if defined  GMX_TARGET_X86 && !defined GMX_SIMD_X86_MIC
+#if defined  GMX_TARGET_X86 && !defined GMX_SIMD_X86_MIC && !defined GMX_SIMD_X86_AVX_512ER
 /* Include x86 SSE2 compatible SIMD functions */
 
 /* Set the stride for the lookup of the two LJ parameters from their
@@ -130,8 +130,12 @@ static const int nbfp_stride = GMX_SIMD_REAL_WIDTH;
 #include "gromacs/mdlib/nbnxn_kernels/nbnxn_kernel_simd_utils_ibm_qpx.h"
 #endif /* GMX_SIMD_IBM_QPX */
 
-#ifdef GMX_SIMD_X86_MIC
+#if defined GMX_SIMD_X86_MIC
 #include "gromacs/mdlib/nbnxn_kernels/nbnxn_kernel_simd_utils_x86_mic.h"
+#endif
+
+#if defined GMX_SIMD_X86_AVX_512ER
+#include "gromacs/mdlib/nbnxn_kernels/nbnxn_kernel_simd_utils_x86_512s.h"
 #endif
 
 #endif /* GMX_TARGET_X86 && !GMX_SIMD_X86_MIC */
