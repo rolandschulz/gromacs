@@ -90,7 +90,7 @@
 // or not.
 // Under UNIX, the situation is exactly the same, but the macro _WCHAR_T
 // is used instead.
-#  if ((_WCHAR_T_DEFINED + 0) == 0) && ((_WCHAR_T + 0) == 0)
+#  if ((!defined _WCHAR_T_DEFINED) || ((_WCHAR_T_DEFINED + 0) == 0)) && ((_WCHAR_T + 0) == 0)
 #    define BOOST_NO_INTRINSIC_WCHAR_T
 #  endif
 #endif
