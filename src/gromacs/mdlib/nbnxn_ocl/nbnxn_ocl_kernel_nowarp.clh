@@ -569,6 +569,7 @@ __global float *restrict fshift,            /* stores float3 values */     /* OU
 #endif
                                 f_ij    = rv * F_invr;
 
+				printf("FIJ: %d %d:  %f %f %f\n", ai, aj, f_ij.x, f_ij.y, f_ij.z);
                                 /* accumulate j forces in registers */
                                 fcj_buf -= f_ij;
 
