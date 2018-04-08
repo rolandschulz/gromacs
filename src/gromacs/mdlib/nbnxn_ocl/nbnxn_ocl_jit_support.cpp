@@ -142,7 +142,7 @@ makeDefinesForKernelTypes(bool bFastGen,
         bool bIsEwaldSingleCutoff = (eeltype == eelOclEWALD_TAB ||
                                      eeltype == eelOclEWALD_ANA);
 
-        if (bIsEwaldSingleCutoff)
+        if (0) //bIsEwaldSingleCutoff)         //not needed if tuning is disabled
         {
             defines_for_kernel_types += "-DGMX_OCL_FASTGEN_ADD_TWINCUT";
         }
