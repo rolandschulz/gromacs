@@ -43,6 +43,8 @@
 /* Nvidia+AMD don't support subgroup extensions. Code doesn't support CL_SIZE=8 */
 #if _INTEL_SOURCE_ && CL_SIZE == 4
 #define REDUCE_SHUFFLE 1
+#define USE_SUBGROUP_ANY 1
+#define USE_SUBGROUP_PRELOAD 1
 #endif
 
 #undef KERNEL_UTILS_INLINE
