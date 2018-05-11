@@ -570,7 +570,8 @@ __kernel void NB_KERNEL_FUNC_NAME(nbnxn_kernel, _F_opencl)
                     }
 
                     /* reduce j forces */
-                    reduce_force_j_generic(f_buf, fcj_buf, f, tidxi, tidxj, aj);
+                    //reduce_force_j_generic(f_buf, fcj_buf, f, tidxi, tidxj, aj);
+                    reduce_force_j_shfl(fcj_buf, f, tidxi, tidxj, aj);
                 }
             }
 #ifdef PRUNE_NBL
@@ -588,8 +589,55 @@ __kernel void NB_KERNEL_FUNC_NAME(nbnxn_kernel, _F_opencl)
         bCalcFshift = false;
     }
     /* reduce i forces */
-    reduce_force_i(f_buf, fci_buf, f, bCalcFshift, tidxi, tidxj, sci,
-                   nb_sci.shift, fshift);
+    //reduce_force_i(f_buf, fci_buf, f, bCalcFshift, tidxi, tidxj, sci,
+    //               nb_sci.shift, fshift);
+    f+=sci*NCL_PER_SUPERCL*CL_SIZE*3;
+    fshift+=nb_sci.shift*3;
+#if 0
+    reduce_force_i_warp_shfl(fci_buf, f, bCalcFshift, tidxi, tidxj,
+                             fshift);
+#else
+    float2 fshift_buf = 0;
+    //__attribute__((opencl_unroll_hint(1)))
+    for (int ci_offset = 0; ci_offset < NCL_PER_SUPERCL; ci_offset++)
+    {
+        float3* fin  = fci_buf+ci_offset;
+        (*fin).x += intel_sub_group_shuffle_down((*fin).x, (*fin).x, CL_SIZE);
+        (*fin).y += intel_sub_group_shuffle_up  ((*fin).y, (*fin).y, CL_SIZE);
+        (*fin).z += intel_sub_group_shuffle_down((*fin).z, (*fin).z, CL_SIZE);
+
+        if (tidxj & 1)
+        {
+            (*fin).x = (*fin).y;
+        }
+        /* Threads 0,1 and 2,3 increment x,y for their warp */
+        atomicAdd_g_fi(&f[3*(ci_offset*CL_SIZE + tidxi) + (tidxj & 1)], (*fin).x);
+        if (bCalcFshift)
+        {
+            fshift_buf[0] += (*fin).x;
+        }
+        /* Threads 0 and 2 increment z for their warp */
+        if ((tidxj & 1) == 0)
+        {
+            atomicAdd_g_fi(&f[3*(ci_offset*CL_SIZE + tidxi)+2], (*fin).z);
+            if (bCalcFshift)
+            {
+                fshift_buf[1] += (*fin).z;
+            }
+        }
+    }
+    /* add up local shift forces into global mem */
+    if (bCalcFshift)
+    {
+        //Threads 0,1 and 2,3 update x,y
+        atomicAdd_g_f(&(fshift[tidxj&1]), fshift_buf[0]);
+        //Threads 0 and 2 update z
+        if ((tidxj & 1) == 0)
+        {
+            atomicAdd_g_f(&(fshift[2]), fshift_buf[1]);
+        }
+    }
+#endif
 
 #ifdef CALC_ENERGIES
     reduce_energy(f_buf, E_lj, E_el, e_lj, e_el, tidx);

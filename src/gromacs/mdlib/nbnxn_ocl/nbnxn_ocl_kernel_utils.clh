@@ -551,6 +551,10 @@ __INLINE__ __device__
 void atomicAdd_g_fi(__global float *f, float fin)
 {
     atomic_add((__global int*)f, fin*100000);
+    //*f += (int)(fin*100000);
+    //*f += fin*100000;
+    //*f += fin;
+    //*(__global int*)f += fin*100000;
 }
 
 #ifdef REDUCE_SHUFFLE
@@ -614,36 +618,36 @@ void reduce_force_j_generic(__local float *f_buf, float3 fcj_buf, __global float
 
 #ifdef REDUCE_SHUFFLE
 __INLINE__ __device__
-void reduce_force_i_warp_shfl(float3* fci_buf, __global float *fout,
+void reduce_force_i_warp_shfl(float3* fci_buf, __global float *f,
                               bool bCalcFshift, int tidxi, int tidxj,
-                              int sci, int shift, __global float *fshift)
+                              __global float *fshift)
 {
     float2 fshift_buf = 0;
+    //__attribute__((opencl_unroll_hint(1)))
     for (int ci_offset = 0; ci_offset < NCL_PER_SUPERCL; ci_offset++)
     {
-        int    aidx = (sci * NCL_PER_SUPERCL + ci_offset) * CL_SIZE + tidxi;
-        float3 fin  = fci_buf[ci_offset];
-        fin.x += intel_sub_group_shuffle_down(fin.x, fin.x, CL_SIZE);
-        fin.y += intel_sub_group_shuffle_up  (fin.y, fin.y, CL_SIZE);
-        fin.z += intel_sub_group_shuffle_down(fin.z, fin.z, CL_SIZE);
+        float3* fin  = fci_buf+ci_offset;
+        (*fin).x += intel_sub_group_shuffle_down((*fin).x, (*fin).x, CL_SIZE);
+        (*fin).y += intel_sub_group_shuffle_up  ((*fin).y, (*fin).y, CL_SIZE);
+        (*fin).z += intel_sub_group_shuffle_down((*fin).z, (*fin).z, CL_SIZE);
 
         if (tidxj & 1)
         {
-            fin.x = fin.y;
+            (*fin).x = (*fin).y;
         }
         /* Threads 0,1 and 2,3 increment x,y for their warp */
-        atomicAdd_g_fi(&fout[3*aidx + (tidxj & 1)], fin.x);
+        atomicAdd_g_fi(&f[3*(ci_offset*CL_SIZE + tidxi) + (tidxj & 1)], (*fin).x);
         if (bCalcFshift)
         {
-            fshift_buf[0] += fin.x;
+            fshift_buf[0] += (*fin).x;
         }
         /* Threads 0 and 2 increment z for their warp */
         if ((tidxj & 1) == 0)
         {
-            atomicAdd_g_fi(&fout[3*aidx+2], fin.z);
+            atomicAdd_g_fi(&f[3*(ci_offset*CL_SIZE + tidxi)+2], (*fin).z);
             if (bCalcFshift)
             {
-                fshift_buf[1] += fin.z;
+                fshift_buf[1] += (*fin).z;
             }
         }
     }
@@ -651,11 +655,11 @@ void reduce_force_i_warp_shfl(float3* fci_buf, __global float *fout,
     if (bCalcFshift)
     {
         //Threads 0,1 and 2,3 update x,y
-        atomicAdd_g_f(&(fshift[3 * shift + (tidxj&1)]), fshift_buf[0]);
+        atomicAdd_g_f(&(fshift[tidxj&1]), fshift_buf[0]);
         //Threads 0 and 2 update z
         if ((tidxj & 1) == 0)
         {
-            atomicAdd_g_f(&(fshift[3 * shift + 2]), fshift_buf[1]);
+            atomicAdd_g_f(&(fshift[2]), fshift_buf[1]);
         }
     }
 }
@@ -746,7 +750,7 @@ void reduce_force_i(__local float *f_buf, float3* fci_buf, __global float *f,
 {
 #ifdef REDUCE_SHUFFLE
     reduce_force_i_warp_shfl(fci_buf, f, bCalcFshift, tidxi, tidxj,
-                             sci, shift, fshift);
+                             fshift);
 #else
     reduce_force_i_pow2(f_buf, fci_buf, f, bCalcFshift, tidxi, tidxj,
                         sci, shift, fshift);
