@@ -492,6 +492,13 @@ void nbnxn_gpu_launch_kernel(gmx_nbnxn_ocl_t               *nb,
                                     bCalcEner,
                                     (plist->haveFreshList && !nb->timers->didPrune[iloc]));
 
+    cl_ulong spill_size;
+    clGetKernelWorkGroupInfo(nb_kernel, NULL,  0x4109 /*CL_KERNEL_SPILL_MEM_SIZE_INTEL*/, sizeof(cl_ulong), &spill_size, NULL);
+    if (spill_size>0)
+    {
+        fprintf(stderr, "Warning: Spill size is %lu.\n", spill_size);
+    }
+    
     /* kernel launch config */
     local_work_size[0] = c_clSize;
     local_work_size[1] = c_clSize;
